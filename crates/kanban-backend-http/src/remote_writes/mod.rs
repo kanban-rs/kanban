@@ -1,7 +1,8 @@
 //! `RemoteWrites` for `HttpBackend`: the nine board/column/card create,
 //! update, delete mutations plus the board and card archive/restore pairs
-//! (via `RemoteBoardWrites` and `RemoteCardWrites`), sent directly to the v1
-//! routes rather than executed locally. v1 sends no `If-Match`, so a
+//! (via `RemoteBoardWrites` and `RemoteCardWrites`) and the six graph edge
+//! mutations (via `RemoteGraphWrites`), sent directly to the v1 routes
+//! rather than executed locally. v1 sends no `If-Match`, so a
 //! concurrent conflicting write is last-writer-wins, not rejected. Every
 //! request carries the
 //! backend's `instance_id` as the `X-Kanban-Client-Id` header, so the
@@ -10,12 +11,13 @@
 mod boards;
 mod cards;
 mod columns;
+mod graph;
 
 use crate::HttpBackend;
-use kanban_backend::{RemoteBoardWrites, RemoteCardWrites, RemoteWrites};
+use kanban_backend::{RemoteBoardWrites, RemoteCardWrites, RemoteGraphWrites, RemoteWrites};
 use kanban_domain::{
     Board, BoardUpdate, Card, CardUpdate, Column, ColumnUpdate, Invalidation, KanbanResult,
-    NewBoard, NewCard, NewColumn,
+    NewBoard, NewCard, NewColumn, RelatesKind, Severity,
 };
 use uuid::Uuid;
 
@@ -39,6 +41,37 @@ impl RemoteCardWrites for HttpBackend {
         column_id: Option<Uuid>,
     ) -> KanbanResult<(Card, Invalidation)> {
         self.rw_restore_card(id, column_id)
+    }
+}
+
+impl RemoteGraphWrites for HttpBackend {
+    fn attach_children(&self, parent: Uuid, children: &[Uuid]) -> KanbanResult<Invalidation> {
+        self.rw_attach_children(parent, children)
+    }
+
+    fn detach_children(&self, parent: Uuid, children: &[Uuid]) -> KanbanResult<Invalidation> {
+        self.rw_detach_children(parent, children)
+    }
+
+    fn block(
+        &self,
+        blocker: Uuid,
+        blocked: Uuid,
+        severity: Severity,
+    ) -> KanbanResult<Invalidation> {
+        self.rw_block(blocker, blocked, severity)
+    }
+
+    fn unblock(&self, blocker: Uuid, blocked: Uuid) -> KanbanResult<Invalidation> {
+        self.rw_unblock(blocker, blocked)
+    }
+
+    fn relate(&self, a: Uuid, b: Uuid, kind: RelatesKind) -> KanbanResult<Invalidation> {
+        self.rw_relate(a, b, kind)
+    }
+
+    fn dissociate(&self, a: Uuid, b: Uuid) -> KanbanResult<Invalidation> {
+        self.rw_dissociate(a, b)
     }
 }
 

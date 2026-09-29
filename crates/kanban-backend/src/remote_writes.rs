@@ -1,6 +1,6 @@
 use kanban_domain::{
     Board, BoardUpdate, Card, CardUpdate, Column, ColumnUpdate, Invalidation, KanbanResult,
-    NewBoard, NewCard, NewColumn,
+    NewBoard, NewCard, NewColumn, RelatesKind, Severity,
 };
 use uuid::Uuid;
 
@@ -62,4 +62,12 @@ pub trait RemoteBatchWrites: Send + Sync {}
 pub trait RemoteSprintWrites: Send + Sync {}
 
 /// See [`RemoteBoardWrites`].
-pub trait RemoteGraphWrites: Send + Sync {}
+pub trait RemoteGraphWrites: Send + Sync {
+    fn attach_children(&self, parent: Uuid, children: &[Uuid]) -> KanbanResult<Invalidation>;
+    fn detach_children(&self, parent: Uuid, children: &[Uuid]) -> KanbanResult<Invalidation>;
+    fn block(&self, blocker: Uuid, blocked: Uuid, severity: Severity)
+        -> KanbanResult<Invalidation>;
+    fn unblock(&self, blocker: Uuid, blocked: Uuid) -> KanbanResult<Invalidation>;
+    fn relate(&self, a: Uuid, b: Uuid, kind: RelatesKind) -> KanbanResult<Invalidation>;
+    fn dissociate(&self, a: Uuid, b: Uuid) -> KanbanResult<Invalidation>;
+}
