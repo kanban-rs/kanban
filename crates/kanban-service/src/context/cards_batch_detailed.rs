@@ -9,20 +9,27 @@ impl KanbanContext {
         ids: Vec<Uuid>,
     ) -> (BatchOperationResult, Invalidation) {
         use kanban_domain::commands::ArchiveCards;
+        if let Some(rw) = self.backend.remote_batch_writes() {
+            return match rw.archive_cards(&ids) {
+                Ok((outcome, invalidation)) => (outcome.into(), invalidation),
+                Err(e) => (
+                    BatchOperationResult::all_failed(ids, &e),
+                    Invalidation::Entities(EntityIds::default()),
+                ),
+            };
+        }
+        if self.backend.remote_writes().is_some() {
+            let e = KanbanError::unsupported("archive_cards");
+            return (
+                BatchOperationResult::all_failed(ids, &e),
+                Invalidation::Entities(EntityIds::default()),
+            );
+        }
         let all_cards = match self.list_live_cards_impl() {
             Ok(c) => c,
             Err(e) => {
                 return (
-                    BatchOperationResult {
-                        succeeded: vec![],
-                        failed: ids
-                            .into_iter()
-                            .map(|id| BatchOperationFailure {
-                                id,
-                                error: e.to_string(),
-                            })
-                            .collect(),
-                    },
+                    BatchOperationResult::all_failed(ids, &e),
                     Invalidation::Entities(EntityIds::default()),
                 );
             }
@@ -82,6 +89,22 @@ impl KanbanContext {
         // valid id once in `succeeded`, matching the one `MoveCard` per
         // unique id that `compute_move_positions` will emit. Also avoids
         // redundant get_card calls for the same id.
+        if let Some(rw) = self.backend.remote_batch_writes() {
+            return match rw.move_cards(&ids, column_id) {
+                Ok((outcome, invalidation)) => (outcome.into(), invalidation),
+                Err(e) => (
+                    BatchOperationResult::all_failed(ids, &e),
+                    Invalidation::Entities(EntityIds::default()),
+                ),
+            };
+        }
+        if self.backend.remote_writes().is_some() {
+            let e = KanbanError::unsupported("move_cards");
+            return (
+                BatchOperationResult::all_failed(ids, &e),
+                Invalidation::Entities(EntityIds::default()),
+            );
+        }
         let ids = kanban_domain::card_lifecycle::dedup_preserving_order(&ids);
         let mut to_move = Vec::new();
         let mut failed = Vec::new();
@@ -174,36 +197,35 @@ impl KanbanContext {
         sprint_id: Uuid,
     ) -> (BatchOperationResult, Invalidation) {
         use kanban_domain::commands::AssignCardsToSprint;
+        if let Some(rw) = self.backend.remote_batch_writes() {
+            return match rw.assign_cards_to_sprint(&ids, sprint_id) {
+                Ok((outcome, invalidation)) => (outcome.into(), invalidation),
+                Err(e) => (
+                    BatchOperationResult::all_failed(ids, &e),
+                    Invalidation::Entities(EntityIds::default()),
+                ),
+            };
+        }
+        if self.backend.remote_writes().is_some() {
+            let e = KanbanError::unsupported("assign_cards_to_sprint");
+            return (
+                BatchOperationResult::all_failed(ids, &e),
+                Invalidation::Entities(EntityIds::default()),
+            );
+        }
         let all_sprints = match self.list_live_sprints_impl() {
             Ok(s) => s,
             Err(e) => {
                 return (
-                    BatchOperationResult {
-                        succeeded: vec![],
-                        failed: ids
-                            .into_iter()
-                            .map(|id| BatchOperationFailure {
-                                id,
-                                error: e.to_string(),
-                            })
-                            .collect(),
-                    },
+                    BatchOperationResult::all_failed(ids, &e),
                     Invalidation::Entities(EntityIds::default()),
                 );
             }
         };
         if !all_sprints.iter().any(|s| s.id == sprint_id) {
+            let e = KanbanError::not_found("Sprint", sprint_id);
             return (
-                BatchOperationResult {
-                    succeeded: vec![],
-                    failed: ids
-                        .into_iter()
-                        .map(|id| BatchOperationFailure {
-                            id,
-                            error: KanbanError::not_found("Sprint", sprint_id).to_string(),
-                        })
-                        .collect(),
-                },
+                BatchOperationResult::all_failed(ids, &e),
                 Invalidation::Entities(EntityIds::default()),
             );
         }
@@ -211,16 +233,7 @@ impl KanbanContext {
             Ok(c) => c,
             Err(e) => {
                 return (
-                    BatchOperationResult {
-                        succeeded: vec![],
-                        failed: ids
-                            .into_iter()
-                            .map(|id| BatchOperationFailure {
-                                id,
-                                error: e.to_string(),
-                            })
-                            .collect(),
-                    },
+                    BatchOperationResult::all_failed(ids, &e),
                     Invalidation::Entities(EntityIds::default()),
                 );
             }
