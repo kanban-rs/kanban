@@ -93,6 +93,33 @@ async fn test_activate_sprint_route_with_empty_body_defaults_to_14_days() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_nested_activate_sprint_route_body_now_carries_the_invalidation() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let (board_id, sprint_id) = seed_board_and_sprint(&state, "Alpha").await;
+
+    let response = send(
+        &state,
+        "POST",
+        &format!("/v1/boards/{board_id}/sprints/{sprint_id}/activate"),
+        Some(&json!({"duration_days": 7})),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let json = json_of(response).await;
+    assert!(
+        !json["invalidation"].is_null(),
+        "expected an invalidation field, got {json}"
+    );
+    assert!(json["invalidation"]["scope"].is_string());
+
+    let bare: kanban_service::api::SprintResponse = serde_json::from_value(json).unwrap();
+    assert_eq!(bare.id, sprint_id);
+    assert_eq!(bare.status, kanban_service::api::SprintStatusDto::Active);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_complete_sprint_route_sets_status_completed() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
@@ -456,6 +483,99 @@ async fn test_carry_over_moves_uncompleted_cards_to_planning_sprint_on_sqlite() 
         .map(|c| c["id"].as_str().unwrap().to_string())
         .collect();
     assert_eq!(ids, vec![done_card_id.to_string()]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_nested_carry_over_route_body_carries_moved_and_the_invalidation() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let (board_id, column_id, sprint1, sprint2) = seed_board_column_and_two_sprints(&state).await;
+
+    let (todo_a, todo_b, _done) = {
+        let mut ctx = state.ctx.lock().await;
+        let todo_a = ctx
+            .create_card(
+                board_id,
+                column_id,
+                "Todo A".to_string(),
+                CreateCardOptions {
+                    sprint_id: Some(sprint1),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .id;
+        let todo_b = ctx
+            .create_card(
+                board_id,
+                column_id,
+                "Todo B".to_string(),
+                CreateCardOptions {
+                    sprint_id: Some(sprint1),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .id;
+        let done = ctx
+            .create_card(
+                board_id,
+                column_id,
+                "Done card".to_string(),
+                CreateCardOptions {
+                    sprint_id: Some(sprint1),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .id;
+        ctx.update_card(
+            done,
+            CardUpdate {
+                status: Some(CardStatus::Done),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        (todo_a, todo_b, done)
+    };
+
+    let complete = send(
+        &state,
+        "POST",
+        &format!("/v1/boards/{board_id}/sprints/{sprint1}/complete"),
+        None,
+    )
+    .await;
+    assert_eq!(complete.status(), StatusCode::OK);
+
+    let carry_over = send(
+        &state,
+        "POST",
+        &format!("/v1/boards/{board_id}/sprints/{sprint1}/carry-over"),
+        Some(&json!({"to_sprint_id": sprint2})),
+    )
+    .await;
+    assert_eq!(carry_over.status(), StatusCode::OK);
+    let json = json_of(carry_over).await;
+    assert_eq!(json["moved"], 2);
+    assert!(
+        !json["invalidation"].is_null(),
+        "expected an invalidation field, got {json}"
+    );
+    let mut moved_cards: Vec<String> = json["invalidation"]["entities"]["cards"]
+        .as_array()
+        .unwrap_or_else(|| panic!("expected invalidation.entities.cards, got {json}"))
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    moved_cards.sort();
+    let mut expected = vec![todo_a.to_string(), todo_b.to_string()];
+    expected.sort();
+    assert_eq!(moved_cards, expected);
+
+    let bare: kanban_service::api::CarryOverResponse = serde_json::from_value(json).unwrap();
+    assert_eq!(bare.moved, 2);
 }
 
 #[tokio::test(flavor = "multi_thread")]
