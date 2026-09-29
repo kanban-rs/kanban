@@ -1210,3 +1210,119 @@ async fn test_seed_graph_leaves_a_non_trivial_graph() {
     let graph = ds.get_graph().unwrap();
     assert_eq!(graph.spawns_edges().len(), 1, "spawns edges");
 }
+
+async fn card_move_and_sprint_parity(kind: Backend) {
+    op_parity(kind, seed_graph, |ctx, s| {
+        let _ = ctx.move_card_impl(s.card_a, s.done, None).unwrap();
+        let _ = ctx.move_card_impl(s.card_a, s.todo, Some(0)).unwrap();
+        let _ = ctx.unassign_card_from_sprint_impl(s.card_c).unwrap();
+        let _ = ctx
+            .assign_card_to_sprint_impl(s.card_a, s.sprint_id)
+            .unwrap();
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_remote_move_and_sprint_binding_leave_graph_equal_to_local_json() {
+    card_move_and_sprint_parity(Backend::Json).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_remote_move_and_sprint_binding_leave_graph_equal_to_local_sqlite() {
+    card_move_and_sprint_parity(Backend::Sqlite).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_move_card_over_http_issues_exactly_one_request() {
+    let mut seeded_slot: Option<Seeded> = None;
+    let (server, log) = TestServer::start_recording(|ctx| {
+        seeded_slot = Some(seed_graph(ctx));
+    })
+    .await;
+    let seeded = seeded_slot.unwrap();
+
+    let mut ctx = ctx_over(&server).await;
+    let before = log.lock().unwrap().len();
+
+    let _ = ctx
+        .move_card_impl(seeded.card_a, seeded.done, None)
+        .unwrap();
+
+    let issued = log.lock().unwrap()[before..].to_vec();
+    assert_eq!(
+        issued.len(),
+        1,
+        "move_card_impl must issue exactly one HTTP request beyond whatever \
+         KanbanContext::open already issued, got {issued:?}"
+    );
+    assert_eq!(issued[0].0.to_string(), "POST");
+    assert_eq!(issued[0].1, format!("/v1/cards/{}/move", seeded.card_a));
+
+    drop(ctx);
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_assign_card_to_sprint_over_http_issues_exactly_one_request() {
+    let mut seeded_slot: Option<Seeded> = None;
+    let (server, log) = TestServer::start_recording(|ctx| {
+        seeded_slot = Some(seed_graph(ctx));
+    })
+    .await;
+    let seeded = seeded_slot.unwrap();
+
+    let mut ctx = ctx_over(&server).await;
+    let before = log.lock().unwrap().len();
+
+    let _ = ctx
+        .assign_card_to_sprint_impl(seeded.card_a, seeded.sprint_id)
+        .unwrap();
+
+    let issued = log.lock().unwrap()[before..].to_vec();
+    assert_eq!(
+        issued.len(),
+        1,
+        "assign_card_to_sprint_impl must issue exactly one HTTP request beyond \
+         whatever KanbanContext::open already issued, got {issued:?}"
+    );
+    assert_eq!(issued[0].0.to_string(), "POST");
+    assert_eq!(
+        issued[0].1,
+        format!("/v1/cards/{}/assign-sprint", seeded.card_a)
+    );
+
+    drop(ctx);
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_unassign_card_from_sprint_over_http_issues_exactly_one_request() {
+    let mut seeded_slot: Option<Seeded> = None;
+    let (server, log) = TestServer::start_recording(|ctx| {
+        seeded_slot = Some(seed_graph(ctx));
+    })
+    .await;
+    let seeded = seeded_slot.unwrap();
+
+    let mut ctx = ctx_over(&server).await;
+    let before = log.lock().unwrap().len();
+
+    let _ = ctx.unassign_card_from_sprint_impl(seeded.card_c).unwrap();
+
+    let issued = log.lock().unwrap()[before..].to_vec();
+    assert_eq!(
+        issued.len(),
+        1,
+        "unassign_card_from_sprint_impl must issue exactly one HTTP request beyond \
+         whatever KanbanContext::open already issued, got {issued:?}"
+    );
+    assert_eq!(issued[0].0.to_string(), "POST");
+    assert_eq!(
+        issued[0].1,
+        format!("/v1/cards/{}/unassign-sprint", seeded.card_c)
+    );
+
+    drop(ctx);
+    server.shutdown().await;
+}
