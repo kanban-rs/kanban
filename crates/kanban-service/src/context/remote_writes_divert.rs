@@ -320,14 +320,17 @@ impl RemoteSprintWrites for RecordingSprintWrites {
 
     fn update_sprint(
         &self,
-        _id: Uuid,
-        _updates: &kanban_domain::SprintUpdate,
+        id: Uuid,
+        updates: &kanban_domain::SprintUpdate,
     ) -> KanbanResult<(Sprint, Invalidation)> {
-        unimplemented!("test should not call this")
+        self.record(format!("update_sprint:{id}:{updates:?}"));
+        let sprint = Sprint::new(Uuid::new_v4(), 1, Some(0), None::<String>);
+        Ok((sprint, self.canned.clone()))
     }
 
-    fn delete_sprint(&self, _id: Uuid) -> KanbanResult<Invalidation> {
-        unimplemented!("test should not call this")
+    fn delete_sprint(&self, id: Uuid) -> KanbanResult<Invalidation> {
+        self.record(format!("delete_sprint:{id}"));
+        Ok(self.canned.clone())
     }
 }
 
@@ -1381,6 +1384,77 @@ async fn test_create_sprint_with_remote_writes_but_no_sprint_writes_declines_wit
     assert_eq!(
         err.to_string(),
         kanban_domain::KanbanError::unsupported("create_sprint").to_string()
+    );
+    assert!(rw.calls().is_empty());
+}
+
+#[tokio::test]
+async fn test_update_sprint_with_remote_sprint_writes_returns_the_server_sprint_not_a_local_reread()
+{
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let sprint_rw = Arc::new(RecordingSprintWrites::new(canned_inv()));
+    let mut ctx = open_ctx_with_sprint_writes(rw.clone(), sprint_rw.clone()).await;
+    let id = Uuid::new_v4();
+    let updates = kanban_domain::SprintUpdate {
+        name: Some("Renamed".to_string()),
+        ..Default::default()
+    };
+
+    let (sprint, inv) = ctx.update_sprint_impl(id, updates.clone()).unwrap();
+
+    assert_eq!(sprint.name_index, Some(0));
+    assert_eq!(
+        sprint_rw.calls(),
+        vec![format!("update_sprint:{id}:{updates:?}")]
+    );
+    assert!(rw.calls().is_empty());
+    assert_eq!(inv, canned_inv());
+}
+
+#[tokio::test]
+async fn test_delete_sprint_with_remote_sprint_writes_diverts() {
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let sprint_rw = Arc::new(RecordingSprintWrites::new(canned_inv()));
+    let mut ctx = open_ctx_with_sprint_writes(rw.clone(), sprint_rw.clone()).await;
+    let id = Uuid::new_v4();
+
+    let inv = ctx.delete_sprint_impl(id).unwrap();
+
+    assert_eq!(sprint_rw.calls(), vec![format!("delete_sprint:{id}")]);
+    assert!(rw.calls().is_empty());
+    assert_eq!(inv, canned_inv());
+}
+
+#[tokio::test]
+async fn test_update_sprint_with_remote_writes_but_no_sprint_writes_declines_with_a_per_op_message()
+{
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let mut ctx = open_ctx(rw.clone()).await;
+
+    let err = ctx
+        .update_sprint_impl(Uuid::new_v4(), kanban_domain::SprintUpdate::default())
+        .unwrap_err();
+
+    assert!(err.is_unsupported(), "got: {err:?}");
+    assert_eq!(
+        err.to_string(),
+        kanban_domain::KanbanError::unsupported("update_sprint").to_string()
+    );
+    assert!(rw.calls().is_empty());
+}
+
+#[tokio::test]
+async fn test_delete_sprint_with_remote_writes_but_no_sprint_writes_declines_with_a_per_op_message()
+{
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let mut ctx = open_ctx(rw.clone()).await;
+
+    let err = ctx.delete_sprint_impl(Uuid::new_v4()).unwrap_err();
+
+    assert!(err.is_unsupported(), "got: {err:?}");
+    assert_eq!(
+        err.to_string(),
+        kanban_domain::KanbanError::unsupported("delete_sprint").to_string()
     );
     assert!(rw.calls().is_empty());
 }
