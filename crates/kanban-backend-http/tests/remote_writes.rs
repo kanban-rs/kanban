@@ -625,7 +625,7 @@ fn test_http_backend_reports_remote_write_family_support() {
 
     assert!(backend.remote_board_writes().is_some());
     assert!(backend.remote_card_writes().is_some());
-    assert!(backend.remote_batch_writes().is_none());
+    assert!(backend.remote_batch_writes().is_some());
     assert!(backend.remote_sprint_writes().is_none());
     assert!(backend.remote_graph_writes().is_some());
 }
