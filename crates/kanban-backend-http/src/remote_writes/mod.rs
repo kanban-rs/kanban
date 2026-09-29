@@ -1,5 +1,6 @@
 //! `RemoteWrites` for `HttpBackend`: the nine board/column/card create,
-//! update, delete mutations plus the board and card archive/restore pairs
+//! update, delete mutations plus the board archive/restore pair and the
+//! card archive, restore, move, assign-sprint and unassign-sprint mutations
 //! (via `RemoteBoardWrites` and `RemoteCardWrites`) and the six graph edge
 //! mutations (via `RemoteGraphWrites`), sent directly to the v1 routes
 //! rather than executed locally. v1 sends no `If-Match`, so a
@@ -41,6 +42,27 @@ impl RemoteCardWrites for HttpBackend {
         column_id: Option<Uuid>,
     ) -> KanbanResult<(Card, Invalidation)> {
         self.rw_restore_card(id, column_id)
+    }
+
+    fn move_card(
+        &self,
+        id: Uuid,
+        column_id: Uuid,
+        position: Option<i32>,
+    ) -> KanbanResult<(Card, Invalidation)> {
+        self.rw_move_card(id, column_id, position)
+    }
+
+    fn assign_card_to_sprint(
+        &self,
+        id: Uuid,
+        sprint_id: Uuid,
+    ) -> KanbanResult<(Card, Invalidation)> {
+        self.rw_assign_card_to_sprint(id, sprint_id)
+    }
+
+    fn unassign_card_from_sprint(&self, id: Uuid) -> KanbanResult<(Card, Invalidation)> {
+        self.rw_unassign_card_from_sprint(id)
     }
 }
 

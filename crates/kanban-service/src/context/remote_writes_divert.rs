@@ -187,6 +187,36 @@ impl RemoteCardWrites for RecordingCardWrites {
         card.id = id;
         Ok((card, self.canned.clone()))
     }
+
+    fn move_card(
+        &self,
+        id: Uuid,
+        column_id: Uuid,
+        position: Option<i32>,
+    ) -> KanbanResult<(Card, Invalidation)> {
+        self.record(format!("move_card:{id}:{column_id}:{position:?}"));
+        let mut card = Card::new(Uuid::nil(), Uuid::nil(), "remote", 0);
+        card.id = id;
+        Ok((card, self.canned.clone()))
+    }
+
+    fn assign_card_to_sprint(
+        &self,
+        id: Uuid,
+        sprint_id: Uuid,
+    ) -> KanbanResult<(Card, Invalidation)> {
+        self.record(format!("assign_card_to_sprint:{id}:{sprint_id}"));
+        let mut card = Card::new(Uuid::nil(), Uuid::nil(), "remote", 0);
+        card.id = id;
+        Ok((card, self.canned.clone()))
+    }
+
+    fn unassign_card_from_sprint(&self, id: Uuid) -> KanbanResult<(Card, Invalidation)> {
+        self.record(format!("unassign_card_from_sprint:{id}"));
+        let mut card = Card::new(Uuid::nil(), Uuid::nil(), "remote", 0);
+        card.id = id;
+        Ok((card, self.canned.clone()))
+    }
 }
 
 struct RecordingGraphWrites {

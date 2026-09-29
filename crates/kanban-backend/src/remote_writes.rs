@@ -53,6 +53,18 @@ pub trait RemoteCardWrites: Send + Sync {
     fn archive_card(&self, id: Uuid) -> KanbanResult<Invalidation>;
     fn restore_card(&self, id: Uuid, column_id: Option<Uuid>)
         -> KanbanResult<(Card, Invalidation)>;
+    fn move_card(
+        &self,
+        id: Uuid,
+        column_id: Uuid,
+        position: Option<i32>,
+    ) -> KanbanResult<(Card, Invalidation)>;
+    fn assign_card_to_sprint(
+        &self,
+        id: Uuid,
+        sprint_id: Uuid,
+    ) -> KanbanResult<(Card, Invalidation)>;
+    fn unassign_card_from_sprint(&self, id: Uuid) -> KanbanResult<(Card, Invalidation)>;
 }
 
 /// See [`RemoteBoardWrites`].
