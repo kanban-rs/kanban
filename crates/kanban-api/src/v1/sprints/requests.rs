@@ -1,4 +1,5 @@
 use super::super::Patch;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -31,9 +32,9 @@ pub struct CreateSprintRequest {
 /// absent field = no change, `null` = clear, value = set (see [`Patch`]).
 ///
 /// Server-managed fields (`sprint_number`, `name_index`, `created_at`,
-/// `updated_at`) are excluded. `status` and the dates are excluded too:
-/// lifecycle transitions go through dedicated activate/complete/cancel
-/// endpoints, not PATCH.
+/// `updated_at`) are excluded, and so is `status`: lifecycle transitions go
+/// through dedicated activate/complete/cancel endpoints, not PATCH. The dates
+/// are patchable like any other field.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct UpdateSprintRequest {
     /// Deliberately `Option<String>`, not `Patch<String>`: a sprint name has
@@ -46,6 +47,10 @@ pub struct UpdateSprintRequest {
     pub prefix: Patch<String>,
     #[serde(default, skip_serializing_if = "Patch::is_no_change")]
     pub card_prefix: Patch<String>,
+    #[serde(default, skip_serializing_if = "Patch::is_no_change")]
+    pub start_date: Patch<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Patch::is_no_change")]
+    pub end_date: Patch<DateTime<Utc>>,
 }
 
 /// Request body for `PUT /v1/sprints/:id` — a true full replace per
@@ -128,12 +133,35 @@ mod tests {
             name: Some("Renamed".to_string()),
             prefix: Patch::Set("SPR".to_string()),
             card_prefix: Patch::Clear,
+            start_date: Patch::NoChange,
+            end_date: Patch::NoChange,
         };
         let json = serde_json::to_string(&req).unwrap();
         let back: UpdateSprintRequest = serde_json::from_str(&json).unwrap();
         assert_eq!(back.name, Some("Renamed".to_string()));
         assert_eq!(back.prefix, Patch::Set("SPR".to_string()));
         assert_eq!(back.card_prefix, Patch::Clear);
+        assert_eq!(back.start_date, Patch::NoChange);
+        assert_eq!(back.end_date, Patch::NoChange);
+    }
+
+    #[test]
+    fn test_update_sprint_request_patches_dates_absent_null_and_set() {
+        let absent: UpdateSprintRequest = serde_json::from_str("{}").unwrap();
+        assert_eq!(absent.start_date, Patch::NoChange);
+        assert_eq!(absent.end_date, Patch::NoChange);
+
+        let cleared: UpdateSprintRequest =
+            serde_json::from_str(r#"{"start_date":null,"end_date":null}"#).unwrap();
+        assert_eq!(cleared.start_date, Patch::Clear);
+        assert_eq!(cleared.end_date, Patch::Clear);
+
+        let ts = "2026-01-15T00:00:00Z";
+        let json = format!(r#"{{"start_date":"{ts}","end_date":"{ts}"}}"#);
+        let set: UpdateSprintRequest = serde_json::from_str(&json).unwrap();
+        let expected: DateTime<Utc> = ts.parse().unwrap();
+        assert_eq!(set.start_date, Patch::Set(expected));
+        assert_eq!(set.end_date, Patch::Set(expected));
     }
 
     #[test]
@@ -150,7 +178,7 @@ mod tests {
         // skip_serializing_if, so a default (all-NoChange) request omits them
         // rather than emitting null (= clear).
         let v = serde_json::to_value(UpdateSprintRequest::default()).unwrap();
-        for field in ["prefix", "card_prefix"] {
+        for field in ["prefix", "card_prefix", "start_date", "end_date"] {
             assert!(
                 v.get(field).is_none(),
                 "NoChange patch field `{field}` must be omitted, got: {v}"

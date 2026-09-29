@@ -51,17 +51,19 @@ impl From<UpdateSprintRequest> for SprintUpdate {
             name,
             prefix,
             card_prefix,
+            start_date,
+            end_date,
         } = req;
         SprintUpdate {
             name,
             prefix: prefix.into(),
             card_prefix: card_prefix.into(),
+            start_date: start_date.into(),
+            end_date: end_date.into(),
             // Server-managed / lifecycle — never accepted from a PATCH body;
             // sprint name allocation and lifecycle transitions are dedicated ops:
             name_index: FieldUpdate::NoChange,
             status: None,
-            start_date: FieldUpdate::NoChange,
-            end_date: FieldUpdate::NoChange,
         }
     }
 }
@@ -111,6 +113,7 @@ impl ActivateSprintRequest {
 mod tests {
     use super::super::super::Patch;
     use super::*;
+    use chrono::{DateTime, Utc};
 
     #[test]
     fn test_create_sprint_request_into_parts_carries_id_and_content() {
@@ -147,16 +150,35 @@ mod tests {
             name: Some("N".to_string()),
             prefix: Patch::Set("SPR".to_string()),
             card_prefix: Patch::Clear,
+            start_date: Patch::NoChange,
+            end_date: Patch::NoChange,
         };
         let update: SprintUpdate = req.into();
         assert_eq!(update.name, Some("N".to_string()));
         assert_eq!(update.prefix, FieldUpdate::Set("SPR".to_string()));
         assert_eq!(update.card_prefix, FieldUpdate::Clear);
+        assert_eq!(update.start_date, FieldUpdate::NoChange);
+        assert_eq!(update.end_date, FieldUpdate::NoChange);
         // Lifecycle / server-managed untouched:
         assert_eq!(update.name_index, FieldUpdate::NoChange);
         assert_eq!(update.status, None);
-        assert_eq!(update.start_date, FieldUpdate::NoChange);
-        assert_eq!(update.end_date, FieldUpdate::NoChange);
+    }
+
+    #[test]
+    fn test_update_request_to_sprint_update_maps_dates_and_keeps_status_and_name_index_untouched() {
+        let start: DateTime<Utc> = "2026-01-01T00:00:00Z".parse().unwrap();
+        let req = UpdateSprintRequest {
+            name: None,
+            prefix: Patch::NoChange,
+            card_prefix: Patch::NoChange,
+            start_date: Patch::Set(start),
+            end_date: Patch::Clear,
+        };
+        let update: SprintUpdate = req.into();
+        assert_eq!(update.start_date, FieldUpdate::Set(start));
+        assert_eq!(update.end_date, FieldUpdate::Clear);
+        assert_eq!(update.status, None);
+        assert_eq!(update.name_index, FieldUpdate::NoChange);
     }
 
     #[test]
