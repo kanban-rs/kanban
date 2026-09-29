@@ -17,9 +17,10 @@ pub struct EntityIds {
     /// scope it invalidated. A card absent from this map means "column
     /// unknown", forcing the conservative whole-tier drop.
     pub card_columns: HashMap<Uuid, HashSet<Uuid>>,
-    /// Reserved: set by a future archive/restore command conversion. No
-    /// producer sets it in this slice, so consumers must treat `false` as
-    /// unknown.
+    /// A producer that names `card_columns` and archives or restores the
+    /// card MUST set this. The consumer treats `false` as "no archival
+    /// change" and skips the archived-tier drops. No producer sets it in
+    /// this slice.
     pub archival_changed: bool,
 }
 
@@ -130,6 +131,28 @@ pub fn invalidation_from_inverse(inverse: &[crate::commands::Command]) -> Invali
     Invalidation::Entities(acc)
 }
 
+/// The inverse decides WHAT was invalidated; the forward batch only
+/// CONTRIBUTES column hints.
+pub fn invalidation_from_batch(
+    forward: &[crate::commands::Command],
+    inverse: &[crate::commands::Command],
+) -> Invalidation {
+    let mut acc = match invalidation_from_inverse(inverse) {
+        Invalidation::All => return Invalidation::All,
+        Invalidation::Entities(ids) => ids,
+    };
+    for ids in forward.iter().filter_map(|cmd| cmd.touched_entities()) {
+        for (card, cols) in ids.card_columns {
+            acc.card_columns.entry(card).or_default().extend(cols);
+        }
+        acc.archival_changed |= ids.archival_changed;
+    }
+    if acc.is_empty() {
+        return Invalidation::All;
+    }
+    Invalidation::Entities(acc)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -154,6 +177,32 @@ mod tests {
         assert!(ids.columns.is_empty());
         assert!(ids.sprints.is_empty());
         assert!(!ids.graph);
+    }
+
+    #[test]
+    fn test_delete_card_touched_entities_names_no_column() {
+        let card_id = Uuid::new_v4();
+        let cmd = Command::Card(CardCommand::Delete(DeleteCard { card_id }));
+        let ids = cmd.touched_entities().expect("enumerable");
+        assert!(ids.card_columns.is_empty());
+    }
+
+    #[test]
+    fn test_invalidation_from_batch_with_an_unenumerable_forward_command_keeps_the_inverses_entities() {
+        let forward = vec![Command::Card(CardCommand::CompactPositions(
+            CompactColumnPositions {
+                column_id: Uuid::new_v4(),
+            },
+        ))];
+        let inverse = vec![Command::Card(CardCommand::Move(MoveCard {
+            card_id: Uuid::new_v4(),
+            new_column_id: Uuid::new_v4(),
+            new_position: 0,
+        }))];
+        assert!(matches!(
+            invalidation_from_batch(&forward, &inverse),
+            Invalidation::Entities(_)
+        ));
     }
 
     #[test]

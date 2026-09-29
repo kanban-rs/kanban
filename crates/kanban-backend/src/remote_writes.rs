@@ -67,32 +67,8 @@ pub trait RemoteCardWrites: Send + Sync {
     fn unassign_card_from_sprint(&self, id: Uuid) -> KanbanResult<(Card, Invalidation)>;
 }
 
-/// Outcome of a batch mutation on [`RemoteBatchWrites`]: ids that succeeded,
-/// and ids that failed paired with the remote authority's message for each.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct RemoteBatchOutcome {
-    pub succeeded: Vec<Uuid>,
-    pub failed: Vec<(Uuid, String)>,
-}
-
 /// See [`RemoteBoardWrites`].
-pub trait RemoteBatchWrites: Send + Sync {
-    fn archive_cards(&self, ids: &[Uuid]) -> KanbanResult<(RemoteBatchOutcome, Invalidation)>;
-    fn move_cards(
-        &self,
-        ids: &[Uuid],
-        column_id: Uuid,
-    ) -> KanbanResult<(RemoteBatchOutcome, Invalidation)>;
-    fn assign_cards_to_sprint(
-        &self,
-        ids: &[Uuid],
-        sprint_id: Uuid,
-    ) -> KanbanResult<(RemoteBatchOutcome, Invalidation)>;
-    fn update_cards(
-        &self,
-        updates: &[(Uuid, CardUpdate)],
-    ) -> KanbanResult<(RemoteBatchOutcome, Invalidation)>;
-}
+pub trait RemoteBatchWrites: Send + Sync {}
 
 /// See [`RemoteBoardWrites`].
 pub trait RemoteSprintWrites: Send + Sync {}
@@ -106,67 +82,4 @@ pub trait RemoteGraphWrites: Send + Sync {
     fn unblock(&self, blocker: Uuid, blocked: Uuid) -> KanbanResult<Invalidation>;
     fn relate(&self, a: Uuid, b: Uuid, kind: RelatesKind) -> KanbanResult<Invalidation>;
     fn dissociate(&self, a: Uuid, b: Uuid) -> KanbanResult<Invalidation>;
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use kanban_domain::EntityIds;
-
-    struct Probe;
-
-    impl RemoteBatchWrites for Probe {
-        fn archive_cards(&self, _ids: &[Uuid]) -> KanbanResult<(RemoteBatchOutcome, Invalidation)> {
-            unimplemented!()
-        }
-
-        fn move_cards(
-            &self,
-            ids: &[Uuid],
-            _column_id: Uuid,
-        ) -> KanbanResult<(RemoteBatchOutcome, Invalidation)> {
-            let outcome = RemoteBatchOutcome {
-                succeeded: vec![ids[0]],
-                failed: vec![(ids[1], "Card b not found".to_string())],
-            };
-            Ok((outcome, Invalidation::Entities(EntityIds::default())))
-        }
-
-        fn assign_cards_to_sprint(
-            &self,
-            _ids: &[Uuid],
-            _sprint_id: Uuid,
-        ) -> KanbanResult<(RemoteBatchOutcome, Invalidation)> {
-            unimplemented!()
-        }
-
-        fn update_cards(
-            &self,
-            _updates: &[(Uuid, CardUpdate)],
-        ) -> KanbanResult<(RemoteBatchOutcome, Invalidation)> {
-            unimplemented!()
-        }
-    }
-
-    #[test]
-    fn test_a_remote_batch_writes_implementor_reports_partial_success_and_per_id_failures(
-    ) -> KanbanResult<()> {
-        let a = Uuid::new_v4();
-        let b = Uuid::new_v4();
-        let probe = Probe;
-
-        let (outcome, _invalidation) = probe.move_cards(&[a, b], Uuid::new_v4())?;
-
-        assert_eq!(outcome.succeeded, vec![a]);
-        assert_eq!(outcome.failed, vec![(b, "Card b not found".to_string())]);
-        Ok(())
-    }
-
-    #[test]
-    fn test_remote_batch_outcome_default_is_empty() {
-        let outcome = RemoteBatchOutcome::default();
-
-        assert!(outcome.succeeded.is_empty());
-        assert!(outcome.failed.is_empty());
-    }
 }

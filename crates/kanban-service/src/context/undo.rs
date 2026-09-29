@@ -84,7 +84,7 @@ impl KanbanContext {
             Ok(())
         }))?;
         let inverses: Vec<Command> = per_cmd_inverses.into_iter().rev().flatten().collect();
-        let invalidation = match invalidation_from_inverse(&inverses) {
+        let invalidation = match kanban_domain::invalidation_from_batch(&commands, &inverses) {
             Invalidation::All => Invalidation::All,
             Invalidation::Entities(mut ids) => {
                 ids.merge(extra);

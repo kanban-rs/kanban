@@ -4,8 +4,8 @@ pub mod remote_writes;
 pub use factory::{KanbanBackendFactory, KanbanBackendRegistry};
 pub use local_persistence::LocalPersistence;
 pub use remote_writes::{
-    RemoteBatchOutcome, RemoteBatchWrites, RemoteBoardWrites, RemoteCardWrites, RemoteGraphWrites,
-    RemoteSprintWrites, RemoteWrites,
+    RemoteBatchWrites, RemoteBoardWrites, RemoteCardWrites, RemoteGraphWrites, RemoteSprintWrites,
+    RemoteWrites,
 };
 
 use async_trait::async_trait;

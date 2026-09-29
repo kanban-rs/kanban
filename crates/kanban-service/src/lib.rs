@@ -40,8 +40,8 @@ pub use invalidation_plan::InvalidationPlan;
 pub use kanban_backend::KanbanBackend;
 pub use kanban_backend::TransactionFn;
 pub use kanban_backend::{
-    RemoteBatchOutcome, RemoteBatchWrites, RemoteBoardWrites, RemoteCardWrites, RemoteGraphWrites,
-    RemoteSprintWrites, RemoteWrites,
+    RemoteBatchWrites, RemoteBoardWrites, RemoteCardWrites, RemoteGraphWrites, RemoteSprintWrites,
+    RemoteWrites,
 };
 pub use path::validate_path;
 pub use resolve::resolve;
