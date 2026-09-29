@@ -13,4 +13,4 @@ pub(crate) use cards::{
     assign_card_to_sprint_path, create_card_request, move_card_path, update_card_request,
 };
 pub(crate) use columns::{create_column_request, update_column_request};
-pub(crate) use sprints::{create_sprint_request, update_sprint_request};
+pub(crate) use sprints::{activate_sprint_request, create_sprint_request, update_sprint_request};

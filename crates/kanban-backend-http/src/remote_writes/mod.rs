@@ -124,6 +124,30 @@ impl RemoteSprintWrites for HttpBackend {
     fn delete_sprint(&self, id: Uuid) -> KanbanResult<Invalidation> {
         self.rw_delete_sprint(id)
     }
+
+    fn activate_sprint(
+        &self,
+        id: Uuid,
+        duration_days: Option<i32>,
+    ) -> KanbanResult<(Sprint, Invalidation)> {
+        self.rw_activate_sprint(id, duration_days)
+    }
+
+    fn complete_sprint(&self, id: Uuid) -> KanbanResult<(Sprint, Invalidation)> {
+        self.rw_complete_sprint(id)
+    }
+
+    fn cancel_sprint(&self, id: Uuid) -> KanbanResult<(Sprint, Invalidation)> {
+        self.rw_cancel_sprint(id)
+    }
+
+    fn carry_over_sprint_cards(
+        &self,
+        from_sprint_id: Uuid,
+        to_sprint_id: Uuid,
+    ) -> KanbanResult<(usize, Invalidation)> {
+        self.rw_carry_over_sprint_cards(from_sprint_id, to_sprint_id)
+    }
 }
 
 impl RemoteBatchWrites for HttpBackend {

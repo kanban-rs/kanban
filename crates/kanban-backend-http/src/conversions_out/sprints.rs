@@ -1,4 +1,4 @@
-use kanban_api::{CreateSprintRequest, Patch, UpdateSprintRequest};
+use kanban_api::{ActivateSprintRequest, CreateSprintRequest, Patch, UpdateSprintRequest};
 use kanban_domain::{FieldUpdate, KanbanError, KanbanResult, SprintUpdate};
 use uuid::Uuid;
 
@@ -44,9 +44,29 @@ pub(crate) fn update_sprint_request(updates: &SprintUpdate) -> KanbanResult<Upda
     })
 }
 
+pub(crate) fn activate_sprint_request(duration_days: Option<i32>) -> ActivateSprintRequest {
+    ActivateSprintRequest { duration_days }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_activate_request_body_omits_duration_days_when_the_caller_passed_none() {
+        let req = activate_sprint_request(None);
+        let value = serde_json::to_value(&req).unwrap();
+
+        let duration_days = value.get("duration_days");
+        assert!(
+            duration_days.is_none() || duration_days == Some(&serde_json::Value::Null),
+            "expected duration_days absent or null, got {duration_days:?}"
+        );
+
+        let req = activate_sprint_request(Some(7));
+        let value = serde_json::to_value(&req).unwrap();
+        assert_eq!(value.get("duration_days"), Some(&serde_json::json!(7)));
+    }
 
     #[test]
     fn test_create_sprint_request_never_carries_a_number_or_index() {
