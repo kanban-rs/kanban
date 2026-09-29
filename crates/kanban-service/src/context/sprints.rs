@@ -68,6 +68,21 @@ impl KanbanContext {
     ) -> KanbanResult<(Sprint, Invalidation)> {
         use kanban_domain::commands::CreateSprint;
 
+        if let Some(rw) = self.backend.remote_sprint_writes() {
+            #[allow(clippy::unnecessary_map_or)]
+            let consumes_pool =
+                auto_consume_name && name.as_deref().map_or(true, |n| n.trim().is_empty());
+            if consumes_pool {
+                return Err(KanbanError::unsupported(
+                    "create_sprint.auto_consume_name over HTTP",
+                ));
+            }
+            return rw.create_sprint(board_id, id, name.as_deref(), prefix.as_deref());
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("create_sprint"));
+        }
+
         // FK: the owning board must exist before we mint anything.
         if self.backend.get_board(board_id)?.is_none() {
             return Err(KanbanError::not_found("Board", board_id));

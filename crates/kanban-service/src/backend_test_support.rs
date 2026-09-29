@@ -1,6 +1,6 @@
 use kanban_backend::{
     KanbanBackend, RemoteBatchWrites, RemoteBoardWrites, RemoteCardWrites, RemoteGraphWrites,
-    RemoteWrites, TransactionFn,
+    RemoteSprintWrites, RemoteWrites, TransactionFn,
 };
 use kanban_backend_memory::InMemoryStore;
 use kanban_domain::{
@@ -69,6 +69,7 @@ pub struct MockBackend {
     card_mock: Option<Arc<dyn RemoteCardWrites>>,
     graph_mock: Option<Arc<dyn RemoteGraphWrites>>,
     batch_mock: Option<Arc<dyn RemoteBatchWrites>>,
+    sprint_mock: Option<Arc<dyn RemoteSprintWrites>>,
 }
 
 impl MockBackend {
@@ -80,6 +81,7 @@ impl MockBackend {
             card_mock: None,
             graph_mock: None,
             batch_mock: None,
+            sprint_mock: None,
         }
     }
 
@@ -91,6 +93,7 @@ impl MockBackend {
             card_mock: None,
             graph_mock: None,
             batch_mock: None,
+            sprint_mock: None,
         }
     }
 
@@ -105,6 +108,7 @@ impl MockBackend {
             card_mock: None,
             graph_mock: None,
             batch_mock: None,
+            sprint_mock: None,
         }
     }
 
@@ -119,6 +123,7 @@ impl MockBackend {
             card_mock: Some(card_mock),
             graph_mock: None,
             batch_mock: None,
+            sprint_mock: None,
         }
     }
 
@@ -133,6 +138,7 @@ impl MockBackend {
             card_mock: None,
             graph_mock: Some(graph_mock),
             batch_mock: None,
+            sprint_mock: None,
         }
     }
 
@@ -147,6 +153,22 @@ impl MockBackend {
             card_mock: None,
             graph_mock: None,
             batch_mock: Some(batch_mock),
+            sprint_mock: None,
+        }
+    }
+
+    pub fn with_remote_sprint_writes(
+        mock: Arc<dyn RemoteWrites>,
+        sprint_mock: Arc<dyn RemoteSprintWrites>,
+    ) -> Self {
+        Self {
+            inner: InMemoryStore::new(),
+            mock,
+            board_mock: None,
+            card_mock: None,
+            graph_mock: None,
+            batch_mock: None,
+            sprint_mock: Some(sprint_mock),
         }
     }
 }
@@ -330,6 +352,10 @@ impl KanbanBackend for MockBackend {
 
     fn remote_batch_writes(&self) -> Option<&dyn RemoteBatchWrites> {
         self.batch_mock.as_deref()
+    }
+
+    fn remote_sprint_writes(&self) -> Option<&dyn RemoteSprintWrites> {
+        self.sprint_mock.as_deref()
     }
 
     fn with_transaction(&self, f: TransactionFn<'_>) -> KanbanResult<()> {

@@ -4,12 +4,12 @@ use super::{BatchOperationFailure, KanbanContext};
 use crate::backend_test_support::MockBackend;
 use kanban_backend::{
     RemoteBatchOutcome, RemoteBatchWrites, RemoteBoardWrites, RemoteCardWrites, RemoteGraphWrites,
-    RemoteWrites,
+    RemoteSprintWrites, RemoteWrites,
 };
 use kanban_core::AppConfig;
 use kanban_domain::{
     Board, BoardUpdate, Card, Column, ColumnUpdate, EntityIds, Invalidation, KanbanResult,
-    NewBoard, NewCard, NewColumn, RelatesKind, Severity, UndoOperations,
+    NewBoard, NewCard, NewColumn, RelatesKind, Severity, Sprint, UndoOperations,
 };
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
@@ -281,6 +281,56 @@ impl RemoteGraphWrites for RecordingGraphWrites {
     }
 }
 
+struct RecordingSprintWrites {
+    calls: Mutex<Vec<String>>,
+    canned: Invalidation,
+}
+
+impl RecordingSprintWrites {
+    fn new(canned: Invalidation) -> Self {
+        Self {
+            calls: Mutex::new(Vec::new()),
+            canned,
+        }
+    }
+
+    fn calls(&self) -> Vec<String> {
+        self.calls.lock().unwrap().clone()
+    }
+
+    fn record(&self, call: String) {
+        self.calls.lock().unwrap().push(call);
+    }
+}
+
+impl RemoteSprintWrites for RecordingSprintWrites {
+    fn create_sprint(
+        &self,
+        board_id: Uuid,
+        id: Option<Uuid>,
+        name: Option<&str>,
+        prefix: Option<&str>,
+    ) -> KanbanResult<(Sprint, Invalidation)> {
+        self.record(format!(
+            "create_sprint:{board_id}:{id:?}:{name:?}:{prefix:?}"
+        ));
+        let sprint = Sprint::new(board_id, 1, None, prefix.map(str::to_string));
+        Ok((sprint, self.canned.clone()))
+    }
+
+    fn update_sprint(
+        &self,
+        _id: Uuid,
+        _updates: &kanban_domain::SprintUpdate,
+    ) -> KanbanResult<(Sprint, Invalidation)> {
+        unimplemented!("test should not call this")
+    }
+
+    fn delete_sprint(&self, _id: Uuid) -> KanbanResult<Invalidation> {
+        unimplemented!("test should not call this")
+    }
+}
+
 struct RecordingBatchWrites {
     calls: Mutex<Vec<String>>,
     canned: Invalidation,
@@ -402,6 +452,16 @@ async fn open_ctx_with_graph_writes(
     graph_rw: Arc<RecordingGraphWrites>,
 ) -> KanbanContext {
     let backend = Arc::new(MockBackend::with_remote_graph_writes(rw, graph_rw));
+    KanbanContext::open(backend, AppConfig::default())
+        .await
+        .unwrap()
+}
+
+async fn open_ctx_with_sprint_writes(
+    rw: Arc<RecordingRemoteWrites>,
+    sprint_rw: Arc<RecordingSprintWrites>,
+) -> KanbanContext {
+    let backend = Arc::new(MockBackend::with_remote_sprint_writes(rw, sprint_rw));
     KanbanContext::open(backend, AppConfig::default())
         .await
         .unwrap()
@@ -1202,5 +1262,125 @@ async fn test_archive_cards_detailed_with_remote_writes_but_no_batch_writes_fail
     }
     assert_eq!(result.failed.len(), 2);
     assert_eq!(inv, Invalidation::Entities(EntityIds::default()));
+    assert!(rw.calls().is_empty());
+}
+
+#[tokio::test]
+async fn test_create_sprint_from_spec_with_remote_sprint_writes_diverts_before_the_board_fk_read() {
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let sprint_rw = Arc::new(RecordingSprintWrites::new(canned_inv()));
+    let mut ctx = open_ctx_with_sprint_writes(rw.clone(), sprint_rw.clone()).await;
+    let board_id = Uuid::new_v4();
+    let id = Uuid::new_v4();
+
+    let (_sprint, inv) = ctx
+        .create_sprint_from_spec(
+            board_id,
+            Some(id),
+            Some("Sprint 1".to_string()),
+            Some("SPR".to_string()),
+            false,
+        )
+        .unwrap();
+
+    assert_eq!(
+        sprint_rw.calls(),
+        vec![format!(
+            "create_sprint:{board_id}:{:?}:{:?}:{:?}",
+            Some(id),
+            Some("Sprint 1"),
+            Some("SPR")
+        )]
+    );
+    assert!(rw.calls().is_empty());
+    assert_eq!(inv, canned_inv());
+}
+
+#[tokio::test]
+async fn test_create_sprint_with_auto_consume_and_no_name_over_remote_declines_naming_the_flag() {
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let sprint_rw = Arc::new(RecordingSprintWrites::new(canned_inv()));
+    let mut ctx = open_ctx_with_sprint_writes(rw.clone(), sprint_rw.clone()).await;
+    let board_id = Uuid::new_v4();
+
+    let err = ctx
+        .create_sprint_from_spec(board_id, None, None, None, true)
+        .unwrap_err();
+
+    assert!(err.is_unsupported(), "got: {err:?}");
+    assert_eq!(
+        err.to_string(),
+        kanban_domain::KanbanError::unsupported("create_sprint.auto_consume_name over HTTP")
+            .to_string()
+    );
+    assert!(sprint_rw.calls().is_empty());
+    assert!(rw.calls().is_empty());
+}
+
+#[tokio::test]
+async fn test_create_sprint_with_auto_consume_and_an_explicit_name_still_diverts() {
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let sprint_rw = Arc::new(RecordingSprintWrites::new(canned_inv()));
+    let mut ctx = open_ctx_with_sprint_writes(rw.clone(), sprint_rw.clone()).await;
+    let board_id = Uuid::new_v4();
+
+    let (_sprint, inv) = ctx
+        .create_sprint_from_spec(board_id, None, Some("Sprint 1".to_string()), None, true)
+        .unwrap();
+
+    assert_eq!(
+        sprint_rw.calls(),
+        vec![format!(
+            "create_sprint:{board_id}:{:?}:{:?}:{:?}",
+            None::<Uuid>,
+            Some("Sprint 1"),
+            None::<&str>
+        )]
+    );
+    assert!(rw.calls().is_empty());
+    assert_eq!(inv, canned_inv());
+}
+
+#[tokio::test]
+async fn test_create_or_replace_sprint_create_arm_diverts_transitively() {
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let sprint_rw = Arc::new(RecordingSprintWrites::new(canned_inv()));
+    let mut ctx = open_ctx_with_sprint_writes(rw.clone(), sprint_rw.clone()).await;
+    let board_id = Uuid::new_v4();
+    let id = Uuid::new_v4();
+
+    let (outcome, inv) = ctx
+        .create_or_replace_sprint(board_id, id, Some("Sprint 1".to_string()), None, false)
+        .unwrap();
+
+    assert!(outcome.created);
+    assert_eq!(
+        sprint_rw.calls(),
+        vec![format!(
+            "create_sprint:{board_id}:{:?}:{:?}:{:?}",
+            Some(id),
+            Some("Sprint 1"),
+            None::<&str>
+        )]
+    );
+    assert!(rw.calls().is_empty());
+    assert_eq!(inv, canned_inv());
+}
+
+#[tokio::test]
+async fn test_create_sprint_with_remote_writes_but_no_sprint_writes_declines_with_a_per_op_message()
+{
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let mut ctx = open_ctx(rw.clone()).await;
+
+    let err = ctx
+        .create_sprint_from_spec(Uuid::new_v4(), None, None, None, false)
+        .unwrap_err();
+
+    assert!(err.is_unsupported(), "got: {err:?}");
+    assert_eq!(
+        err.to_string(),
+        kanban_domain::KanbanError::unsupported("create_sprint").to_string()
+    );
     assert!(rw.calls().is_empty());
 }
