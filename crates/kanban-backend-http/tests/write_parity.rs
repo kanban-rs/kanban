@@ -115,9 +115,9 @@ struct GraphSnapshot {
     archived_cards: Vec<ArchivedCard>,
     archived_boards: Vec<ArchivedBoard>,
     prefixes: Vec<Prefix>,
-    spawns: Vec<(Uuid, Uuid)>,
-    blocks: Vec<(Uuid, Uuid, Severity)>,
-    relates: Vec<(Uuid, Uuid, RelatesKind)>,
+    spawns: Vec<(Uuid, Uuid, bool)>,
+    blocks: Vec<(Uuid, Uuid, Severity, bool)>,
+    relates: Vec<(Uuid, Uuid, RelatesKind, bool)>,
 }
 
 fn snapshot(ctx: &KanbanContext) -> GraphSnapshot {
@@ -159,26 +159,40 @@ fn snapshot(ctx: &KanbanContext) -> GraphSnapshot {
     prefixes.sort_by(|a, b| a.name.cmp(&b.name));
 
     let graph = ds.get_graph().unwrap();
-    let mut spawns: Vec<(Uuid, Uuid)> = graph
+    let mut spawns: Vec<(Uuid, Uuid, bool)> = graph
         .spawns_edges()
         .iter()
-        .map(|e| (e.base.source, e.base.target))
+        .map(|e| (e.base.source, e.base.target, e.base.archived_at.is_some()))
         .collect();
     spawns.sort();
 
-    let mut blocks: Vec<(Uuid, Uuid, Severity)> = graph
+    let mut blocks: Vec<(Uuid, Uuid, Severity, bool)> = graph
         .blocks_edges()
         .iter()
-        .map(|e| (e.base.source, e.base.target, e.severity))
+        .map(|e| {
+            (
+                e.base.source,
+                e.base.target,
+                e.severity,
+                e.base.archived_at.is_some(),
+            )
+        })
         .collect();
     blocks.sort();
 
-    let mut relates: Vec<(Uuid, Uuid, RelatesKind)> = graph
+    let mut relates: Vec<(Uuid, Uuid, RelatesKind, bool)> = graph
         .relates_edges()
         .iter()
-        .map(|e| (e.base.source, e.base.target, e.kind))
+        .map(|e| {
+            (
+                e.base.source,
+                e.base.target,
+                e.kind,
+                e.base.archived_at.is_some(),
+            )
+        })
         .collect();
-    relates.sort_by_key(|(a, b, kind)| (*a, *b, format!("{kind:?}")));
+    relates.sort_by_key(|(a, b, kind, archived)| (*a, *b, format!("{kind:?}"), *archived));
 
     GraphSnapshot {
         boards,
@@ -1105,6 +1119,67 @@ async fn test_op_parity_harness_matches_local_for_an_already_diverted_card_archi
         let _ = ctx.restore_card_impl(s.card_a, None).unwrap();
     })
     .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_attach_no_children_over_http_returns_the_same_invalidation_as_local() {
+    let dir = tempfile::tempdir().unwrap();
+    let remote_path = dir.path().join("remote.store");
+    let local_path = dir.path().join("local.store");
+
+    let mut remote_seed = open_local(Backend::Json, &remote_path).await;
+    let remote_seeded = seed_graph(&mut remote_seed);
+    remote_seed.save().await.unwrap();
+    drop(remote_seed);
+
+    let mut local_seed = open_local(Backend::Json, &local_path).await;
+    let local_seeded = seed_graph(&mut local_seed);
+    local_seed.save().await.unwrap();
+
+    let server = start_server(Backend::Json, &remote_path).await;
+    let mut remote = ctx_over(&server).await;
+    let remote_invalidation = remote
+        .attach_children_impl(remote_seeded.card_a, vec![])
+        .unwrap();
+    drop(remote);
+    server.shutdown().await;
+
+    let local_invalidation = local_seed
+        .attach_children_impl(local_seeded.card_a, vec![])
+        .unwrap();
+
+    assert_eq!(
+        remote_invalidation, local_invalidation,
+        "attaching an empty children list must invalidate the same thing over \
+         HTTP as it does locally"
+    );
+}
+
+async fn remote_graph_ops(kind: Backend) {
+    op_parity(kind, seed_graph, |ctx, s: &Seeded| {
+        let _ = ctx.attach_children_impl(s.card_a, vec![s.card_b]).unwrap();
+        let _ = ctx.block_impl(s.card_c, s.card_a, Severity::High).unwrap();
+        let _ = ctx
+            .relate_impl(s.card_b, s.card_c, RelatesKind::Duplicates)
+            .unwrap();
+        let _ = ctx
+            .relate_impl(s.card_a, s.card_c, RelatesKind::General)
+            .unwrap();
+        let _ = ctx.unblock_impl(s.card_c, s.card_a).unwrap();
+        let _ = ctx.dissociate_impl(s.card_a, s.card_c).unwrap();
+        let _ = ctx.detach_children_impl(s.card_a, vec![s.card_c]).unwrap();
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_remote_graph_mutations_leave_graph_equal_to_local_json() {
+    remote_graph_ops(Backend::Json).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_remote_graph_mutations_leave_graph_equal_to_local_sqlite() {
+    remote_graph_ops(Backend::Sqlite).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
