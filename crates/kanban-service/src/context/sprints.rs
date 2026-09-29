@@ -18,6 +18,13 @@ impl KanbanContext {
     ) -> KanbanResult<(usize, Invalidation)> {
         use kanban_domain::query::sprint::get_sprint_uncompleted_cards;
 
+        if let Some(rw) = self.backend.remote_sprint_writes() {
+            return rw.carry_over_sprint_cards(from_sprint_id, to_sprint_id);
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("carry_over_sprint_cards"));
+        }
+
         let from_sprint = self
             .get_sprint_impl(from_sprint_id)?
             .ok_or_else(|| KanbanError::not_found("Sprint", from_sprint_id))?;
@@ -219,6 +226,12 @@ impl KanbanContext {
         duration_days: Option<i32>,
     ) -> KanbanResult<(Sprint, Invalidation)> {
         use kanban_domain::commands::ActivateSprint;
+        if let Some(rw) = self.backend.remote_sprint_writes() {
+            return rw.activate_sprint(id, duration_days);
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("activate_sprint"));
+        }
         let duration = duration_days.unwrap_or(14) as u32;
         let cmd = Command::Sprint(SprintCommand::Activate(ActivateSprint {
             sprint_id: id,
@@ -233,6 +246,12 @@ impl KanbanContext {
 
     pub fn complete_sprint_impl(&mut self, id: Uuid) -> KanbanResult<(Sprint, Invalidation)> {
         use kanban_domain::commands::CompleteSprint;
+        if let Some(rw) = self.backend.remote_sprint_writes() {
+            return rw.complete_sprint(id);
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("complete_sprint"));
+        }
         let cmd = Command::Sprint(SprintCommand::Complete(CompleteSprint { sprint_id: id }));
         let invalidation = self.execute(vec![cmd])?;
         let sprint = self
@@ -243,6 +262,12 @@ impl KanbanContext {
 
     pub fn cancel_sprint_impl(&mut self, id: Uuid) -> KanbanResult<(Sprint, Invalidation)> {
         use kanban_domain::commands::CancelSprint;
+        if let Some(rw) = self.backend.remote_sprint_writes() {
+            return rw.cancel_sprint(id);
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("cancel_sprint"));
+        }
         let cmd = Command::Sprint(SprintCommand::Cancel(CancelSprint { sprint_id: id }));
         let invalidation = self.execute(vec![cmd])?;
         let sprint = self
