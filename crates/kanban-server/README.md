@@ -176,7 +176,7 @@ All request/response bodies are JSON. Errors share one envelope (see [Error Hand
 | `POST` | `/v1/boards/{id}/restore` | Restore an archived board. `200 OK`; `archived_at` is absent. 404 if the board is not archived. Body is `MutationResponse<BoardResponse>`. | — |
 | `GET` | `/v1/archived-boards` | List archived-board markers (`entity_id` + `archived_at`). Returns `Page<ArchivedBoardResponse>`; accepts `?page=&page_size=`. | — |
 
-Twenty-one v1 write routes return the mutation's `Invalidation`: `POST /v1/boards`, `PATCH /v1/boards/{id}`, `DELETE /v1/boards/{id}`, `POST /v1/boards/{id}/archive`, `POST /v1/boards/{id}/restore`, `POST /v1/boards/{board_id}/columns`, `PATCH /v1/columns/{id}`, `DELETE /v1/columns/{id}`, `POST /v1/columns/{column_id}/cards`, `PATCH /v1/cards/{id}`, `DELETE /v1/cards/{id}`, `POST /v1/cards/{id}/archive`, `POST /v1/cards/{id}/restore`, `POST /v1/import`, `POST /v1/cards/{id}/children`, `POST /v1/cards/{id}/children/detach`, `DELETE /v1/cards/{id}/children/{child_id}`, `POST /v1/cards/{id}/blocks`, `DELETE /v1/cards/{id}/blocks/{blocked_id}`, `POST /v1/cards/{id}/related`, `DELETE /v1/cards/{id}/related/{other_id}`. The create/update/archive/restore routes return `MutationResponse<T>` — the usual entity fields flattened with an `invalidation` field, so the body still deserializes as the bare entity DTO. The six deletes above return `DeleteResponse` (`{"invalidation": ...}`) with `200 OK` instead of `204 No Content`. Every other write route (nested board-scoped column/card routes, sprint routes) is unchanged.
+Twenty-four v1 write routes return the mutation's `Invalidation`: `POST /v1/boards`, `PATCH /v1/boards/{id}`, `DELETE /v1/boards/{id}`, `POST /v1/boards/{id}/archive`, `POST /v1/boards/{id}/restore`, `POST /v1/boards/{board_id}/columns`, `PATCH /v1/columns/{id}`, `DELETE /v1/columns/{id}`, `POST /v1/columns/{column_id}/cards`, `PATCH /v1/cards/{id}`, `DELETE /v1/cards/{id}`, `POST /v1/cards/{id}/archive`, `POST /v1/cards/{id}/restore`, `POST /v1/import`, `POST /v1/cards/{id}/children`, `POST /v1/cards/{id}/children/detach`, `DELETE /v1/cards/{id}/children/{child_id}`, `POST /v1/cards/{id}/blocks`, `DELETE /v1/cards/{id}/blocks/{blocked_id}`, `POST /v1/cards/{id}/related`, `DELETE /v1/cards/{id}/related/{other_id}`, `POST /v1/boards/{board_id}/sprints`, `PATCH /v1/sprints/{id}`, `DELETE /v1/sprints/{id}`. The create/update/archive/restore routes return `MutationResponse<T>` — the usual entity fields flattened with an `invalidation` field, so the body still deserializes as the bare entity DTO. The seven deletes above return `DeleteResponse` (`{"invalidation": ...}`) with `200 OK` instead of `204 No Content`. Every other write route (nested board-scoped column/card routes, the board-scoped sprint `PUT`/`PATCH`/`DELETE`, and the sprint lifecycle routes) is unchanged.
 
 ### Columns
 
@@ -192,7 +192,7 @@ Twenty-one v1 write routes return the mutation's `Invalidation`: `POST /v1/board
 |---|---|---|---|
 | `GET` | `/v1/boards/{board_id}/sprints` | List a board's sprints. 404s if `board_id` doesn't exist (does not collapse into an empty list). Returns `Page<SprintResponse>`; accepts `?page=&page_size=`. | — |
 | `GET` | `/v1/boards/{board_id}/sprints/{id}` | Get a sprint by UUID. 404s if the sprint exists but belongs to a different board. | — |
-| `POST` | `/v1/boards/{board_id}/sprints` | Create a sprint. `201 Created`. A client-supplied `id` that already exists is a `409 Conflict`. | `CreateSprintRequest` |
+| `POST` | `/v1/boards/{board_id}/sprints` | Create a sprint. `201 Created` with `MutationResponse<SprintResponse>`. A client-supplied `id` that already exists is a `409 Conflict`. | `CreateSprintRequest` |
 | `PUT` | `/v1/boards/{board_id}/sprints/{id}` | Full replace (RFC 9110 §9.3.4) — creates the sprint at `id` if absent (`201`), otherwise replaces it in full (`200`). 404s if `id` belongs to a different board. | `ReplaceSprintRequest` |
 | `PATCH` | `/v1/boards/{board_id}/sprints/{id}` | Partial update — JSON Merge Patch (RFC 7386). 404s if the sprint belongs to a different board. | `UpdateSprintRequest` |
 | `DELETE` | `/v1/boards/{board_id}/sprints/{id}` | Delete a sprint. `204 No Content`. 404s if the sprint belongs to a different board. | — |
@@ -201,8 +201,8 @@ Twenty-one v1 write routes return the mutation's `Invalidation`: `POST /v1/board
 | `POST` | `/v1/boards/{board_id}/sprints/{id}/cancel` | Mark a sprint cancelled. 404s if the sprint belongs to a different board. | — |
 | `POST` | `/v1/boards/{board_id}/sprints/{id}/carry-over` | Move every uncompleted card from this sprint to `to_sprint_id`. `422` unless this sprint is completed or cancelled and `to_sprint_id` is in planning. 404s if either sprint belongs to a different board. Returns `CarryOverResponse` with the moved count. | `CarryOverRequest` |
 | `GET` | `/v1/sprints/{id}` | Flat alias for the board-scoped `GET`. | — |
-| `PATCH` | `/v1/sprints/{id}` | Flat alias for the board-scoped `PATCH`. | `UpdateSprintRequest` |
-| `DELETE` | `/v1/sprints/{id}` | Flat alias for the board-scoped `DELETE`. | — |
+| `PATCH` | `/v1/sprints/{id}` | Flat alias for the board-scoped `PATCH`, but the body is `MutationResponse<SprintResponse>`. | `UpdateSprintRequest` |
+| `DELETE` | `/v1/sprints/{id}` | Flat alias for the board-scoped `DELETE`, but answers `200 OK` with a `DeleteResponse`. | — |
 
 ### Cards
 

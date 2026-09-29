@@ -11,7 +11,9 @@ use axum::response::Response;
 use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
 use kanban_domain::{Invalidation, LoadState, Model, NoProjections, Sprint};
-use kanban_service::api::{ChangeKind, EntityType, Page, PageParams, SprintResponse};
+use kanban_service::api::{
+    ChangeKind, DeleteResponse, EntityType, MutationResponse, Page, PageParams, SprintResponse,
+};
 use kanban_service::{resolve_sprint_name, KanbanError, KanbanOperations, SprintUpdate};
 use uuid::Uuid;
 
@@ -155,8 +157,8 @@ async fn create_sprint_route(
     Path(board_id): Path<Uuid>,
     ClientIdent(client): ClientIdent,
     AppJson(req): AppJson<kanban_service::api::CreateSprintRequest>,
-) -> Result<(StatusCode, Json<SprintResponse>), AppError> {
-    let (resp, created) = {
+) -> Result<(StatusCode, Json<MutationResponse<SprintResponse>>), AppError> {
+    let (resp, created, invalidation) = {
         let mut ctx = state.lock_for_write(client).await;
         let (resp, created, invalidation) =
             crate::handlers::sprints::create_sprint(&mut ctx, board_id, req)
@@ -171,9 +173,12 @@ async fn create_sprint_route(
             )
             .await
             .map_err(|e| AppError::from(&e))?;
-        (resp, created)
+        (resp, created, invalidation)
     };
-    Ok((created_status(created), Json(resp)))
+    Ok((
+        created_status(created),
+        Json(MutationResponse::new(resp, &invalidation)),
+    ))
 }
 
 async fn put_sprint_route(
@@ -310,9 +315,9 @@ async fn update_sprint_route_flat(
     ClientIdent(client): ClientIdent,
     headers: HeaderMap,
     AppJson(req): AppJson<kanban_service::api::UpdateSprintRequest>,
-) -> Result<Json<SprintResponse>, AppError> {
+) -> Result<Json<MutationResponse<SprintResponse>>, AppError> {
     let updates = SprintUpdate::from(req);
-    let body = {
+    let (body, invalidation) = {
         let mut ctx = state.lock_for_write(client).await;
         do_get_sprint(&ctx, id)?;
         etag::check_if_match(&headers, || sprint_current(&ctx, id))?;
@@ -328,9 +333,9 @@ async fn update_sprint_route_flat(
             )
             .await
             .map_err(|e| AppError::from(&e))?;
-        body
+        (body, invalidation)
     };
-    Ok(Json(body))
+    Ok(Json(MutationResponse::new(body, &invalidation)))
 }
 
 async fn delete_sprint_route_flat(
@@ -338,8 +343,8 @@ async fn delete_sprint_route_flat(
     Path(id): Path<Uuid>,
     ClientIdent(client): ClientIdent,
     headers: HeaderMap,
-) -> Result<StatusCode, AppError> {
-    {
+) -> Result<(StatusCode, Json<DeleteResponse>), AppError> {
+    let invalidation = {
         let mut ctx = state.lock_for_write(client).await;
         do_get_sprint(&ctx, id)?;
         etag::check_if_match(&headers, || sprint_current(&ctx, id))?;
@@ -354,8 +359,9 @@ async fn delete_sprint_route_flat(
             )
             .await
             .map_err(|e| AppError::from(&e))?;
-    }
-    Ok(StatusCode::NO_CONTENT)
+        invalidation
+    };
+    Ok((StatusCode::OK, Json(DeleteResponse::new(&invalidation))))
 }
 
 pub fn flat_read_router() -> Router<AppState> {
