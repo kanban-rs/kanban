@@ -159,6 +159,13 @@ impl KanbanContext {
 
     pub fn archive_cards_impl(&mut self, ids: Vec<Uuid>) -> KanbanResult<(usize, Invalidation)> {
         use kanban_domain::commands::ArchiveCards;
+        if let Some(rw) = self.backend.remote_batch_writes() {
+            let (outcome, invalidation) = rw.archive_cards(&ids)?;
+            return Ok((super::remote_batch_count(outcome)?, invalidation));
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("archive_cards"));
+        }
         let before = self.backend.list_archived_cards()?.len();
         let invalidation =
             self.execute(vec![Command::Card(CardCommand::Archive(ArchiveCards {
@@ -173,6 +180,13 @@ impl KanbanContext {
         ids: Vec<Uuid>,
         column_id: Uuid,
     ) -> KanbanResult<(usize, Invalidation)> {
+        if let Some(rw) = self.backend.remote_batch_writes() {
+            let (outcome, invalidation) = rw.move_cards(&ids, column_id)?;
+            return Ok((super::remote_batch_count(outcome)?, invalidation));
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("move_cards"));
+        }
         let ids = kanban_domain::card_lifecycle::dedup_preserving_order(&ids);
         let before = self.backend.list_cards_by_column(column_id)?.len();
 
@@ -191,6 +205,14 @@ impl KanbanContext {
         use kanban_domain::commands::{MoveCard, UpdateCard};
         use kanban_domain::ArchivedFilter;
         use std::collections::HashMap;
+
+        if let Some(rw) = self.backend.remote_batch_writes() {
+            let (outcome, invalidation) = rw.update_cards(&updates)?;
+            return Ok((super::remote_batch_count(outcome)?, invalidation));
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("update_cards"));
+        }
 
         let count = updates.len();
         let mut batch: Vec<Command> = Vec::with_capacity(count * 3);
@@ -290,6 +312,13 @@ impl KanbanContext {
         sprint_id: Uuid,
     ) -> KanbanResult<(usize, Invalidation)> {
         use kanban_domain::commands::AssignCardsToSprint;
+        if let Some(rw) = self.backend.remote_batch_writes() {
+            let (outcome, invalidation) = rw.assign_cards_to_sprint(&ids, sprint_id)?;
+            return Ok((super::remote_batch_count(outcome)?, invalidation));
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("assign_cards_to_sprint"));
+        }
         let before = self.backend.list_cards_by_sprint(sprint_id)?.len();
         let invalidation = self.execute(vec![Command::Card(CardCommand::AssignToSprint(
             AssignCardsToSprint { ids, sprint_id },
