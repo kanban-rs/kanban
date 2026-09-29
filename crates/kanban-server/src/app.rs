@@ -57,6 +57,7 @@ pub fn router_with(state: AppState, config: LayerConfig) -> Router {
         .merge(crate::routes::sprints::flat_read_router())
         .merge(crate::routes::sprints::flat_write_router())
         .merge(crate::routes::sprints_lifecycle::write_router())
+        .merge(crate::routes::sprints_lifecycle::flat_write_router())
         .merge(crate::routes::transfer::read_router())
         .merge(crate::routes::events::router());
 
