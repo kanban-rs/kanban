@@ -715,3 +715,210 @@ async fn test_get_sprint_after_lifecycle_write_reads_fresh_status_and_resolved_n
     assert_eq!(json["status"], "active");
     assert_eq!(json["name"], "Alpha");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_flat_activate_sprint_route_returns_the_mutation_invalidation() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let (_board_id, sprint_id) = seed_board_and_sprint(&state, "Alpha").await;
+
+    let activate = send(
+        &state,
+        "POST",
+        &format!("/v1/sprints/{sprint_id}/activate"),
+        Some(&json!({"duration_days": 7})),
+    )
+    .await;
+    assert_eq!(activate.status(), StatusCode::OK);
+    let json = json_of(activate).await;
+    assert_eq!(json["status"], "active");
+    assert!(
+        !json["invalidation"].is_null(),
+        "expected an invalidation field, got {json}"
+    );
+    assert!(json["invalidation"]["scope"].is_string());
+
+    let complete = send(
+        &state,
+        "POST",
+        &format!("/v1/sprints/{sprint_id}/complete"),
+        None,
+    )
+    .await;
+    assert_eq!(complete.status(), StatusCode::OK);
+    let json = json_of(complete).await;
+    assert_eq!(json["status"], "completed");
+
+    let (_board_id2, sprint_id2) = seed_board_and_sprint(&state, "Beta").await;
+    let cancel = send(
+        &state,
+        "POST",
+        &format!("/v1/sprints/{sprint_id2}/cancel"),
+        None,
+    )
+    .await;
+    assert_eq!(cancel.status(), StatusCode::OK);
+    let json = json_of(cancel).await;
+    assert_eq!(json["status"], "cancelled");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_flat_activate_sprint_route_with_negative_duration_returns_422_validation_failed() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let (_board_id, sprint_id) = seed_board_and_sprint(&state, "Alpha").await;
+
+    let response = send(
+        &state,
+        "POST",
+        &format!("/v1/sprints/{sprint_id}/activate"),
+        Some(&json!({"duration_days": -1})),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let json = json_of(response).await;
+    assert_eq!(json["code"], "VALIDATION_FAILED");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_flat_carry_over_route_returns_moved_and_the_invalidation() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let (board_id, column_id, sprint1, sprint2) = seed_board_column_and_two_sprints(&state).await;
+
+    {
+        let mut ctx = state.ctx.lock().await;
+        ctx.create_card(
+            board_id,
+            column_id,
+            "Todo card 1".to_string(),
+            CreateCardOptions {
+                sprint_id: Some(sprint1),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        ctx.create_card(
+            board_id,
+            column_id,
+            "Todo card 2".to_string(),
+            CreateCardOptions {
+                sprint_id: Some(sprint1),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let done = ctx
+            .create_card(
+                board_id,
+                column_id,
+                "Done card".to_string(),
+                CreateCardOptions {
+                    sprint_id: Some(sprint1),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .id;
+        ctx.update_card(
+            done,
+            CardUpdate {
+                status: Some(CardStatus::Done),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    }
+
+    let complete = send(
+        &state,
+        "POST",
+        &format!("/v1/sprints/{sprint1}/complete"),
+        None,
+    )
+    .await;
+    assert_eq!(complete.status(), StatusCode::OK);
+
+    let carry_over = send(
+        &state,
+        "POST",
+        &format!("/v1/sprints/{sprint1}/carry-over"),
+        Some(&json!({"to_sprint_id": sprint2})),
+    )
+    .await;
+    assert_eq!(carry_over.status(), StatusCode::OK);
+    let json = json_of(carry_over).await;
+    assert_eq!(json["moved"], 2);
+    assert!(
+        !json["invalidation"].is_null(),
+        "expected an invalidation field, got {json}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_flat_carry_over_route_accepts_a_target_sprint_on_another_board() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let (_board_a, sprint_a) = seed_board_and_sprint(&state, "Alpha").await;
+    let (_board_b, sprint_b) = seed_board_and_sprint(&state, "Beta").await;
+
+    let complete = send(
+        &state,
+        "POST",
+        &format!("/v1/sprints/{sprint_a}/complete"),
+        None,
+    )
+    .await;
+    assert_eq!(complete.status(), StatusCode::OK);
+
+    let carry_over = send(
+        &state,
+        "POST",
+        &format!("/v1/sprints/{sprint_a}/carry-over"),
+        Some(&json!({"to_sprint_id": sprint_b})),
+    )
+    .await;
+    assert_eq!(
+        carry_over.status(),
+        StatusCode::OK,
+        "carry-over across boards must succeed on the flat route, matching local parity"
+    );
+    let json = json_of(carry_over).await;
+    assert_eq!(json["moved"], 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_flat_lifecycle_route_unknown_sprint_returns_404() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let unknown = Uuid::new_v4();
+
+    for path in ["activate", "complete", "cancel"] {
+        let response = send(
+            &state,
+            "POST",
+            &format!("/v1/sprints/{unknown}/{path}"),
+            Some(&json!({})),
+        )
+        .await;
+        assert_eq!(
+            response.status(),
+            StatusCode::NOT_FOUND,
+            "path {path} expected 404"
+        );
+        let json = json_of(response).await;
+        assert_eq!(json["code"], "NOT_FOUND", "path {path}");
+    }
+
+    let response = send(
+        &state,
+        "POST",
+        &format!("/v1/sprints/{unknown}/carry-over"),
+        Some(&json!({"to_sprint_id": Uuid::new_v4()})),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let json = json_of(response).await;
+    assert_eq!(json["code"], "NOT_FOUND");
+}
