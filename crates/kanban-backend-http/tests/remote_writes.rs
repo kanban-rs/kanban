@@ -575,6 +575,174 @@ async fn test_move_card_over_http_with_no_position_appends_past_archived_sibling
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_move_cards_over_http_returns_a_scoped_entities_invalidation_naming_every_moved_id() {
+    let server = TestServer::start().await;
+    let mut ctx = ctx_over(&server).await;
+    let (board, _) = ctx.create_board_from_spec(None, a_new_board()).unwrap();
+    let (source, _) = ctx
+        .create_column_from_spec(None, a_new_column(board.id))
+        .unwrap();
+    let (target, _) = ctx
+        .create_column_from_spec(None, a_new_column(board.id))
+        .unwrap();
+    let (card_a, _) = ctx
+        .create_card_from_spec(None, a_new_card(source.id))
+        .unwrap();
+    let (card_b, _) = ctx
+        .create_card_from_spec(None, a_new_card(source.id))
+        .unwrap();
+
+    let (count, invalidation) = ctx
+        .move_cards_impl(vec![card_a.id, card_b.id], target.id)
+        .expect("move_cards_impl should succeed over http");
+
+    assert_eq!(count, 2);
+    match invalidation {
+        Invalidation::Entities(ids) => {
+            let moved: std::collections::HashSet<Uuid> =
+                [card_a.id, card_b.id].into_iter().collect();
+            assert_eq!(ids.cards, moved);
+        }
+        Invalidation::All => panic!("expected a scoped invalidation naming exactly the moved ids"),
+    }
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_move_cards_over_http_with_one_unknown_id_moves_the_rest_and_counts_them() {
+    let server = TestServer::start().await;
+    let mut ctx = ctx_over(&server).await;
+    let (board, _) = ctx.create_board_from_spec(None, a_new_board()).unwrap();
+    let (source, _) = ctx
+        .create_column_from_spec(None, a_new_column(board.id))
+        .unwrap();
+    let (target, _) = ctx
+        .create_column_from_spec(None, a_new_column(board.id))
+        .unwrap();
+    let (card, _) = ctx
+        .create_card_from_spec(None, a_new_card(source.id))
+        .unwrap();
+    let unknown = Uuid::new_v4();
+
+    let (count, invalidation) = ctx
+        .move_cards_impl(vec![card.id, unknown], target.id)
+        .expect("move_cards_impl should apply the valid subset over http");
+
+    assert_eq!(
+        count, 1,
+        "an unknown id must not fail the ids that do exist"
+    );
+    match invalidation {
+        Invalidation::Entities(ids) => assert!(ids.cards.contains(&card.id)),
+        Invalidation::All => panic!("expected a scoped invalidation"),
+    }
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_move_cards_detailed_over_http_reports_per_id_failures() {
+    let server = TestServer::start().await;
+    let mut ctx = ctx_over(&server).await;
+    let (board, _) = ctx.create_board_from_spec(None, a_new_board()).unwrap();
+    let (source, _) = ctx
+        .create_column_from_spec(None, a_new_column(board.id))
+        .unwrap();
+    let (target, _) = ctx
+        .create_column_from_spec(None, a_new_column(board.id))
+        .unwrap();
+    let (card, _) = ctx
+        .create_card_from_spec(None, a_new_card(source.id))
+        .unwrap();
+    let unknown = Uuid::new_v4();
+
+    let (result, invalidation) = ctx.move_cards_detailed(vec![card.id, unknown], target.id);
+
+    assert_eq!(result.succeeded, vec![card.id]);
+    assert_eq!(result.failed.len(), 1);
+    assert_eq!(result.failed[0].id, unknown);
+    assert!(!result.failed[0].error.is_empty());
+    match invalidation {
+        Invalidation::Entities(ids) => assert!(ids.cards.contains(&card.id)),
+        Invalidation::All => panic!("expected a scoped invalidation"),
+    }
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_assign_cards_to_sprint_over_http_counts_a_card_already_in_the_sprint() {
+    let server = TestServer::start().await;
+    let mut ctx = ctx_over(&server).await;
+    let (board, _) = ctx.create_board_from_spec(None, a_new_board()).unwrap();
+    let (column, _) = ctx
+        .create_column_from_spec(None, a_new_column(board.id))
+        .unwrap();
+    let (card, _) = ctx
+        .create_card_from_spec(None, a_new_card(column.id))
+        .unwrap();
+    let sprint = ctx.create_sprint(board.id, None, None).unwrap();
+    let _ = ctx.assign_card_to_sprint_impl(card.id, sprint.id).unwrap();
+
+    let (count, invalidation) = ctx
+        .assign_cards_to_sprint_impl(vec![card.id], sprint.id)
+        .expect("assign_cards_to_sprint_impl should succeed over http");
+
+    assert_eq!(
+        count, 1,
+        "a card already in the target sprint still counts as succeeded over http, \
+         unlike the local before/after-count diff which would see no change"
+    );
+    assert!(
+        matches!(invalidation, Invalidation::All),
+        "reassigning a card already on the sprint produces no inverse entry, \
+         so the empty inverse batch invalidates All, same as local; got {invalidation:?}"
+    );
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_archive_cards_over_http_returns_the_same_invalidation_as_a_local_archive() {
+    async fn archive_two_cards(ctx: &mut KanbanContext) -> (usize, Invalidation) {
+        let (board, _) = ctx.create_board_from_spec(None, a_new_board()).unwrap();
+        let (column, _) = ctx
+            .create_column_from_spec(None, a_new_column(board.id))
+            .unwrap();
+        let (card_a, _) = ctx
+            .create_card_from_spec(None, a_new_card(column.id))
+            .unwrap();
+        let (card_b, _) = ctx
+            .create_card_from_spec(None, a_new_card(column.id))
+            .unwrap();
+        ctx.archive_cards_impl(vec![card_a.id, card_b.id])
+            .expect("archive_cards_impl should succeed")
+    }
+
+    let server = TestServer::start().await;
+    let mut remote = ctx_over(&server).await;
+    let (remote_count, remote_invalidation) = archive_two_cards(&mut remote).await;
+    server.shutdown().await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let local_backend: Arc<dyn kanban_service::KanbanBackend> =
+        Arc::new(kanban_persistence_json::JsonDataStore::new(Arc::new(
+            kanban_persistence_json::JsonFileStore::new(dir.path().join("local.json")),
+        )));
+    let mut local = KanbanContext::open(local_backend, AppConfig::default())
+        .await
+        .unwrap();
+    let (local_count, local_invalidation) = archive_two_cards(&mut local).await;
+
+    assert_eq!(remote_count, local_count);
+    assert_eq!(
+        remote_invalidation, local_invalidation,
+        "archiving cards over http must invalidate exactly what a local archive does"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_assign_card_to_sprint_over_http_returns_the_servers_invalidation() {
     let seeded = std::sync::Arc::new(std::sync::Mutex::new(None::<(Uuid, Uuid, Uuid)>));
     let seeded_for_seed = std::sync::Arc::clone(&seeded);
