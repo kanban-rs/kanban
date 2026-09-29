@@ -399,17 +399,7 @@ impl DataStore for HttpBackend {
             let Some(resp) = resp else {
                 return Ok(None);
             };
-            let board: Option<BoardResponse> = self
-                .get_json(&format!("/v1/boards/{}", resp.board_id))
-                .await?;
-            let sprint_names = board.map(|b| b.sprint_names).unwrap_or_else(|| {
-                tracing::warn!(
-                    board_id = %resp.board_id,
-                    "board vanished between sprint and board reads; sprint will render unnamed"
-                );
-                Vec::new()
-            });
-            Ok(Some(sprint_from_response(&resp, &sprint_names)))
+            Ok(Some(self.sprint_with_pool(&resp).await?))
         })
     }
 
@@ -464,12 +454,12 @@ impl DataStore for HttpBackend {
         })
     }
 
-    /// missing-route: sprint mutations have no `RemoteWrites` counterpart at all.
+    /// write-backstop-via-RemoteWrites: sprint writes route through `RemoteSprintWrites`; this decline firing at all is a routing bug.
     fn upsert_sprint(&self, _sprint: Sprint) -> KanbanResult<()> {
         Err(KanbanError::unsupported("upsert_sprint"))
     }
 
-    /// missing-route: sprint mutations have no `RemoteWrites` counterpart at all.
+    /// write-backstop-via-RemoteWrites: sprint deletes route through `RemoteSprintWrites::delete_sprint`; this decline firing at all is a routing bug.
     fn delete_sprint(&self, _id: Uuid) -> KanbanResult<()> {
         Err(KanbanError::unsupported("delete_sprint"))
     }
