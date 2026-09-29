@@ -398,7 +398,7 @@ async fn test_delete_sprint_flat_deletes() {
     let (board_id, sprint_id) = seed_board_and_sprint(&state, "Alpha").await;
 
     let delete_response = send(&state, "DELETE", &format!("/v1/sprints/{sprint_id}"), None).await;
-    assert_eq!(delete_response.status(), StatusCode::NO_CONTENT);
+    assert_eq!(delete_response.status(), StatusCode::OK);
 
     let verify_response = send(
         &state,
@@ -408,6 +408,24 @@ async fn test_delete_sprint_flat_deletes() {
     )
     .await;
     assert_eq!(verify_response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_delete_flat_sprint_route_returns_200_with_the_delete_invalidation() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let (_board_id, sprint_id) = seed_board_and_sprint(&state, "Alpha").await;
+
+    let response = send(&state, "DELETE", &format!("/v1/sprints/{sprint_id}"), None).await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_of(response).await;
+    let invalidated_sprints = body["invalidation"]["entities"]["sprints"]
+        .as_array()
+        .expect("entities invalidation must name sprints");
+    assert!(invalidated_sprints
+        .iter()
+        .any(|v| v == &sprint_id.to_string()));
 }
 
 #[tokio::test(flavor = "multi_thread")]

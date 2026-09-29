@@ -361,7 +361,7 @@ async fn test_flat_routes_broadcast_their_own_entity_identity() {
     assert_eq!(frame.kind, Some(ChangeKind::Updated));
 
     let response = send(&state, "DELETE", &format!("/v1/sprints/{sprint_id}"), None).await;
-    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert_eq!(response.status(), StatusCode::OK);
     let frame = next_frame(&mut rx).await;
     assert_eq!(frame.entity_type, Some(EntityType::Sprint));
     assert_eq!(frame.entity_id, Some(sprint_id));
