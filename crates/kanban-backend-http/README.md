@@ -6,18 +6,27 @@ client (e.g. a future web UI, or a CLI/TUI pointed at a shared server instead
 of a local file) talk to boards through the same `KanbanBackend` interface
 every other backend implements.
 
-**Status: reads and the core CRUD writes are live.** `HttpBackend` builds its
-own dedicated Tokio runtime and HTTP client and implements `KanbanBackend`.
-Every `DataStore` read (`src/data_store.rs`) is a real request against
-`kanban-server`'s v1 REST endpoints. `RemoteWrites` (`src/remote_writes/`)
-implements the nine board/column/card create/update/delete mutations plus the
-board and card archive/restore pairs via `RemoteBoardWrites` and
-`RemoteCardWrites`, and `KanbanBackend::remote_writes()` returns `Some(self)`,
-so `KanbanContext` diverts those thirteen operations straight to the server
-instead of running them through its local command-execute-then-log path.
+**Status: reads, the core CRUD writes, and the graph mutations are live.**
+`HttpBackend` builds its own dedicated Tokio runtime and HTTP client and
+implements `KanbanBackend`. Every `DataStore` read (`src/data_store.rs`) is a
+real request against `kanban-server`'s v1 REST endpoints. `RemoteWrites`
+(`src/remote_writes/`) implements the nine board/column/card create/update/delete
+mutations plus the board and card archive/restore pairs via `RemoteBoardWrites`
+and `RemoteCardWrites`, and `KanbanBackend::remote_writes()` returns
+`Some(self)`, so `KanbanContext` diverts those thirteen operations straight to
+the server instead of running them through its local
+command-execute-then-log path. The six graph edge mutations (`attach_children`,
+`detach_children`, `block`, `unblock`, `relate`, `dissociate`) are diverted the
+same way via `RemoteGraphWrites` (`src/remote_writes/graph.rs`) and
+`KanbanBackend::remote_graph_writes()`: each is a single request against the
+`/v1/cards/{id}/children`, `/v1/cards/{id}/blocks` and `/v1/cards/{id}/related`
+routes (see [the server README's Graph
+section](../kanban-server/README.md#graph)), and the born-archived decision
+for a new edge is made server-side from the server's own card state, not the
+client's.
 
-The remaining `DataStore`/`CommandStore` *writes* (graph mutations, sprint and
-prefix writes, the command log) still decline under their own name, see
+The remaining `DataStore`/`CommandStore` *writes* (sprint and prefix writes,
+the command log) still decline under their own name, see
 `test_http_backend_stub_method_returns_unsupported_error` in `src/lib.rs`. The
 reads in those families are implemented: `get_prefix`, `list_prefixes`,
 `get_sprint`, `list_sprints_by_board`, `list_archived_cards_by_board`,
