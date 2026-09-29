@@ -1,5 +1,6 @@
 use kanban_domain::{EntityIds, Invalidation};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use uuid::Uuid;
 
 /// Ids are sorted before serialization so the wire form is stable across runs
@@ -18,6 +19,10 @@ pub struct EntityIdsDto {
     pub graph: bool,
     #[serde(default)]
     pub prefixes: bool,
+    #[serde(default)]
+    pub card_columns: BTreeMap<Uuid, Vec<Uuid>>,
+    #[serde(default)]
+    pub archival_changed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,6 +42,15 @@ impl From<&EntityIds> for EntityIdsDto {
         columns.sort();
         cards.sort();
         sprints.sort();
+        let card_columns = value
+            .card_columns
+            .iter()
+            .map(|(card, cols)| {
+                let mut cols: Vec<Uuid> = cols.iter().copied().collect();
+                cols.sort();
+                (*card, cols)
+            })
+            .collect();
         Self {
             boards,
             columns,
@@ -44,6 +58,8 @@ impl From<&EntityIds> for EntityIdsDto {
             sprints,
             graph: value.graph,
             prefixes: value.prefixes,
+            card_columns,
+            archival_changed: value.archival_changed,
         }
     }
 }
@@ -57,6 +73,12 @@ impl From<&EntityIdsDto> for EntityIds {
             sprints: value.sprints.iter().copied().collect(),
             graph: value.graph,
             prefixes: value.prefixes,
+            card_columns: value
+                .card_columns
+                .iter()
+                .map(|(card, cols)| (*card, cols.iter().copied().collect()))
+                .collect(),
+            archival_changed: value.archival_changed,
         }
     }
 }
@@ -95,6 +117,7 @@ mod tests {
             sprints: HashSet::from([Uuid::new_v4()]),
             graph: true,
             prefixes: true,
+            ..Default::default()
         };
         let invalidation = Invalidation::Entities(ids);
         let dto = InvalidationDto::from(&invalidation);
@@ -102,6 +125,49 @@ mod tests {
         let parsed: InvalidationDto = serde_json::from_str(&json).unwrap();
         let round_tripped: Invalidation = (&parsed).into();
         assert_eq!(round_tripped, invalidation);
+    }
+
+    #[test]
+    fn test_entity_ids_dto_round_trip_preserves_card_columns() {
+        let card_one = Uuid::new_v4();
+        let card_two = Uuid::new_v4();
+        let column_a = Uuid::new_v4();
+        let column_b = Uuid::new_v4();
+        let ids = EntityIds {
+            card_columns: std::collections::HashMap::from([
+                (card_one, HashSet::from([column_a, column_b])),
+                (card_two, HashSet::from([column_a])),
+            ]),
+            ..Default::default()
+        };
+        let invalidation = Invalidation::Entities(ids);
+
+        let dto = InvalidationDto::from(&invalidation);
+        let json = serde_json::to_string(&dto).unwrap();
+        let parsed: InvalidationDto = serde_json::from_str(&json).unwrap();
+        let round_tripped: Invalidation = (&parsed).into();
+
+        assert_eq!(round_tripped, invalidation);
+    }
+
+    #[test]
+    fn test_entity_ids_dto_from_json_without_card_columns_defaults_to_empty() {
+        let json = serde_json::json!({
+            "scope": "entities",
+            "entities": {
+                "cards": [Uuid::new_v4()],
+            }
+        });
+
+        let dto: InvalidationDto = serde_json::from_value(json).unwrap();
+
+        match dto {
+            InvalidationDto::Entities(ids) => {
+                assert!(ids.card_columns.is_empty());
+                assert!(!ids.archival_changed);
+            }
+            InvalidationDto::All => panic!("expected Entities"),
+        }
     }
 
     #[test]
