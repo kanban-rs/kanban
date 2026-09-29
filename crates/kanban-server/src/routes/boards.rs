@@ -55,6 +55,14 @@ fn board_response(session: &crate::state::Session, id: Uuid) -> Result<BoardResp
     board_current(session, id)?.ok_or_else(|| AppError::from(&KanbanError::not_found("Board", id)))
 }
 
+/// RFC 9110 13.2.1: a request that would answer 404 without its preconditions
+/// must answer 404 with them, so existence is resolved before `check_if_match`.
+fn require_board_exists(session: &crate::state::Session, id: Uuid) -> Result<(), AppError> {
+    board_current(session, id)?
+        .map(|_| ())
+        .ok_or_else(|| AppError::from(&KanbanError::not_found("Board", id)))
+}
+
 async fn get_board(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -156,6 +164,7 @@ async fn patch_board(
 ) -> Result<Json<MutationResponse<BoardResponse>>, AppError> {
     let (board, invalidation) = {
         let mut ctx = state.lock_for_write(client).await;
+        require_board_exists(&ctx, id)?;
         etag::check_if_match(&headers, || board_current(&ctx, id))?;
         let (board, invalidation) =
             crate::state::mutate(&mut ctx, |c| c.update_board_impl(id, req.into()))
@@ -186,6 +195,7 @@ async fn delete_board(
 ) -> Result<(StatusCode, Json<DeleteResponse>), AppError> {
     let invalidation = {
         let mut ctx = state.lock_for_write(client).await;
+        require_board_exists(&ctx, id)?;
         etag::check_if_match(&headers, || board_current(&ctx, id))?;
         let invalidation = crate::state::mutate_unit(&mut ctx, |c| c.delete_board_impl(id))
             .map_err(|e| AppError::from(&e))?;
