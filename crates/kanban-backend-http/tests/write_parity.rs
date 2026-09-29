@@ -3,7 +3,7 @@ use kanban_domain::{
     ArchivedBoard, ArchivedCard, Board, BoardUpdate, Card, CardPriority, CardStatus, CardUpdate,
     Column, ColumnUpdate, CreateCardOptions, FieldUpdate, GraphOperations, KanbanOperations,
     NewBoard, NewCard, NewColumn, Prefix, RelatesKind, Severity, SortField, SortOrder, Sprint,
-    TaskListView,
+    SprintUpdate, TaskListView,
 };
 use kanban_persistence_json::{JsonDataStore, JsonFileStore};
 use kanban_persistence_sqlite::SqliteBackend;
@@ -1355,4 +1355,37 @@ async fn test_unassign_card_from_sprint_over_http_issues_exactly_one_request() {
 
     drop(ctx);
     server.shutdown().await;
+}
+
+const S1: Uuid = Uuid::from_u128(0x5171);
+const S2: Uuid = Uuid::from_u128(0x5172);
+
+fn sprint_crud_ops(ctx: &mut KanbanContext, s: &Seeded) {
+    let _ = ctx
+        .create_sprint_from_spec(s.board_id, Some(S1), Some("Named".into()), None, false)
+        .unwrap();
+    let _ = ctx
+        .create_sprint_from_spec(s.board_id, Some(S2), None, Some("ALT".into()), false)
+        .unwrap();
+    let _ = ctx
+        .update_sprint_impl(
+            S1,
+            SprintUpdate {
+                name: Some("Renamed".into()),
+                start_date: FieldUpdate::Set(fixed_due()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let _ = ctx.delete_sprint_impl(s.sprint_id).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_remote_sprint_crud_leaves_graph_equal_to_local_json() {
+    op_parity(Backend::Json, seed_graph, sprint_crud_ops).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_remote_sprint_crud_leaves_graph_equal_to_local_sqlite() {
+    op_parity(Backend::Sqlite, seed_graph, sprint_crud_ops).await;
 }
