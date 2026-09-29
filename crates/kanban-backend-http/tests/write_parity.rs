@@ -1233,6 +1233,36 @@ async fn test_remote_move_and_sprint_binding_leave_graph_equal_to_local_sqlite()
     card_move_and_sprint_parity(Backend::Sqlite).await;
 }
 
+async fn batch_ops_parity(kind: Backend) {
+    op_parity(kind, seed_graph, |ctx, s| {
+        let _ = ctx.move_cards_impl(vec![s.card_a], s.done).unwrap();
+        let _ = ctx
+            .assign_cards_to_sprint_impl(vec![s.card_a], s.sprint_id)
+            .unwrap();
+        let _ = ctx
+            .update_cards_impl(vec![(
+                s.card_a,
+                CardUpdate {
+                    title: Some("A2".into()),
+                    ..Default::default()
+                },
+            )])
+            .unwrap();
+        let _ = ctx.archive_cards_impl(vec![s.card_a]).unwrap();
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_remote_batch_ops_leave_graph_equal_to_local_json() {
+    batch_ops_parity(Backend::Json).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_remote_batch_ops_leave_graph_equal_to_local_sqlite() {
+    batch_ops_parity(Backend::Sqlite).await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn test_move_card_over_http_issues_exactly_one_request() {
     let mut seeded_slot: Option<Seeded> = None;

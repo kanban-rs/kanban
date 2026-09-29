@@ -6,7 +6,8 @@ client (e.g. a future web UI, or a CLI/TUI pointed at a shared server instead
 of a local file) talk to boards through the same `KanbanBackend` interface
 every other backend implements.
 
-**Status: reads, the core CRUD writes, and the graph mutations are live.**
+**Status: reads, the core CRUD writes, the card batch mutations, and the
+graph mutations are live.**
 `HttpBackend` builds its own dedicated Tokio runtime and HTTP client and
 implements `KanbanBackend`. Every `DataStore` read (`src/data_store.rs`) is a
 real request against `kanban-server`'s v1 REST endpoints. `RemoteWrites`
@@ -15,7 +16,15 @@ mutations plus the board and card archive/restore pairs, card move, and card
 sprint assign/unassign via `RemoteBoardWrites` and `RemoteCardWrites`, and
 `KanbanBackend::remote_writes()` returns `Some(self)`, so `KanbanContext`
 diverts those sixteen operations straight to the server instead of running
-them through its local command-execute-then-log path. The six graph edge mutations (`attach_children`,
+them through its local command-execute-then-log path. The four card batch
+mutations (`archive_cards`, `move_cards`, `assign_cards_to_sprint`,
+`update_cards`) are diverted the same way via `RemoteBatchWrites`
+(`src/remote_writes/batch.rs`) and `KanbanBackend::remote_batch_writes()`:
+each is a single request against the `/v1/cards/batch/*` routes, returning
+the server's per-id outcome and its `Invalidation` verbatim instead of the
+local before/after-count diff, so a batch op that is a no-op locally (e.g.
+reassigning a card already on the target sprint) can still count as
+succeeded over HTTP. The six graph edge mutations (`attach_children`,
 `detach_children`, `block`, `unblock`, `relate`, `dissociate`) are diverted the
 same way via `RemoteGraphWrites` (`src/remote_writes/graph.rs`) and
 `KanbanBackend::remote_graph_writes()`: each is a single request against the
