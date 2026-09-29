@@ -72,6 +72,10 @@ impl kanban_backend::KanbanBackend for HttpBackend {
         Some(self)
     }
 
+    fn remote_sprint_writes(&self) -> Option<&dyn kanban_backend::RemoteSprintWrites> {
+        Some(self)
+    }
+
     fn remote_batch_writes(&self) -> Option<&dyn kanban_backend::RemoteBatchWrites> {
         Some(self)
     }

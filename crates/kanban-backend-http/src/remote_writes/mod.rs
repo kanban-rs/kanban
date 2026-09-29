@@ -14,15 +14,16 @@ mod boards;
 mod cards;
 mod columns;
 mod graph;
+mod sprints;
 
 use crate::HttpBackend;
 use kanban_backend::{
     RemoteBatchOutcome, RemoteBatchWrites, RemoteBoardWrites, RemoteCardWrites, RemoteGraphWrites,
-    RemoteWrites,
+    RemoteSprintWrites, RemoteWrites,
 };
 use kanban_domain::{
     Board, BoardUpdate, Card, CardUpdate, Column, ColumnUpdate, Invalidation, KanbanResult,
-    NewBoard, NewCard, NewColumn, RelatesKind, Severity,
+    NewBoard, NewCard, NewColumn, RelatesKind, Severity, Sprint, SprintUpdate,
 };
 use uuid::Uuid;
 
@@ -98,6 +99,30 @@ impl RemoteGraphWrites for HttpBackend {
 
     fn dissociate(&self, a: Uuid, b: Uuid) -> KanbanResult<Invalidation> {
         self.rw_dissociate(a, b)
+    }
+}
+
+impl RemoteSprintWrites for HttpBackend {
+    fn create_sprint(
+        &self,
+        board_id: Uuid,
+        id: Option<Uuid>,
+        name: Option<&str>,
+        prefix: Option<&str>,
+    ) -> KanbanResult<(Sprint, Invalidation)> {
+        self.rw_create_sprint(board_id, id, name, prefix)
+    }
+
+    fn update_sprint(
+        &self,
+        id: Uuid,
+        updates: &SprintUpdate,
+    ) -> KanbanResult<(Sprint, Invalidation)> {
+        self.rw_update_sprint(id, updates)
+    }
+
+    fn delete_sprint(&self, id: Uuid) -> KanbanResult<Invalidation> {
+        self.rw_delete_sprint(id)
     }
 }
 

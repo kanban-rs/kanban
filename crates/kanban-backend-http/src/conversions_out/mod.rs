@@ -5,6 +5,7 @@ mod batch;
 mod boards;
 mod cards;
 mod columns;
+mod sprints;
 
 pub(crate) use batch::{batch_update_request, outcome_from_response};
 pub(crate) use boards::{create_board_request, update_board_request};
@@ -12,3 +13,4 @@ pub(crate) use cards::{
     assign_card_to_sprint_path, create_card_request, move_card_path, update_card_request,
 };
 pub(crate) use columns::{create_column_request, update_column_request};
+pub(crate) use sprints::{create_sprint_request, update_sprint_request};
