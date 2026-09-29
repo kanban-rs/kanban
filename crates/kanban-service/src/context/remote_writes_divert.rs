@@ -2,11 +2,11 @@
 
 use super::KanbanContext;
 use crate::backend_test_support::MockBackend;
-use kanban_backend::{RemoteBoardWrites, RemoteCardWrites, RemoteWrites};
+use kanban_backend::{RemoteBoardWrites, RemoteCardWrites, RemoteGraphWrites, RemoteWrites};
 use kanban_core::AppConfig;
 use kanban_domain::{
     Board, BoardUpdate, Card, Column, ColumnUpdate, EntityIds, Invalidation, KanbanResult,
-    NewBoard, NewCard, NewColumn, UndoOperations,
+    NewBoard, NewCard, NewColumn, RelatesKind, Severity, UndoOperations,
 };
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
@@ -189,6 +189,65 @@ impl RemoteCardWrites for RecordingCardWrites {
     }
 }
 
+struct RecordingGraphWrites {
+    calls: Mutex<Vec<String>>,
+    canned: Invalidation,
+}
+
+impl RecordingGraphWrites {
+    fn new(canned: Invalidation) -> Self {
+        Self {
+            calls: Mutex::new(Vec::new()),
+            canned,
+        }
+    }
+
+    fn calls(&self) -> Vec<String> {
+        self.calls.lock().unwrap().clone()
+    }
+
+    fn record(&self, call: String) {
+        self.calls.lock().unwrap().push(call);
+    }
+}
+
+impl RemoteGraphWrites for RecordingGraphWrites {
+    fn attach_children(&self, parent: Uuid, children: &[Uuid]) -> KanbanResult<Invalidation> {
+        self.record(format!("attach_children:{parent}:{children:?}"));
+        Ok(self.canned.clone())
+    }
+
+    fn detach_children(&self, parent: Uuid, children: &[Uuid]) -> KanbanResult<Invalidation> {
+        self.record(format!("detach_children:{parent}:{children:?}"));
+        Ok(self.canned.clone())
+    }
+
+    fn block(
+        &self,
+        blocker: Uuid,
+        blocked: Uuid,
+        severity: Severity,
+    ) -> KanbanResult<Invalidation> {
+        self.record(format!("block:{blocker}:{blocked}:{severity:?}"));
+        Ok(self.canned.clone())
+    }
+
+    fn unblock(&self, blocker: Uuid, blocked: Uuid) -> KanbanResult<Invalidation> {
+        self.record(format!("unblock:{blocker}:{blocked}"));
+        Ok(self.canned.clone())
+    }
+
+    fn relate(&self, a: Uuid, b: Uuid, kind: RelatesKind) -> KanbanResult<Invalidation> {
+        self.record(format!("relate:{a}:{b}:{kind:?}"));
+        Ok(self.canned.clone())
+    }
+
+    fn dissociate(&self, a: Uuid, b: Uuid) -> KanbanResult<Invalidation> {
+        self.record(format!("dissociate:{a}:{b}"));
+        Ok(self.canned.clone())
+    }
+}
+
 async fn open_ctx(rw: Arc<RecordingRemoteWrites>) -> KanbanContext {
     let backend = Arc::new(MockBackend::with_remote_writes(rw));
     KanbanContext::open(backend, AppConfig::default())
@@ -211,6 +270,16 @@ async fn open_ctx_with_card_writes(
     card_rw: Arc<RecordingCardWrites>,
 ) -> KanbanContext {
     let backend = Arc::new(MockBackend::with_remote_card_writes(rw, card_rw));
+    KanbanContext::open(backend, AppConfig::default())
+        .await
+        .unwrap()
+}
+
+async fn open_ctx_with_graph_writes(
+    rw: Arc<RecordingRemoteWrites>,
+    graph_rw: Arc<RecordingGraphWrites>,
+) -> KanbanContext {
+    let backend = Arc::new(MockBackend::with_remote_graph_writes(rw, graph_rw));
     KanbanContext::open(backend, AppConfig::default())
         .await
         .unwrap()
@@ -537,5 +606,101 @@ async fn test_create_column_with_explicit_position_still_hits_the_fence() {
 
     assert!(result.is_err());
     assert!(result.unwrap_err().is_unsupported());
+    assert!(rw.calls().is_empty());
+}
+
+#[tokio::test]
+async fn test_attach_children_with_remote_graph_writes_diverts_before_any_card_read() {
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let graph_rw = Arc::new(RecordingGraphWrites::new(canned_inv()));
+    let mut ctx = open_ctx_with_graph_writes(rw.clone(), graph_rw.clone()).await;
+    let parent = Uuid::new_v4();
+    let children = vec![Uuid::new_v4()];
+
+    let inv = ctx.attach_children_impl(parent, children.clone()).unwrap();
+
+    assert_eq!(
+        graph_rw.calls(),
+        vec![format!("attach_children:{parent}:{children:?}")]
+    );
+    assert!(rw.calls().is_empty());
+    assert_eq!(inv, canned_inv());
+}
+
+#[tokio::test]
+async fn test_detach_children_with_remote_graph_writes_sends_every_child_in_one_call() {
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let graph_rw = Arc::new(RecordingGraphWrites::new(canned_inv()));
+    let mut ctx = open_ctx_with_graph_writes(rw.clone(), graph_rw.clone()).await;
+    let parent = Uuid::new_v4();
+    let children = vec![Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
+
+    let inv = ctx.detach_children_impl(parent, children.clone()).unwrap();
+
+    assert_eq!(
+        graph_rw.calls(),
+        vec![format!("detach_children:{parent}:{children:?}")]
+    );
+    assert!(rw.calls().is_empty());
+    assert_eq!(inv, canned_inv());
+}
+
+#[tokio::test]
+async fn test_block_and_relate_with_remote_graph_writes_pass_severity_and_kind_through() {
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let graph_rw = Arc::new(RecordingGraphWrites::new(canned_inv()));
+    let mut ctx = open_ctx_with_graph_writes(rw.clone(), graph_rw.clone()).await;
+    let a = Uuid::new_v4();
+    let b = Uuid::new_v4();
+
+    let block_inv = ctx.block_impl(a, b, Severity::High).unwrap();
+    let relate_inv = ctx.relate_impl(a, b, RelatesKind::Duplicates).unwrap();
+
+    assert_eq!(
+        graph_rw.calls(),
+        vec![
+            format!("block:{a}:{b}:High"),
+            format!("relate:{a}:{b}:Duplicates"),
+        ]
+    );
+    assert!(rw.calls().is_empty());
+    assert_eq!(block_inv, canned_inv());
+    assert_eq!(relate_inv, canned_inv());
+}
+
+#[tokio::test]
+async fn test_each_graph_op_with_remote_writes_but_no_graph_writes_declines_with_a_per_op_message()
+{
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let mut ctx = open_ctx(rw.clone()).await;
+    let a = Uuid::new_v4();
+    let b = Uuid::new_v4();
+
+    let cases: Vec<(&str, kanban_domain::KanbanError)> = vec![
+        (
+            "attach_children",
+            ctx.attach_children_impl(a, vec![b]).unwrap_err(),
+        ),
+        (
+            "detach_children",
+            ctx.detach_children_impl(a, vec![b]).unwrap_err(),
+        ),
+        ("block", ctx.block_impl(a, b, Severity::Medium).unwrap_err()),
+        ("unblock", ctx.unblock_impl(a, b).unwrap_err()),
+        (
+            "relate",
+            ctx.relate_impl(a, b, RelatesKind::Duplicates).unwrap_err(),
+        ),
+        ("dissociate", ctx.dissociate_impl(a, b).unwrap_err()),
+    ];
+
+    for (method, err) in cases {
+        assert!(err.is_unsupported(), "{method} got: {err:?}");
+        assert_eq!(
+            err.to_string(),
+            kanban_domain::KanbanError::unsupported(method).to_string(),
+            "{method} message mismatch"
+        );
+    }
     assert!(rw.calls().is_empty());
 }

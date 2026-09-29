@@ -1,9 +1,6 @@
 use kanban_backend::KanbanBackend as _;
 use kanban_backend_http::HttpBackend;
-use kanban_domain::{
-    BoardUpdate, CreateCardOptions, FieldUpdate, GraphOperations, KanbanOperations, NewBoard,
-    UndoOperations,
-};
+use kanban_domain::{BoardUpdate, FieldUpdate, KanbanOperations, NewBoard, UndoOperations};
 use kanban_server::test_helpers::TestServer;
 use kanban_service::{AppConfig, KanbanContext};
 use std::sync::Arc;
@@ -181,8 +178,8 @@ async fn read_one_sse_frame(response: &mut reqwest::Response) -> serde_json::Val
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_sprint_and_graph_mutations_over_http_hit_the_fence_message() {
-    let seeded = Arc::new(std::sync::Mutex::new(None::<(Uuid, Uuid, Uuid, Uuid)>));
+async fn test_sprint_mutations_over_http_hit_the_fence_message() {
+    let seeded = Arc::new(std::sync::Mutex::new(None::<Uuid>));
     let seeded_for_seed = Arc::clone(&seeded);
 
     let server = TestServer::start_with(move |ctx| {
@@ -190,33 +187,11 @@ async fn test_sprint_and_graph_mutations_over_http_hit_the_fence_message() {
             .create_board("Fence Board".to_string(), Some("KAN".to_string()))
             .unwrap()
             .id;
-        let column_id = ctx
-            .create_column(board_id, "To Do".to_string(), None)
-            .unwrap()
-            .id;
-        let card_a = ctx
-            .create_card(
-                board_id,
-                column_id,
-                "Card A".to_string(),
-                CreateCardOptions::default(),
-            )
-            .unwrap()
-            .id;
-        let card_b = ctx
-            .create_card(
-                board_id,
-                column_id,
-                "Card B".to_string(),
-                CreateCardOptions::default(),
-            )
-            .unwrap()
-            .id;
-        *seeded_for_seed.lock().unwrap() = Some((board_id, column_id, card_a, card_b));
+        *seeded_for_seed.lock().unwrap() = Some(board_id);
     })
     .await;
 
-    let (board_id, _column_id, card_a, card_b) = seeded.lock().unwrap().take().unwrap();
+    let board_id = seeded.lock().unwrap().take().unwrap();
     let mut ctx = ctx_over(&server).await;
 
     let sprint_err = ctx
@@ -225,14 +200,6 @@ async fn test_sprint_and_graph_mutations_over_http_hit_the_fence_message() {
     assert_eq!(
         sprint_err.to_string(),
         kanban_domain::KanbanError::unsupported(FENCE_MESSAGE).to_string()
-    );
-
-    let graph_err = ctx.attach_children(card_a, vec![card_b]).unwrap_err();
-    assert_eq!(
-        graph_err.to_string(),
-        kanban_domain::KanbanError::unsupported(FENCE_MESSAGE).to_string(),
-        "attach_children_impl's edge_born_archived check now reaches get_archived_card \
-         over the transport, so the graph write reaches the fence like its siblings"
     );
 
     server.shutdown().await;
