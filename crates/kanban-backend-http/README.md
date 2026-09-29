@@ -6,8 +6,8 @@ client (e.g. a future web UI, or a CLI/TUI pointed at a shared server instead
 of a local file) talk to boards through the same `KanbanBackend` interface
 every other backend implements.
 
-**Status: reads, the core CRUD writes, the card batch mutations, and the
-graph mutations are live.**
+**Status: reads, the core CRUD writes, the card batch mutations, the graph
+mutations, and sprint create/update/delete are live.**
 `HttpBackend` builds its own dedicated Tokio runtime and HTTP client and
 implements `KanbanBackend`. Every `DataStore` read (`src/data_store.rs`) is a
 real request against `kanban-server`'s v1 REST endpoints. `RemoteWrites`
@@ -32,10 +32,17 @@ same way via `RemoteGraphWrites` (`src/remote_writes/graph.rs`) and
 routes (see [the server README's Graph
 section](../kanban-server/README.md#graph)), and the born-archived decision
 for a new edge is made server-side from the server's own card state, not the
-client's.
+client's. The three sprint CRUD mutations (`create_sprint`, `update_sprint`,
+`delete_sprint`) are diverted the same way via `RemoteSprintWrites`
+(`src/remote_writes/sprints.rs`) and `KanbanBackend::remote_sprint_writes()`:
+create and update each issue a mutation request and then re-fetch the owning
+board so the returned `Sprint`'s `name_index` resolves against the server's
+own `sprint_names` pool instead of an empty one, since that pool is the only
+way a client-side `Sprint` conversion can know it.
 
-The remaining `DataStore`/`CommandStore` *writes* (sprint and prefix writes,
-the command log) still decline under their own name, see
+The remaining `DataStore`/`CommandStore` *writes* (sprint lifecycle writes,
+namely activate/complete/cancel/carry-over, and prefix writes, plus the
+command log) still decline under their own name, see
 `test_http_backend_stub_method_returns_unsupported_error` in `src/lib.rs`. The
 reads in those families are implemented: `get_prefix`, `list_prefixes`,
 `get_sprint`, `list_sprints_by_board`, `list_archived_cards_by_board`,

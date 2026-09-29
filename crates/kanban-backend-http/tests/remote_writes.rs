@@ -3,6 +3,7 @@ use kanban_backend_http::HttpBackend;
 use kanban_domain::{
     CardPriority, CardStatus, CardUpdate, Column, ColumnUpdate, FieldUpdate, GraphOperations,
     Invalidation, KanbanOperations, NewBoard, NewCard, NewColumn, RelatesKind, Severity,
+    SprintUpdate,
 };
 use kanban_server::test_helpers::TestServer;
 use kanban_service::{AppConfig, KanbanContext};
@@ -946,6 +947,73 @@ async fn test_detach_children_over_http_with_one_missing_edge_removes_nothing() 
         graph.contains(parent.id, child.id),
         "the real edge must survive an all-or-nothing failed batch"
     );
+
+    server.shutdown().await;
+}
+
+fn fixed_start() -> chrono::DateTime<chrono::Utc> {
+    chrono::DateTime::parse_from_rfc3339("2030-06-01T12:00:00Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_sprint_over_http_hits_the_sprint_route_and_returns_a_named_sprint() {
+    let server = TestServer::start().await;
+    let mut ctx = ctx_over(&server).await;
+    let (board, _) = ctx.create_board_from_spec(None, a_new_board()).unwrap();
+
+    let (sprint, _) = ctx
+        .create_sprint_from_spec(board.id, None, Some("Alpha".into()), None, false)
+        .unwrap();
+
+    let board = ctx.get_board(board.id).unwrap().unwrap();
+    assert_eq!(sprint.name_index, Some(0), "expected the pool's first slot");
+    assert_eq!(sprint.get_name(&board), Some("Alpha"));
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_sprint_over_http_sets_dates() {
+    let server = TestServer::start().await;
+    let mut ctx = ctx_over(&server).await;
+    let (board, _) = ctx.create_board_from_spec(None, a_new_board()).unwrap();
+    let (sprint, _) = ctx
+        .create_sprint_from_spec(board.id, None, Some("Alpha".into()), None, false)
+        .unwrap();
+
+    let (updated, _) = ctx
+        .update_sprint_impl(
+            sprint.id,
+            SprintUpdate {
+                start_date: FieldUpdate::Set(fixed_start()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    assert_eq!(updated.start_date, Some(fixed_start()));
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_delete_sprint_over_http_returns_the_server_invalidation() {
+    let server = TestServer::start().await;
+    let mut ctx = ctx_over(&server).await;
+    let (board, _) = ctx.create_board_from_spec(None, a_new_board()).unwrap();
+    let (sprint, _) = ctx
+        .create_sprint_from_spec(board.id, None, Some("Alpha".into()), None, false)
+        .unwrap();
+
+    let invalidation = ctx.delete_sprint_impl(sprint.id).unwrap();
+    match invalidation {
+        Invalidation::Entities(ids) => assert!(ids.sprints.contains(&sprint.id)),
+        Invalidation::All => panic!("expected a scoped invalidation"),
+    }
+
+    assert!(ctx.get_sprint(sprint.id).unwrap().is_none());
 
     server.shutdown().await;
 }
