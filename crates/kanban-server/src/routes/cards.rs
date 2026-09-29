@@ -304,6 +304,12 @@ fn do_unassign_card_from_sprint(
         .map_err(|e| AppError::from(&e))
 }
 
+fn require_card_exists(ctx: &crate::state::Session, id: Uuid) -> Result<(), AppError> {
+    card_current(ctx, id)?
+        .map(|_| ())
+        .ok_or_else(|| AppError::from(&KanbanError::not_found("Card", id)))
+}
+
 /// Fetch a card and 404 unless it belongs to `board_id`, since
 /// `KanbanOperations::{update_card, delete_card}` key on the global card id
 /// alone with no board scoping of their own.
@@ -464,6 +470,7 @@ async fn update_card_route_flat(
     let updates = CardUpdate::try_from(req).map_err(|e| AppError::from(&e))?;
     let (card, invalidation) = {
         let mut ctx = state.lock_for_write(client).await;
+        require_card_exists(&ctx, id)?;
         etag::check_if_match(&headers, || card_current(&ctx, id))?;
         let (card, invalidation) = do_update_card(&mut ctx, id, updates)?;
         state
@@ -492,6 +499,7 @@ async fn delete_card_route_flat(
 ) -> Result<(StatusCode, Json<DeleteResponse>), AppError> {
     let invalidation = {
         let mut ctx = state.lock_for_write(client).await;
+        require_card_exists(&ctx, id)?;
         etag::check_if_match(&headers, || card_current(&ctx, id))?;
         let invalidation = do_delete_card(&mut ctx, id)?;
         state
