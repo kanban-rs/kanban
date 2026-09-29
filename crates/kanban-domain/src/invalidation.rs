@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 /// The set of entities a command touched, scoped per collection.
@@ -13,6 +13,14 @@ pub struct EntityIds {
     pub sprints: HashSet<Uuid>,
     pub graph: bool,
     pub prefixes: bool,
+    /// For each card id this batch named, the columns whose `cards_by_column`
+    /// scope it invalidated. A card absent from this map means "column
+    /// unknown", forcing the conservative whole-tier drop.
+    pub card_columns: HashMap<Uuid, HashSet<Uuid>>,
+    /// Reserved: set by a future archive/restore command conversion. No
+    /// producer sets it in this slice, so consumers must treat `false` as
+    /// unknown.
+    pub archival_changed: bool,
 }
 
 impl EntityIds {
@@ -70,6 +78,10 @@ impl EntityIds {
         self.sprints.extend(other.sprints);
         self.graph |= other.graph;
         self.prefixes |= other.prefixes;
+        for (card, cols) in other.card_columns {
+            self.card_columns.entry(card).or_default().extend(cols);
+        }
+        self.archival_changed |= other.archival_changed;
     }
 }
 
@@ -81,6 +93,9 @@ impl EntityIds {
 /// invalidation").
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[must_use]
+// Boxing `EntityIds` would touch every `Invalidation::Entities(ids)` match site
+// across the workspace; not worth it for this lint alone.
+#[allow(clippy::large_enum_variant)]
 pub enum Invalidation {
     Entities(EntityIds),
     All,
@@ -139,6 +154,40 @@ mod tests {
         assert!(ids.columns.is_empty());
         assert!(ids.sprints.is_empty());
         assert!(!ids.graph);
+    }
+
+    #[test]
+    fn test_merging_two_entity_ids_unions_the_columns_of_a_shared_card() {
+        let card = Uuid::new_v4();
+        let col_a = Uuid::new_v4();
+        let col_b = Uuid::new_v4();
+        let mut acc = EntityIds {
+            card_columns: std::collections::HashMap::from([(card, HashSet::from([col_a]))]),
+            ..Default::default()
+        };
+        let other = EntityIds {
+            card_columns: std::collections::HashMap::from([(card, HashSet::from([col_b]))]),
+            ..Default::default()
+        };
+
+        acc.merge(other);
+
+        assert_eq!(
+            acc.card_columns,
+            std::collections::HashMap::from([(card, HashSet::from([col_a, col_b]))])
+        );
+    }
+
+    #[test]
+    fn test_entity_ids_with_only_card_columns_is_still_empty() {
+        let card = Uuid::new_v4();
+        let column = Uuid::new_v4();
+        let ids = EntityIds {
+            card_columns: std::collections::HashMap::from([(card, HashSet::from([column]))]),
+            ..Default::default()
+        };
+
+        assert!(ids.is_empty());
     }
 
     #[test]

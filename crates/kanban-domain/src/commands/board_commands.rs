@@ -955,6 +955,7 @@ impl ImportEntities {
                 sprints: self.sprints.iter().map(|s| s.id).collect(),
                 graph: false,
                 prefixes: false,
+                ..Default::default()
             }
             .with_prefixes(),
         )
