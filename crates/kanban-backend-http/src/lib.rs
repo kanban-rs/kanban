@@ -68,6 +68,10 @@ impl kanban_backend::KanbanBackend for HttpBackend {
         Some(self)
     }
 
+    fn remote_graph_writes(&self) -> Option<&dyn kanban_backend::RemoteGraphWrites> {
+        Some(self)
+    }
+
     /// Declines without running the closure. The remote server owns the state,
     /// so there is nothing local to roll back and no way to make the batch
     /// atomic from this side.

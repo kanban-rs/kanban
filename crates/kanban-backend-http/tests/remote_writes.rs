@@ -1,7 +1,8 @@
+use kanban_backend::RemoteGraphWrites;
 use kanban_backend_http::HttpBackend;
 use kanban_domain::{
     CardPriority, CardStatus, CardUpdate, Column, ColumnUpdate, FieldUpdate, GraphOperations,
-    Invalidation, KanbanOperations, NewBoard, NewCard, NewColumn,
+    Invalidation, KanbanOperations, NewBoard, NewCard, NewColumn, RelatesKind, Severity,
 };
 use kanban_server::test_helpers::TestServer;
 use kanban_service::{AppConfig, KanbanContext};
@@ -567,5 +568,157 @@ fn test_http_backend_reports_remote_write_family_support() {
     assert!(backend.remote_card_writes().is_some());
     assert!(backend.remote_batch_writes().is_none());
     assert!(backend.remote_sprint_writes().is_none());
-    assert!(backend.remote_graph_writes().is_none());
+    assert!(backend.remote_graph_writes().is_some());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_attach_child_to_an_archived_card_over_http_is_born_archived() {
+    let server = TestServer::start().await;
+    let mut ctx = ctx_over(&server).await;
+    let backend = HttpBackend::new(&server.base_url()).unwrap();
+    let (board, _) = ctx.create_board_from_spec(None, a_new_board()).unwrap();
+    let (column, _) = ctx
+        .create_column_from_spec(None, a_new_column(board.id))
+        .unwrap();
+    let (parent, _) = ctx
+        .create_card_from_spec(None, a_new_card(column.id))
+        .unwrap();
+    let (child, _) = ctx
+        .create_card_from_spec(None, a_new_card(column.id))
+        .unwrap();
+    let _ = ctx
+        .archive_card_impl(parent.id)
+        .expect("seed archive should succeed");
+
+    let _ = backend
+        .attach_children(parent.id, &[child.id])
+        .expect("attach_children over http should succeed");
+
+    let graph = ctx.data_store().get_graph().unwrap();
+    let edge = graph
+        .spawns_edges()
+        .iter()
+        .find(|e| e.base.source == parent.id && e.base.target == child.id)
+        .expect("spawns edge should be present in the server's graph");
+    assert!(
+        edge.base.archived_at.is_some(),
+        "edge incident to an archived card must be born archived"
+    );
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_graph_mutations_over_http_round_trip_every_edge_kind() {
+    let server = TestServer::start().await;
+    let mut ctx = ctx_over(&server).await;
+    let backend = HttpBackend::new(&server.base_url()).unwrap();
+    let (board, _) = ctx.create_board_from_spec(None, a_new_board()).unwrap();
+    let (column_a, _) = ctx
+        .create_column_from_spec(None, a_new_column(board.id))
+        .unwrap();
+    let (column_b, _) = ctx
+        .create_column_from_spec(None, a_new_column(board.id))
+        .unwrap();
+    let (parent, _) = ctx
+        .create_card_from_spec(None, a_new_card(column_a.id))
+        .unwrap();
+    let (child_a, _) = ctx
+        .create_card_from_spec(None, a_new_card(column_a.id))
+        .unwrap();
+    let (child_b, _) = ctx
+        .create_card_from_spec(None, a_new_card(column_a.id))
+        .unwrap();
+    let (blocked, _) = ctx
+        .create_card_from_spec(None, a_new_card(column_b.id))
+        .unwrap();
+    let (related, _) = ctx
+        .create_card_from_spec(None, a_new_card(column_b.id))
+        .unwrap();
+
+    let attach_inv = backend
+        .attach_children(parent.id, &[child_a.id, child_b.id])
+        .unwrap();
+    let block_inv = backend
+        .block(parent.id, blocked.id, Severity::High)
+        .unwrap();
+    let relate_inv = backend
+        .relate(parent.id, related.id, RelatesKind::Duplicates)
+        .unwrap();
+    for inv in [&attach_inv, &block_inv, &relate_inv] {
+        match inv {
+            Invalidation::Entities(ids) => assert!(ids.cards.contains(&parent.id)),
+            Invalidation::All => panic!("expected a scoped invalidation"),
+        }
+    }
+
+    let graph = ctx.data_store().get_graph().unwrap();
+    assert!(graph.contains(parent.id, child_a.id));
+    assert!(graph.contains(parent.id, child_b.id));
+    assert!(graph.contains(parent.id, blocked.id));
+    assert!(graph.contains(parent.id, related.id));
+    let block_edge = graph
+        .blocks_edges()
+        .iter()
+        .find(|e| e.base.source == parent.id && e.base.target == blocked.id)
+        .unwrap();
+    assert_eq!(block_edge.severity, Severity::High);
+    let relate_edge = graph
+        .relates_edges()
+        .iter()
+        .find(|e| e.base.source == parent.id && e.base.target == related.id)
+        .unwrap();
+    assert_eq!(relate_edge.kind, RelatesKind::Duplicates);
+
+    let detach_inv = backend.detach_children(parent.id, &[child_a.id]).unwrap();
+    let unblock_inv = backend.unblock(parent.id, blocked.id).unwrap();
+    let dissociate_inv = backend.dissociate(parent.id, related.id).unwrap();
+    for inv in [&detach_inv, &unblock_inv, &dissociate_inv] {
+        match inv {
+            Invalidation::Entities(ids) => assert!(ids.cards.contains(&parent.id)),
+            Invalidation::All => panic!("expected a scoped invalidation"),
+        }
+    }
+
+    let graph = ctx.data_store().get_graph().unwrap();
+    assert!(!graph.contains(parent.id, child_a.id));
+    assert!(graph.contains(parent.id, child_b.id));
+    assert!(!graph.contains(parent.id, blocked.id));
+    assert!(!graph.contains(parent.id, related.id));
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_detach_children_over_http_with_one_missing_edge_removes_nothing() {
+    let server = TestServer::start().await;
+    let mut ctx = ctx_over(&server).await;
+    let backend = HttpBackend::new(&server.base_url()).unwrap();
+    let (board, _) = ctx.create_board_from_spec(None, a_new_board()).unwrap();
+    let (column, _) = ctx
+        .create_column_from_spec(None, a_new_column(board.id))
+        .unwrap();
+    let (parent, _) = ctx
+        .create_card_from_spec(None, a_new_card(column.id))
+        .unwrap();
+    let (child, _) = ctx
+        .create_card_from_spec(None, a_new_card(column.id))
+        .unwrap();
+    let (not_a_child, _) = ctx
+        .create_card_from_spec(None, a_new_card(column.id))
+        .unwrap();
+    let _ = backend.attach_children(parent.id, &[child.id]).unwrap();
+
+    let err = backend
+        .detach_children(parent.id, &[child.id, not_a_child.id])
+        .expect_err("detaching a missing edge alongside a real one should fail atomically");
+    assert!(err.to_string().contains("NOT_FOUND"), "got: {err}");
+
+    let graph = ctx.data_store().get_graph().unwrap();
+    assert!(
+        graph.contains(parent.id, child.id),
+        "the real edge must survive an all-or-nothing failed batch"
+    );
+
+    server.shutdown().await;
 }
