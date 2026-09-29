@@ -41,6 +41,17 @@ pub struct BatchOperationFailure {
     pub error: String,
 }
 
+pub(super) fn remote_batch_count(
+    outcome: kanban_backend::RemoteBatchOutcome,
+) -> KanbanResult<usize> {
+    if outcome.succeeded.is_empty() {
+        if let Some((_, error)) = outcome.failed.first() {
+            return Err(kanban_domain::KanbanError::validation(error.clone()));
+        }
+    }
+    Ok(outcome.succeeded.len())
+}
+
 /// Service layer: wraps a pluggable [`KanbanBackend`] with undo/redo history
 /// and a unified async `save()` / `reload()` interface.
 ///

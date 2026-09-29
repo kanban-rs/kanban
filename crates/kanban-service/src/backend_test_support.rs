@@ -1,6 +1,6 @@
 use kanban_backend::{
-    KanbanBackend, RemoteBoardWrites, RemoteCardWrites, RemoteGraphWrites, RemoteWrites,
-    TransactionFn,
+    KanbanBackend, RemoteBatchWrites, RemoteBoardWrites, RemoteCardWrites, RemoteGraphWrites,
+    RemoteWrites, TransactionFn,
 };
 use kanban_backend_memory::InMemoryStore;
 use kanban_domain::{
@@ -68,6 +68,7 @@ pub struct MockBackend {
     board_mock: Option<Arc<dyn RemoteBoardWrites>>,
     card_mock: Option<Arc<dyn RemoteCardWrites>>,
     graph_mock: Option<Arc<dyn RemoteGraphWrites>>,
+    batch_mock: Option<Arc<dyn RemoteBatchWrites>>,
 }
 
 impl MockBackend {
@@ -78,6 +79,7 @@ impl MockBackend {
             board_mock: None,
             card_mock: None,
             graph_mock: None,
+            batch_mock: None,
         }
     }
 
@@ -88,6 +90,7 @@ impl MockBackend {
             board_mock: None,
             card_mock: None,
             graph_mock: None,
+            batch_mock: None,
         }
     }
 
@@ -101,6 +104,7 @@ impl MockBackend {
             board_mock: Some(board_mock),
             card_mock: None,
             graph_mock: None,
+            batch_mock: None,
         }
     }
 
@@ -114,6 +118,7 @@ impl MockBackend {
             board_mock: None,
             card_mock: Some(card_mock),
             graph_mock: None,
+            batch_mock: None,
         }
     }
 
@@ -127,6 +132,21 @@ impl MockBackend {
             board_mock: None,
             card_mock: None,
             graph_mock: Some(graph_mock),
+            batch_mock: None,
+        }
+    }
+
+    pub fn with_remote_batch_writes(
+        mock: Arc<dyn RemoteWrites>,
+        batch_mock: Arc<dyn RemoteBatchWrites>,
+    ) -> Self {
+        Self {
+            inner: InMemoryStore::new(),
+            mock,
+            board_mock: None,
+            card_mock: None,
+            graph_mock: None,
+            batch_mock: Some(batch_mock),
         }
     }
 }
@@ -306,6 +326,10 @@ impl KanbanBackend for MockBackend {
 
     fn remote_graph_writes(&self) -> Option<&dyn RemoteGraphWrites> {
         self.graph_mock.as_deref()
+    }
+
+    fn remote_batch_writes(&self) -> Option<&dyn RemoteBatchWrites> {
+        self.batch_mock.as_deref()
     }
 
     fn with_transaction(&self, f: TransactionFn<'_>) -> KanbanResult<()> {
