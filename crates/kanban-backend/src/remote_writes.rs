@@ -1,6 +1,6 @@
 use kanban_domain::{
     Board, BoardUpdate, Card, CardUpdate, Column, ColumnUpdate, Invalidation, KanbanResult,
-    NewBoard, NewCard, NewColumn, RelatesKind, Severity,
+    NewBoard, NewCard, NewColumn, RelatesKind, Severity, Sprint, SprintUpdate,
 };
 use uuid::Uuid;
 
@@ -95,7 +95,21 @@ pub trait RemoteBatchWrites: Send + Sync {
 }
 
 /// See [`RemoteBoardWrites`].
-pub trait RemoteSprintWrites: Send + Sync {}
+pub trait RemoteSprintWrites: Send + Sync {
+    fn create_sprint(
+        &self,
+        board_id: Uuid,
+        id: Option<Uuid>,
+        name: Option<&str>,
+        prefix: Option<&str>,
+    ) -> KanbanResult<(Sprint, Invalidation)>;
+    fn update_sprint(
+        &self,
+        id: Uuid,
+        updates: &SprintUpdate,
+    ) -> KanbanResult<(Sprint, Invalidation)>;
+    fn delete_sprint(&self, id: Uuid) -> KanbanResult<Invalidation>;
+}
 
 /// See [`RemoteBoardWrites`].
 pub trait RemoteGraphWrites: Send + Sync {
@@ -168,5 +182,60 @@ mod tests {
 
         assert!(outcome.succeeded.is_empty());
         assert!(outcome.failed.is_empty());
+    }
+
+    struct SprintProbe;
+
+    impl RemoteSprintWrites for SprintProbe {
+        fn create_sprint(
+            &self,
+            board_id: Uuid,
+            id: Option<Uuid>,
+            _name: Option<&str>,
+            prefix: Option<&str>,
+        ) -> KanbanResult<(Sprint, Invalidation)> {
+            let mut sprint = Sprint::new(board_id, 1, None, prefix);
+            if let Some(id) = id {
+                sprint.id = id;
+            }
+            Ok((sprint, Invalidation::Entities(EntityIds::default())))
+        }
+
+        fn update_sprint(
+            &self,
+            _id: Uuid,
+            _updates: &SprintUpdate,
+        ) -> KanbanResult<(Sprint, Invalidation)> {
+            unimplemented!()
+        }
+
+        fn delete_sprint(&self, _id: Uuid) -> KanbanResult<Invalidation> {
+            Ok(Invalidation::Entities(EntityIds::default()))
+        }
+    }
+
+    #[test]
+    fn test_a_remote_sprint_writes_create_signature_carries_no_number_or_index() -> KanbanResult<()>
+    {
+        let board_id = Uuid::new_v4();
+        let probe = SprintProbe;
+
+        let (sprint, _invalidation) =
+            probe.create_sprint(board_id, None, Some("Sprint Alpha"), Some("ALP"))?;
+
+        assert_eq!(sprint.board_id, board_id);
+        assert_eq!(sprint.prefix, Some("ALP".to_string()));
+        Ok(())
+    }
+
+    #[test]
+    fn test_a_remote_sprint_writes_delete_returns_an_invalidation_without_an_entity(
+    ) -> KanbanResult<()> {
+        let probe = SprintProbe;
+
+        let invalidation = probe.delete_sprint(Uuid::new_v4())?;
+
+        assert_eq!(invalidation, Invalidation::Entities(EntityIds::default()));
+        Ok(())
     }
 }
