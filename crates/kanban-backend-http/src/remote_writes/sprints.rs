@@ -1,9 +1,14 @@
 //! `RemoteWrites` sprint methods for `HttpBackend`.
 
 use crate::conversions::sprint_from_response;
-use crate::conversions_out::{create_sprint_request, update_sprint_request};
+use crate::conversions_out::{
+    activate_sprint_request, create_sprint_request, update_sprint_request,
+};
 use crate::HttpBackend;
-use kanban_api::{BoardResponse, DeleteResponse, MutationResponse, SprintResponse};
+use kanban_api::{
+    BoardResponse, CarryOverRequest, CarryOverResponse, DeleteResponse, MutationResponse,
+    SprintResponse,
+};
 use kanban_domain::{Invalidation, KanbanResult, Sprint, SprintUpdate};
 use reqwest::Method;
 use uuid::Uuid;
@@ -66,5 +71,66 @@ impl HttpBackend {
             None,
         ))?;
         Ok(Invalidation::from(&resp.invalidation))
+    }
+
+    pub(crate) fn rw_activate_sprint(
+        &self,
+        id: Uuid,
+        duration_days: Option<i32>,
+    ) -> KanbanResult<(Sprint, Invalidation)> {
+        let req = activate_sprint_request(duration_days);
+        self.block_on(async {
+            let resp: MutationResponse<SprintResponse> = self
+                .send_json_mutation(
+                    Method::POST,
+                    &format!("/v1/sprints/{id}/activate"),
+                    Some(&req),
+                )
+                .await?;
+            let sprint = self.sprint_with_pool(&resp.entity).await?;
+            Ok((sprint, Invalidation::from(&resp.invalidation)))
+        })
+    }
+
+    pub(crate) fn rw_complete_sprint(&self, id: Uuid) -> KanbanResult<(Sprint, Invalidation)> {
+        self.block_on(async {
+            let resp: MutationResponse<SprintResponse> = self
+                .send_json_mutation::<(), MutationResponse<SprintResponse>>(
+                    Method::POST,
+                    &format!("/v1/sprints/{id}/complete"),
+                    None,
+                )
+                .await?;
+            let sprint = self.sprint_with_pool(&resp.entity).await?;
+            Ok((sprint, Invalidation::from(&resp.invalidation)))
+        })
+    }
+
+    pub(crate) fn rw_cancel_sprint(&self, id: Uuid) -> KanbanResult<(Sprint, Invalidation)> {
+        self.block_on(async {
+            let resp: MutationResponse<SprintResponse> = self
+                .send_json_mutation::<(), MutationResponse<SprintResponse>>(
+                    Method::POST,
+                    &format!("/v1/sprints/{id}/cancel"),
+                    None,
+                )
+                .await?;
+            let sprint = self.sprint_with_pool(&resp.entity).await?;
+            Ok((sprint, Invalidation::from(&resp.invalidation)))
+        })
+    }
+
+    pub(crate) fn rw_carry_over_sprint_cards(
+        &self,
+        from_sprint_id: Uuid,
+        to_sprint_id: Uuid,
+    ) -> KanbanResult<(usize, Invalidation)> {
+        let req = CarryOverRequest { to_sprint_id };
+        let resp: MutationResponse<CarryOverResponse> = self.block_on(self.send_json_mutation(
+            Method::POST,
+            &format!("/v1/sprints/{from_sprint_id}/carry-over"),
+            Some(&req),
+        ))?;
+        Ok((resp.entity.moved, Invalidation::from(&resp.invalidation)))
     }
 }

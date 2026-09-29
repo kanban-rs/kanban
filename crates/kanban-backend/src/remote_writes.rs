@@ -109,6 +109,18 @@ pub trait RemoteSprintWrites: Send + Sync {
         updates: &SprintUpdate,
     ) -> KanbanResult<(Sprint, Invalidation)>;
     fn delete_sprint(&self, id: Uuid) -> KanbanResult<Invalidation>;
+    fn activate_sprint(
+        &self,
+        id: Uuid,
+        duration_days: Option<i32>,
+    ) -> KanbanResult<(Sprint, Invalidation)>;
+    fn complete_sprint(&self, id: Uuid) -> KanbanResult<(Sprint, Invalidation)>;
+    fn cancel_sprint(&self, id: Uuid) -> KanbanResult<(Sprint, Invalidation)>;
+    fn carry_over_sprint_cards(
+        &self,
+        from_sprint_id: Uuid,
+        to_sprint_id: Uuid,
+    ) -> KanbanResult<(usize, Invalidation)>;
 }
 
 /// See [`RemoteBoardWrites`].
@@ -212,6 +224,34 @@ mod tests {
         fn delete_sprint(&self, _id: Uuid) -> KanbanResult<Invalidation> {
             Ok(Invalidation::Entities(EntityIds::default()))
         }
+
+        fn activate_sprint(
+            &self,
+            _id: Uuid,
+            duration_days: Option<i32>,
+        ) -> KanbanResult<(Sprint, Invalidation)> {
+            let sprint_number = duration_days.map(|d| d as u32).unwrap_or(0);
+            let sprint = Sprint::new(Uuid::new_v4(), sprint_number, None, None::<String>);
+            Ok((sprint, Invalidation::Entities(EntityIds::default())))
+        }
+
+        fn complete_sprint(&self, _id: Uuid) -> KanbanResult<(Sprint, Invalidation)> {
+            let sprint = Sprint::new(Uuid::new_v4(), 1, None, None::<String>);
+            Ok((sprint, Invalidation::Entities(EntityIds::default())))
+        }
+
+        fn cancel_sprint(&self, _id: Uuid) -> KanbanResult<(Sprint, Invalidation)> {
+            let sprint = Sprint::new(Uuid::new_v4(), 1, None, None::<String>);
+            Ok((sprint, Invalidation::Entities(EntityIds::default())))
+        }
+
+        fn carry_over_sprint_cards(
+            &self,
+            _from_sprint_id: Uuid,
+            _to_sprint_id: Uuid,
+        ) -> KanbanResult<(usize, Invalidation)> {
+            Ok((3, Invalidation::Entities(EntityIds::default())))
+        }
     }
 
     #[test]
@@ -236,6 +276,29 @@ mod tests {
         let invalidation = probe.delete_sprint(Uuid::new_v4())?;
 
         assert_eq!(invalidation, Invalidation::Entities(EntityIds::default()));
+        Ok(())
+    }
+
+    #[test]
+    fn test_activate_sprint_passes_none_through_as_none() -> KanbanResult<()> {
+        let probe = SprintProbe;
+
+        let (sprint, _invalidation) = probe.activate_sprint(Uuid::new_v4(), None)?;
+        assert_eq!(sprint.sprint_number, 0);
+
+        let (sprint, _invalidation) = probe.activate_sprint(Uuid::new_v4(), Some(7))?;
+        assert_eq!(sprint.sprint_number, 7);
+        Ok(())
+    }
+
+    #[test]
+    fn test_carry_over_sprint_cards_returns_a_count_not_an_entity() -> KanbanResult<()> {
+        let probe = SprintProbe;
+
+        let (moved, _invalidation) =
+            probe.carry_over_sprint_cards(Uuid::new_v4(), Uuid::new_v4())?;
+
+        assert_eq!(moved, 3);
         Ok(())
     }
 }

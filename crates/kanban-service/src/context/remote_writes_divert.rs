@@ -332,6 +332,39 @@ impl RemoteSprintWrites for RecordingSprintWrites {
         self.record(format!("delete_sprint:{id}"));
         Ok(self.canned.clone())
     }
+
+    fn activate_sprint(
+        &self,
+        id: Uuid,
+        duration_days: Option<i32>,
+    ) -> KanbanResult<(Sprint, Invalidation)> {
+        self.record(format!("activate_sprint:{id}:{duration_days:?}"));
+        let sprint = Sprint::new(Uuid::new_v4(), 1, Some(0), None::<String>);
+        Ok((sprint, self.canned.clone()))
+    }
+
+    fn complete_sprint(&self, id: Uuid) -> KanbanResult<(Sprint, Invalidation)> {
+        self.record(format!("complete_sprint:{id}"));
+        let sprint = Sprint::new(Uuid::new_v4(), 1, Some(0), None::<String>);
+        Ok((sprint, self.canned.clone()))
+    }
+
+    fn cancel_sprint(&self, id: Uuid) -> KanbanResult<(Sprint, Invalidation)> {
+        self.record(format!("cancel_sprint:{id}"));
+        let sprint = Sprint::new(Uuid::new_v4(), 1, Some(0), None::<String>);
+        Ok((sprint, self.canned.clone()))
+    }
+
+    fn carry_over_sprint_cards(
+        &self,
+        from_sprint_id: Uuid,
+        to_sprint_id: Uuid,
+    ) -> KanbanResult<(usize, Invalidation)> {
+        self.record(format!(
+            "carry_over_sprint_cards:{from_sprint_id}:{to_sprint_id}"
+        ));
+        Ok((0, self.canned.clone()))
+    }
 }
 
 struct RecordingBatchWrites {
