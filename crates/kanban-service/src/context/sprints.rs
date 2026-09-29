@@ -196,6 +196,12 @@ impl KanbanContext {
         updates: SprintUpdate,
     ) -> KanbanResult<(Sprint, Invalidation)> {
         use kanban_domain::commands::UpdateSprint;
+        if let Some(rw) = self.backend.remote_sprint_writes() {
+            return rw.update_sprint(id, &updates);
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("update_sprint"));
+        }
         let cmd = Command::Sprint(SprintCommand::Update(UpdateSprint {
             sprint_id: id,
             updates,
@@ -247,6 +253,12 @@ impl KanbanContext {
 
     pub fn delete_sprint_impl(&mut self, id: Uuid) -> KanbanResult<Invalidation> {
         use kanban_domain::commands::DeleteSprint;
+        if let Some(rw) = self.backend.remote_sprint_writes() {
+            return rw.delete_sprint(id);
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("delete_sprint"));
+        }
         let cmd = Command::Sprint(SprintCommand::Delete(DeleteSprint {
             sprint_id: id,
             timestamp: chrono::Utc::now(),
