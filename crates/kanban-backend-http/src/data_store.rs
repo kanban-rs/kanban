@@ -33,14 +33,31 @@ impl HttpBackend {
     /// collections. A whole-store read must therefore visit both lists, or it
     /// silently drops every archived board's subtree.
     async fn all_board_ids(&self) -> KanbanResult<Vec<Uuid>> {
-        let live: Vec<BoardResponse> = self.get_json_list("/v1/boards").await?;
-        let archived: Vec<ArchivedBoardResponse> =
-            self.get_json_list("/v1/archived-boards").await?;
+        let (live, archived_ids) = self.all_boards_live_and_archived_ids().await?;
         let mut ids: Vec<Uuid> = live.iter().map(|b| b.id).collect();
-        ids.extend(archived.iter().map(|m| m.entity_id));
+        ids.extend(archived_ids);
         ids.sort_unstable();
         ids.dedup();
         Ok(ids)
+    }
+
+    /// Live bodies plus the archived ids not already among them: a board that
+    /// was live at the first read and archived by the second is emitted once.
+    async fn all_boards_live_and_archived_ids(
+        &self,
+    ) -> KanbanResult<(Vec<BoardResponse>, Vec<Uuid>)> {
+        let live: Vec<BoardResponse> = self.get_json_list("/v1/boards").await?;
+        let archived: Vec<ArchivedBoardResponse> =
+            self.get_json_list("/v1/archived-boards").await?;
+        let live_ids: std::collections::HashSet<Uuid> = live.iter().map(|b| b.id).collect();
+        let mut archived_only: Vec<Uuid> = archived
+            .iter()
+            .map(|m| m.entity_id)
+            .filter(|id| !live_ids.contains(id))
+            .collect();
+        archived_only.sort_unstable();
+        archived_only.dedup();
+        Ok((live, archived_only))
     }
 
     fn lookup_cards(&self, identifier: &str) -> KanbanResult<Vec<Card>> {
@@ -416,8 +433,18 @@ impl DataStore for HttpBackend {
     /// architecture-mismatch: a whole-workspace flat sprint read; this transport deliberately never grows that route.
     fn list_all_sprints(&self) -> KanbanResult<Vec<Sprint>> {
         self.block_on(async {
+            let (live, archived_ids) = self.all_boards_live_and_archived_ids().await?;
             let mut sprints: Vec<Sprint> = Vec::new();
-            for board_id in self.all_board_ids().await? {
+            for board in &live {
+                let resp: Vec<SprintResponse> = self
+                    .get_json_list(&format!("/v1/boards/{}/sprints", board.id))
+                    .await?;
+                sprints.extend(
+                    resp.iter()
+                        .map(|s| sprint_from_response(s, &board.sprint_names)),
+                );
+            }
+            for board_id in archived_ids {
                 let board: Option<BoardResponse> =
                     self.get_json(&format!("/v1/boards/{board_id}")).await?;
                 let sprint_names = board.map(|b| b.sprint_names).unwrap_or_else(|| {
