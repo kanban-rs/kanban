@@ -52,6 +52,34 @@ pub(super) fn remote_batch_count(
     Ok(outcome.succeeded.len())
 }
 
+impl From<kanban_backend::RemoteBatchOutcome> for BatchOperationResult {
+    fn from(outcome: kanban_backend::RemoteBatchOutcome) -> Self {
+        BatchOperationResult {
+            succeeded: outcome.succeeded,
+            failed: outcome
+                .failed
+                .into_iter()
+                .map(|(id, error)| BatchOperationFailure { id, error })
+                .collect(),
+        }
+    }
+}
+
+impl BatchOperationResult {
+    pub(crate) fn all_failed(ids: Vec<Uuid>, error: &kanban_domain::KanbanError) -> Self {
+        BatchOperationResult {
+            succeeded: vec![],
+            failed: ids
+                .into_iter()
+                .map(|id| BatchOperationFailure {
+                    id,
+                    error: error.to_string(),
+                })
+                .collect(),
+        }
+    }
+}
+
 /// Service layer: wraps a pluggable [`KanbanBackend`] with undo/redo history
 /// and a unified async `save()` / `reload()` interface.
 ///

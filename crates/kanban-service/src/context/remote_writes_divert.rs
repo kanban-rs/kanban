@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use super::KanbanContext;
+use super::{BatchOperationFailure, KanbanContext};
 use crate::backend_test_support::MockBackend;
 use kanban_backend::{
     RemoteBatchOutcome, RemoteBatchWrites, RemoteBoardWrites, RemoteCardWrites, RemoteGraphWrites,
@@ -285,6 +285,7 @@ struct RecordingBatchWrites {
     calls: Mutex<Vec<String>>,
     canned: Invalidation,
     outcome: RemoteBatchOutcome,
+    transport_error: Option<String>,
 }
 
 impl RecordingBatchWrites {
@@ -293,6 +294,19 @@ impl RecordingBatchWrites {
             calls: Mutex::new(Vec::new()),
             canned,
             outcome,
+            transport_error: None,
+        }
+    }
+
+    fn new_transport_error(message: impl Into<String>) -> Self {
+        Self {
+            calls: Mutex::new(Vec::new()),
+            canned: canned_inv(),
+            outcome: RemoteBatchOutcome {
+                succeeded: vec![],
+                failed: vec![],
+            },
+            transport_error: Some(message.into()),
         }
     }
 
@@ -303,12 +317,19 @@ impl RecordingBatchWrites {
     fn record(&self, call: String) {
         self.calls.lock().unwrap().push(call);
     }
+
+    fn result(&self) -> KanbanResult<(RemoteBatchOutcome, Invalidation)> {
+        match &self.transport_error {
+            Some(message) => Err(kanban_domain::KanbanError::Transport(message.clone())),
+            None => Ok((self.outcome.clone(), self.canned.clone())),
+        }
+    }
 }
 
 impl RemoteBatchWrites for RecordingBatchWrites {
     fn archive_cards(&self, ids: &[Uuid]) -> KanbanResult<(RemoteBatchOutcome, Invalidation)> {
         self.record(format!("archive_cards:{ids:?}"));
-        Ok((self.outcome.clone(), self.canned.clone()))
+        self.result()
     }
 
     fn move_cards(
@@ -317,7 +338,7 @@ impl RemoteBatchWrites for RecordingBatchWrites {
         column_id: Uuid,
     ) -> KanbanResult<(RemoteBatchOutcome, Invalidation)> {
         self.record(format!("move_cards:{ids:?}:{column_id}"));
-        Ok((self.outcome.clone(), self.canned.clone()))
+        self.result()
     }
 
     fn assign_cards_to_sprint(
@@ -326,7 +347,7 @@ impl RemoteBatchWrites for RecordingBatchWrites {
         sprint_id: Uuid,
     ) -> KanbanResult<(RemoteBatchOutcome, Invalidation)> {
         self.record(format!("assign_cards_to_sprint:{ids:?}:{sprint_id}"));
-        Ok((self.outcome.clone(), self.canned.clone()))
+        self.result()
     }
 
     fn update_cards(
@@ -335,7 +356,7 @@ impl RemoteBatchWrites for RecordingBatchWrites {
     ) -> KanbanResult<(RemoteBatchOutcome, Invalidation)> {
         let ids: Vec<Uuid> = updates.iter().map(|(id, _)| *id).collect();
         self.record(format!("update_cards:{ids:?}"));
-        Ok((self.outcome.clone(), self.canned.clone()))
+        self.result()
     }
 }
 
@@ -1074,5 +1095,112 @@ async fn test_update_cards_with_remote_writes_but_no_batch_writes_declines_with_
         err.to_string(),
         kanban_domain::KanbanError::unsupported("update_cards").to_string()
     );
+    assert!(rw.calls().is_empty());
+}
+
+#[tokio::test]
+async fn test_archive_cards_detailed_transport_error_fails_every_id_with_an_empty_invalidation() {
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let a = Uuid::new_v4();
+    let b = Uuid::new_v4();
+    let batch_rw = Arc::new(RecordingBatchWrites::new_transport_error(
+        "connection refused",
+    ));
+    let mut ctx = open_ctx_with_batch_writes(rw.clone(), batch_rw.clone()).await;
+
+    let (result, inv) = ctx.archive_cards_detailed(vec![a, b]);
+
+    assert!(result.succeeded.is_empty(), "got: {:?}", result.succeeded);
+    let failed_ids: Vec<Uuid> = result.failed.iter().map(|f| f.id).collect();
+    assert_eq!(failed_ids, vec![a, b]);
+    assert!(
+        result
+            .failed
+            .iter()
+            .all(|f| f.error.contains("connection refused")),
+        "got: {:?}",
+        result.failed
+    );
+    assert_eq!(inv, Invalidation::Entities(EntityIds::default()));
+    assert!(rw.calls().is_empty());
+}
+
+#[tokio::test]
+async fn test_move_cards_detailed_with_remote_batch_writes_returns_the_outcome_verbatim() {
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let a = Uuid::new_v4();
+    let b = Uuid::new_v4();
+    let column_id = Uuid::new_v4();
+    let outcome = RemoteBatchOutcome {
+        succeeded: vec![a],
+        failed: vec![(b, "Card b not found".to_string())],
+    };
+    let batch_rw = Arc::new(RecordingBatchWrites::new(canned_inv(), outcome));
+    let mut ctx = open_ctx_with_batch_writes(rw.clone(), batch_rw.clone()).await;
+
+    let (result, inv) = ctx.move_cards_detailed(vec![a, b], column_id);
+
+    assert_eq!(result.succeeded, vec![a]);
+    assert_eq!(result.failed.len(), 1);
+    assert_eq!(result.failed[0].id, b);
+    assert_eq!(result.failed[0].error, "Card b not found");
+    assert_eq!(inv, canned_inv());
+    assert_eq!(
+        batch_rw.calls(),
+        vec![format!("move_cards:{:?}:{column_id}", [a, b])]
+    );
+    assert!(rw.calls().is_empty());
+}
+
+#[tokio::test]
+async fn test_assign_cards_to_sprint_detailed_with_remote_batch_writes_diverts_before_the_sprint_read(
+) {
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let a = Uuid::new_v4();
+    let sprint_id = Uuid::new_v4();
+    let outcome = RemoteBatchOutcome {
+        succeeded: vec![a],
+        failed: vec![],
+    };
+    let batch_rw = Arc::new(RecordingBatchWrites::new(canned_inv(), outcome));
+    let mut ctx = open_ctx_with_batch_writes(rw.clone(), batch_rw.clone()).await;
+
+    let (result, inv) = ctx.assign_cards_to_sprint_detailed(vec![a], sprint_id);
+
+    assert_eq!(result.succeeded, vec![a]);
+    assert!(result.failed.is_empty());
+    assert_eq!(inv, canned_inv());
+    assert_eq!(
+        batch_rw.calls(),
+        vec![format!("assign_cards_to_sprint:{:?}:{sprint_id}", [a])]
+    );
+    assert!(rw.calls().is_empty());
+}
+
+#[tokio::test]
+async fn test_archive_cards_detailed_with_remote_writes_but_no_batch_writes_fails_every_id_with_the_per_op_decline(
+) {
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let a = Uuid::new_v4();
+    let b = Uuid::new_v4();
+    let mut ctx = open_ctx(rw.clone()).await;
+
+    let (result, inv) = ctx.archive_cards_detailed(vec![a, b]);
+
+    assert!(result.succeeded.is_empty());
+    let expected_message = kanban_domain::KanbanError::unsupported("archive_cards").to_string();
+    let expected: Vec<BatchOperationFailure> = vec![a, b]
+        .into_iter()
+        .map(|id| BatchOperationFailure {
+            id,
+            error: expected_message.clone(),
+        })
+        .collect();
+    for (got, want) in result.failed.iter().zip(expected.iter()) {
+        assert_eq!(got.id, want.id);
+        assert_eq!(got.error, want.error);
+    }
+    assert_eq!(result.failed.len(), 2);
+    assert_eq!(inv, Invalidation::Entities(EntityIds::default()));
     assert!(rw.calls().is_empty());
 }
