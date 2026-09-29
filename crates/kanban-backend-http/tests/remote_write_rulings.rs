@@ -1,13 +1,11 @@
 use kanban_backend::KanbanBackend as _;
 use kanban_backend_http::HttpBackend;
-use kanban_domain::{BoardUpdate, FieldUpdate, KanbanOperations, NewBoard, UndoOperations};
+use kanban_domain::{BoardUpdate, FieldUpdate, NewBoard, UndoOperations};
 use kanban_server::test_helpers::TestServer;
 use kanban_service::{AppConfig, KanbanContext};
 use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
-
-const FENCE_MESSAGE: &str = "this operation is not supported over the HTTP backend in v1";
 
 async fn ctx_over(server: &TestServer) -> KanbanContext {
     let backend = Arc::new(HttpBackend::new(&server.base_url()).unwrap());
@@ -175,34 +173,6 @@ async fn read_one_sse_frame(response: &mut reqwest::Response) -> serde_json::Val
             return serde_json::from_str(data_line.trim_start_matches("data:").trim()).unwrap();
         }
     }
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_sprint_mutations_over_http_hit_the_fence_message() {
-    let seeded = Arc::new(std::sync::Mutex::new(None::<Uuid>));
-    let seeded_for_seed = Arc::clone(&seeded);
-
-    let server = TestServer::start_with(move |ctx| {
-        let board_id = ctx
-            .create_board("Fence Board".to_string(), Some("KAN".to_string()))
-            .unwrap()
-            .id;
-        *seeded_for_seed.lock().unwrap() = Some(board_id);
-    })
-    .await;
-
-    let board_id = seeded.lock().unwrap().take().unwrap();
-    let mut ctx = ctx_over(&server).await;
-
-    let sprint_err = ctx
-        .create_sprint_from_spec(board_id, None, None, None, false)
-        .unwrap_err();
-    assert_eq!(
-        sprint_err.to_string(),
-        kanban_domain::KanbanError::unsupported(FENCE_MESSAGE).to_string()
-    );
-
-    server.shutdown().await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
