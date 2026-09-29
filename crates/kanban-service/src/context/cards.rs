@@ -388,6 +388,12 @@ impl KanbanContext {
         position: Option<i32>,
     ) -> KanbanResult<(Card, Invalidation)> {
         use kanban_domain::commands::{MoveCard, UpdateCard};
+        if let Some(rw) = self.backend.remote_card_writes() {
+            return rw.move_card(id, column_id, position);
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("move_card"));
+        }
         let position = match position {
             Some(p) => p,
             // Append past the FULL (live + archived) set so a moved card — live
@@ -517,6 +523,12 @@ impl KanbanContext {
         card_id: Uuid,
         sprint_id: Uuid,
     ) -> KanbanResult<(Card, Invalidation)> {
+        if let Some(rw) = self.backend.remote_card_writes() {
+            return rw.assign_card_to_sprint(card_id, sprint_id);
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("assign_card_to_sprint"));
+        }
         let (_count, invalidation) = self.assign_cards_to_sprint_impl(vec![card_id], sprint_id)?;
         let card = self
             .get_card_impl(card_id)?
@@ -529,6 +541,12 @@ impl KanbanContext {
         card_id: Uuid,
     ) -> KanbanResult<(Card, Invalidation)> {
         use kanban_domain::commands::UnassignCardFromSprint;
+        if let Some(rw) = self.backend.remote_card_writes() {
+            return rw.unassign_card_from_sprint(card_id);
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("unassign_card_from_sprint"));
+        }
         let cmd = Command::Card(CardCommand::UnassignFromSprint(UnassignCardFromSprint {
             card_id,
             timestamp: chrono::Utc::now(),
