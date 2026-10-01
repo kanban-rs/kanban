@@ -1,6 +1,6 @@
 # winget manifest reference set
 
-This directory holds a reference/fallback copy of the `fulsomenko.kanban`
+This directory holds a reference/fallback copy of the `kanban-rs.kanban`
 winget manifest. It is **not** the canonical source: winget manifests
 cannot live in this repo the way the AUR `PKGBUILD` or the Chocolatey
 nuspec do — the single source of truth for a real release is the
@@ -11,14 +11,24 @@ and submits that real manifest on every release, via
 [`vedantmgoyal9/winget-releaser`](https://github.com/vedantmgoyal9/winget-releaser)
 (`komac` under the hood). It downloads the release's Windows zip,
 computes the SHA256, and opens a PR against `microsoft/winget-pkgs`
-from the `fulsomenko/winget-pkgs` fork.
+from the `kanban-rs/winget-pkgs` fork (an org fork of `microsoft/winget-pkgs`).
+
+## Token requirements
+
+The `WINGET_TOKEN` repository secret must be a **classic** Personal Access
+Token with the `public_repo` and `workflow` scopes, created by a GitHub
+user who has push access to the `kanban-rs/winget-pkgs` fork. The action
+does not support fine-grained tokens: a wrongly-scoped token fails with
+`<user> does not have the correct permissions to execute CreateRef` when
+komac tries to create the PR branch on the fork (this is what broke the
+v0.9.0 and v0.10.0 submissions).
 
 ## First submission is manual (one time)
 
 `winget-releaser` only **updates** a package that already has at least
 one version in `microsoft/winget-pkgs` — it bases each new version on
 the previous manifest. It cannot create a brand-new package identifier.
-So the very first `fulsomenko.kanban` submission must be made by hand;
+So the very first `kanban-rs.kanban` submission must be made by hand;
 until it lands, the `publish-winget` job will fail on every release
 (harmlessly, since the job is `continue-on-error: true`).
 
@@ -29,7 +39,7 @@ an already-published GitHub release `vX.Y.Z`:
 ```powershell
 winget install wingetcreate
 wingetcreate new `
-  https://github.com/fulsomenko/kanban/releases/download/vX.Y.Z/kanban-vX.Y.Z-x86_64-pc-windows-msvc.zip `
+  https://github.com/kanban-rs/kanban/releases/download/vX.Y.Z/kanban-vX.Y.Z-x86_64-pc-windows-msvc.zip `
   --submit
 ```
 
@@ -38,7 +48,7 @@ When prompted, match this directory: `InstallerType: zip`,
 `kanban-mcp.exe` -> `kanban-mcp`. Once that PR merges upstream, every
 subsequent release is fully automated by the `publish-winget` job.
 
-The files under `manifests/f/fulsomenko/kanban/0.0.0/` exist so that:
+The files under `manifests/k/kanban-rs/kanban/0.0.0/` exist so that:
 
 - `winget validate` can be run against a well-formed example locally
   or in CI, independent of any real release.
