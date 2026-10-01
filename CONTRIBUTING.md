@@ -742,11 +742,10 @@ To enable automated publishing and releases, configure these secrets in GitHub r
 - Changeset validation (only on PRs to develop)
 
 **release.yml** - Runs when a pull request into master is closed (and only proceeds if it was merged)
-- Checks for changesets (skips if none found)
-- Bumps version based on changesets
-- Updates CHANGELOG.md
-- Publishes to crates.io
-- Creates GitHub release with tag
+- `preflight` (mutation-free) classifies the run as release, resume, or noop and probes every release credential in its own step, so a broken secret fails the run before anything is pushed or published
+- `prepare` bumps the version from changesets, updates CHANGELOG.md, and pushes the release commit to master (release mode only; resume mode skips it because the commit is already on master)
+- `publish-crates` publishes to crates.io, `tag-release` pushes the tag and creates the GitHub release, then `publish-aur`, `publish-homebrew`, and `sync-develop` run as independent legs
+- Each leg is its own idempotent job, so "Re-run failed jobs" retries only the leg that broke; see `docs/release-recovery.md`
 
 **ci.yml**'s `release-validation` job also runs two drift guards after
 `validate-release`, both defined in `scripts/`:
@@ -760,7 +759,7 @@ managers once `build-windows`/the crates.io release succeed. The
 `packaging/` directory holds the source or reference files each of
 these jobs consumes:
 
-- `packaging/aur/` — AUR `PKGBUILD`, updated and pushed by the `release` job
+- `packaging/aur/` — AUR `PKGBUILD`, updated and pushed by the `publish-aur` job
 - `packaging/chocolatey/` — Chocolatey nuspec/tools, packed and pushed by `publish-chocolatey`
 - `packaging/winget/` — a reference/fallback copy of the winget manifest (for `winget validate` and manual submission); the real per-version manifest is generated and submitted to `microsoft/winget-pkgs` by the `publish-winget` job via `winget-releaser`, using the `WINGET_TOKEN` secret and the `fulsomenko/winget-pkgs` fork (see [Required Secrets](#required-secrets))
 
