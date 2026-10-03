@@ -5452,6 +5452,55 @@ mod name_resolution_tests {
     }
 
     #[test]
+    fn test_card_assign_sprint_with_a_sprint_uuid_from_another_board_fails() {
+        let (_dir, file, _b, _c) = setup_named_board("A", "AAA");
+        kanban()
+            .args([
+                &file,
+                "board",
+                "create",
+                "--name",
+                "B",
+                "--card-prefix",
+                "BBB",
+            ])
+            .assert()
+            .success();
+        let sjson = parse_json_output(&String::from_utf8_lossy(
+            &kanban()
+                .args([&file, "sprint", "create", "--board", "B", "--name", "beta"])
+                .assert()
+                .success()
+                .get_output()
+                .stdout,
+        ));
+        let sprint_id = extract_id(&sjson);
+        let cjson = parse_json_output(&String::from_utf8_lossy(
+            &kanban()
+                .args([
+                    &file, "card", "create", "--board", "A", "--column", "TODO", "--title", "T",
+                ])
+                .assert()
+                .success()
+                .get_output()
+                .stdout,
+        ));
+        let card_id = extract_id(&cjson);
+        kanban()
+            .args([
+                &file,
+                "card",
+                "assign-sprint",
+                &card_id,
+                "--sprint",
+                &sprint_id,
+            ])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("belongs to board"));
+    }
+
+    #[test]
     fn test_card_move_cards_with_card_identifiers_and_column_name() {
         let (_dir, file, _b, _c) = setup_named_board("B", "KAN");
         kanban()

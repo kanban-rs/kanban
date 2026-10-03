@@ -786,12 +786,12 @@ async fn require_same_board_rejects_cross_board_on_mcp() {
 // ============================================================================
 
 use kanban_mcp::{
-    ArchiveBoardRequest, AssignCardToSprintRequest, CarryOverSprintCardsRequest, CreateBoardParams,
-    CreateBoardRequest, CreateCardParams, CreateColumnParams, CreateSprintParams,
-    DeleteArchivedBoardRequest, GetBoardRequest, GetCardRequest, GetColumnRequest,
-    GetSprintRequest, ImportBoardRequest, KanbanMcpServer, ListBoardsRequest, ListColumnsRequest,
-    ListSprintsRequest, MoveCardRequest, MoveCardsRequest, RestoreBoardRequest,
-    UpdateColumnRequest,
+    ArchiveBoardRequest, AssignCardToSprintRequest, AssignCardsToSprintRequest,
+    CarryOverSprintCardsRequest, CreateBoardParams, CreateBoardRequest, CreateCardParams,
+    CreateColumnParams, CreateSprintParams, DeleteArchivedBoardRequest, GetBoardRequest,
+    GetCardRequest, GetColumnRequest, GetSprintRequest, ImportBoardRequest, KanbanMcpServer,
+    ListBoardsRequest, ListColumnsRequest, ListSprintsRequest, MoveCardRequest, MoveCardsRequest,
+    RestoreBoardRequest, UpdateColumnRequest,
 };
 use rmcp::handler::server::wrapper::Parameters;
 use serde_json::Value;
@@ -1626,6 +1626,106 @@ async fn tool_create_card_with_cross_board_sprint_returns_useful_error() {
                 points: None,
                 sprint_id: None,
             },
+        }))
+        .await
+        .unwrap_err();
+    let msg = format!("{:?}", err);
+    assert!(msg.contains("belongs to board"), "err: {msg}");
+}
+
+#[tokio::test]
+async fn test_tool_assign_cards_to_sprint_with_a_cross_board_sprint_uuid_returns_a_board_mismatch_error(
+) {
+    let (server, _tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(board_req("A", Some("A".into()))))
+        .await
+        .unwrap();
+    server
+        .tool_create_board(Parameters(board_req("B", Some("B".into()))))
+        .await
+        .unwrap();
+    server
+        .tool_create_column(Parameters(column_req("A", "TODO")))
+        .await
+        .unwrap();
+    let card_result = server
+        .tool_create_card(Parameters(card_req("A", "TODO", "T")))
+        .await
+        .unwrap();
+    let card_id = text_payload(&card_result)["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let sprint_b_result = server
+        .tool_create_sprint(Parameters(sprint_req("B", "beta")))
+        .await
+        .unwrap();
+    let sprint_b_id = text_payload(&sprint_b_result)["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let err = server
+        .tool_assign_cards_to_sprint(Parameters(AssignCardsToSprintRequest {
+            cards: vec![card_id],
+            sprint: sprint_b_id,
+        }))
+        .await
+        .unwrap_err();
+    let msg = format!("{:?}", err);
+    assert!(msg.contains("belongs to board"), "err: {msg}");
+}
+
+#[tokio::test]
+async fn test_tool_carry_over_sprint_cards_with_a_cross_board_to_sprint_uuid_returns_a_board_mismatch_error(
+) {
+    let (server, _tmp) = setup_server().await;
+    server
+        .tool_create_board(Parameters(board_req("Alpha", Some("A".into()))))
+        .await
+        .unwrap();
+    server
+        .tool_create_board(Parameters(board_req("Beta", Some("B".into()))))
+        .await
+        .unwrap();
+    let done_result = server
+        .tool_create_sprint(Parameters(sprint_req("Alpha", "done")))
+        .await
+        .unwrap();
+    let done_id = text_payload(&done_result)["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let next_result = server
+        .tool_create_sprint(Parameters(sprint_req("Beta", "next")))
+        .await
+        .unwrap();
+    let next_id = text_payload(&next_result)["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    server
+        .tool_activate_sprint(Parameters(kanban_mcp::ActivateSprintRequest {
+            board: Some("Alpha".into()),
+            sprint: "done".into(),
+            duration_days: Some(1),
+        }))
+        .await
+        .unwrap();
+    server
+        .tool_complete_sprint(Parameters(kanban_mcp::CompleteSprintRequest {
+            board: Some("Alpha".into()),
+            sprint: "done".into(),
+        }))
+        .await
+        .unwrap();
+
+    let err = server
+        .tool_carry_over_sprint_cards(Parameters(CarryOverSprintCardsRequest {
+            board: None,
+            from_sprint: done_id,
+            to_sprint: next_id,
         }))
         .await
         .unwrap_err();

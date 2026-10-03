@@ -66,7 +66,7 @@ A swim lane within a board.
 | `created_at` | `DateTime<Utc>` | Creation timestamp |
 | `updated_at` | `DateTime<Utc>` | Last modification timestamp |
 
-WIP limits are **advisory**: the UI surfaces it as a visual cue; card creation always succeeds.
+WIP limits are **enforced**: creating, moving or restoring a card into a column at its limit fails with `WipLimitExceeded` (409 over HTTP); archived cards do not count toward the limit.
 
 **Partial update**: `ColumnUpdate { name, position, wip_limit: FieldUpdate<i32> }`
 
@@ -335,6 +335,10 @@ pub enum KanbanError {
     ConflictDetected { path: String, source: Option<Box<dyn Error + Send + Sync>> },
     Database(String),
     Internal(String),
+    Transport(String),
+    Unsupported { operation: &'static str },
+    UnsupportedFutureVersion { file_version: u32, binary_max: u32 },
+    UnsupportedServerVersion { url: String, server_version: Option<String>, client_version: String },
 }
 ```
 
@@ -381,8 +385,9 @@ KanbanError::is_conflict_detected(&self) -> bool
 - **Card numbering**: per-prefix counter stored in `Board::prefix_counters`; monotonically increasing, permanently unique per prefix
 - **Sprint assignment deduplication**: assigning a card to a sprint it already belongs to is a no-op
 - **Completion column**: the rightmost column is used when toggling a card to Done (falls back to the rightmost column)
-- **WIP limits**: advisory only — enforcement is the UI's responsibility
+- **WIP limits**: enforced by the create, move and restore commands; archived cards do not count
 - **Sprint assignability**: only `Planning` and `Active` sprints can be assigned to cards
+- **Sprint board membership**: binding a card to a sprint on another board is refused (`SprintBoardMismatch`). Moving or restoring a card onto another board drops a binding to a sprint that is not on the destination board; undoing the move restores it.
 
 ---
 

@@ -8,6 +8,13 @@ pub struct AttachChildrenRequest {
     pub children: Vec<Uuid>,
 }
 
+/// Request body for `POST /v1/cards/{id}/children/detach`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct DetachChildrenRequest {
+    pub children: Vec<Uuid>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AddBlockRequest {
@@ -32,6 +39,13 @@ mod tests {
     fn test_attach_children_request_requires_children_field() {
         let err =
             serde_json::from_value::<AttachChildrenRequest>(serde_json::json!({})).unwrap_err();
+        assert!(err.to_string().contains("children"));
+    }
+
+    #[test]
+    fn test_detach_children_request_requires_children_field() {
+        let err =
+            serde_json::from_value::<DetachChildrenRequest>(serde_json::json!({})).unwrap_err();
         assert!(err.to_string().contains("children"));
     }
 

@@ -89,6 +89,12 @@ fn do_delete_column(ctx: &mut crate::state::Session, id: Uuid) -> Result<Invalid
     crate::state::mutate_unit(ctx, |c| c.delete_column_impl(id)).map_err(|e| AppError::from(&e))
 }
 
+fn require_column_exists(ctx: &crate::state::Session, id: Uuid) -> Result<(), AppError> {
+    column_current(ctx, id)?
+        .map(|_| ())
+        .ok_or_else(|| AppError::from(&KanbanError::not_found("Column", id)))
+}
+
 /// Fetch a column and 404 unless it belongs to `board_id`, needed because
 /// `KanbanOperations::{update_column, delete_column, reorder_column}` key on
 /// the global column id with no board scoping of their own.
@@ -280,6 +286,7 @@ async fn update_column_route_flat(
     let updates = ColumnUpdate::try_from(req).map_err(|e| AppError::from(&e))?;
     let (col, invalidation) = {
         let mut ctx = state.lock_for_write(client).await;
+        require_column_exists(&ctx, id)?;
         etag::check_if_match(&headers, || column_current(&ctx, id))?;
         let (col, invalidation) = do_update_column(&mut ctx, id, updates)?;
         state
@@ -308,6 +315,7 @@ async fn delete_column_route_flat(
 ) -> Result<(StatusCode, Json<DeleteResponse>), AppError> {
     let invalidation = {
         let mut ctx = state.lock_for_write(client).await;
+        require_column_exists(&ctx, id)?;
         etag::check_if_match(&headers, || column_current(&ctx, id))?;
         let invalidation = do_delete_column(&mut ctx, id)?;
         state

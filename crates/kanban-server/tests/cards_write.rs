@@ -5,9 +5,11 @@
 //! a change event on success, then returns the appropriate status.
 
 use axum::http::StatusCode;
-use kanban_domain::KanbanOperations;
+use kanban_domain::{CardStatus, ColumnUpdate, CreateCardOptions, KanbanOperations};
 use kanban_server::state::AppState;
-use kanban_server::test_helpers::{json_of, make_state, send, send_with_headers};
+use kanban_server::test_helpers::{
+    json_of, make_sqlite_state, make_state, send, send_with_headers,
+};
 use serde_json::json;
 use tempfile::tempdir;
 use uuid::Uuid;
@@ -710,4 +712,506 @@ async fn test_put_card_create_with_if_match_returns_412_and_creates_nothing() {
 
     let get_response = send(&state, "GET", &format!("/v1/cards/{fresh_id}"), None).await;
     assert_eq!(get_response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_move_card_route_appends_and_chains_status_into_a_completion_column() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let (board_id, todo_id, done_id, card_id) = {
+        let mut ctx = state.ctx.lock().await;
+        let board_id = ctx
+            .create_board("Board".to_string(), Some("KAN".to_string()))
+            .unwrap()
+            .id;
+        let todo = ctx
+            .create_column(board_id, "Todo".to_string(), None)
+            .unwrap();
+        let done = ctx
+            .create_column(board_id, "Done".to_string(), None)
+            .unwrap();
+        ctx.update_column(
+            done.id,
+            ColumnUpdate {
+                default_status: Some(Some(CardStatus::Done)),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        ctx.create_card(
+            board_id,
+            done.id,
+            "Already done".to_string(),
+            Default::default(),
+        )
+        .unwrap();
+        let card = ctx
+            .create_card(board_id, todo.id, "Task".to_string(), Default::default())
+            .unwrap();
+        (board_id, todo.id, done.id, card.id)
+    };
+    let _ = (board_id, todo_id);
+
+    let response = send(
+        &state,
+        "POST",
+        &format!("/v1/cards/{card_id}/move?column_id={done_id}"),
+        None,
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_of(response).await;
+    assert_eq!(body["position"], 1);
+    assert_eq!(body["status"], "done");
+    assert_eq!(body["column_id"], done_id.to_string());
+    assert_eq!(body["invalidation"]["scope"], "entities");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_move_card_route_unknown_card_is_404() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let (_board_id, column_id) = seed_board_and_column(&state, "To Do").await;
+    let unknown_id = Uuid::new_v4();
+
+    let response = send(
+        &state,
+        "POST",
+        &format!("/v1/cards/{unknown_id}/move?column_id={column_id}"),
+        None,
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_assign_sprint_route_pushes_a_sprint_log_entry() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let (board_id, card_id) = {
+        let mut ctx = state.ctx.lock().await;
+        let board_id = ctx
+            .create_board("Board".to_string(), Some("KAN".to_string()))
+            .unwrap()
+            .id;
+        let col = ctx
+            .create_column(board_id, "To Do".to_string(), None)
+            .unwrap();
+        let card = ctx
+            .create_card(board_id, col.id, "Task".to_string(), Default::default())
+            .unwrap();
+        (board_id, card.id)
+    };
+    let sprint_id = {
+        let mut ctx = state.ctx.lock().await;
+        ctx.create_sprint(board_id, None, None).unwrap().id
+    };
+
+    let response = send(
+        &state,
+        "POST",
+        &format!("/v1/cards/{card_id}/assign-sprint?sprint_id={sprint_id}"),
+        None,
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_of(response).await;
+    assert_eq!(body["sprint_id"], sprint_id.to_string());
+    assert_eq!(body["invalidation"]["scope"], "entities");
+
+    let ctx = state.ctx.lock().await;
+    let card = ctx.get_card(card_id).unwrap().unwrap();
+    assert_eq!(card.sprint_logs.len(), 1);
+    assert_eq!(card.sprint_logs[0].sprint_id, sprint_id);
+    assert!(card.sprint_logs[0].ended_at.is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_unassign_sprint_route_closes_the_open_sprint_log() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let (board_id, card_id) = {
+        let mut ctx = state.ctx.lock().await;
+        let board_id = ctx
+            .create_board("Board".to_string(), Some("KAN".to_string()))
+            .unwrap()
+            .id;
+        let col = ctx
+            .create_column(board_id, "To Do".to_string(), None)
+            .unwrap();
+        let card = ctx
+            .create_card(board_id, col.id, "Task".to_string(), Default::default())
+            .unwrap();
+        (board_id, card.id)
+    };
+    let sprint_id = {
+        let mut ctx = state.ctx.lock().await;
+        ctx.create_sprint(board_id, None, None).unwrap().id
+    };
+
+    let assign_response = send(
+        &state,
+        "POST",
+        &format!("/v1/cards/{card_id}/assign-sprint?sprint_id={sprint_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(assign_response.status(), StatusCode::OK);
+
+    let response = send(
+        &state,
+        "POST",
+        &format!("/v1/cards/{card_id}/unassign-sprint"),
+        None,
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_of(response).await;
+    assert!(body.get("sprint_id").map_or(true, |v| v.is_null()));
+    assert_eq!(body["invalidation"]["scope"], "entities");
+
+    let ctx = state.ctx.lock().await;
+    let card = ctx.get_card(card_id).unwrap().unwrap();
+    assert_eq!(card.sprint_logs.len(), 1);
+    assert!(card.sprint_logs[0].ended_at.is_some());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_batch_move_route_still_routes_to_the_batch_handler_after_the_flat_move_route_exists()
+{
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let (board_id, col_a, card_id) = {
+        let mut ctx = state.ctx.lock().await;
+        let board_id = ctx
+            .create_board("Board".to_string(), Some("KAN".to_string()))
+            .unwrap()
+            .id;
+        let col_a = ctx
+            .create_column(board_id, "To Do".to_string(), None)
+            .unwrap()
+            .id;
+        let card = ctx
+            .create_card(board_id, col_a, "Task".to_string(), Default::default())
+            .unwrap();
+        (board_id, col_a, card.id)
+    };
+    let col_b = {
+        let mut ctx = state.ctx.lock().await;
+        ctx.create_column(board_id, "Doing".to_string(), None)
+            .unwrap()
+            .id
+    };
+    let _ = col_a;
+
+    let response = send(
+        &state,
+        "POST",
+        "/v1/cards/batch/move",
+        Some(&json!({ "ids": [card_id], "column_id": col_b })),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_of(response).await;
+    assert_eq!(body["succeeded"].as_array().unwrap().len(), 1);
+    assert_eq!(body["failed"].as_array().unwrap().len(), 0);
+}
+
+async fn scenario_move_route_to_another_boards_column_clears_the_sprint(state: AppState) {
+    let (card_id, board_b_id, col_b_id) = {
+        let mut ctx = state.ctx.lock().await;
+        let board_a_id = ctx
+            .create_board("A".to_string(), Some("AAA".to_string()))
+            .unwrap()
+            .id;
+        let col_a_id = ctx
+            .create_column(board_a_id, "Col".to_string(), None)
+            .unwrap()
+            .id;
+        let sprint_a_id = ctx.create_sprint(board_a_id, None, None).unwrap().id;
+        let card_id = ctx
+            .create_card(
+                board_a_id,
+                col_a_id,
+                "Task".to_string(),
+                CreateCardOptions {
+                    sprint_id: Some(sprint_a_id),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .id;
+
+        let board_b_id = ctx
+            .create_board("B".to_string(), Some("BBB".to_string()))
+            .unwrap()
+            .id;
+        let col_b_id = ctx
+            .create_column(board_b_id, "Col".to_string(), None)
+            .unwrap()
+            .id;
+        (card_id, board_b_id, col_b_id)
+    };
+
+    let response = send(
+        &state,
+        "POST",
+        &format!("/v1/cards/{card_id}/move?column_id={col_b_id}"),
+        None,
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_of(response).await;
+    assert!(body["sprint_id"].is_null());
+    assert_eq!(body["board_id"], board_b_id.to_string());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_move_route_to_another_boards_column_returns_the_card_with_its_sprint_cleared_on_json()
+{
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    scenario_move_route_to_another_boards_column_clears_the_sprint(state).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_move_route_to_another_boards_column_returns_the_card_with_its_sprint_cleared_on_sqlite(
+) {
+    let dir = tempdir().unwrap();
+    let state = make_sqlite_state(&dir.path().join("s.sqlite")).await;
+    scenario_move_route_to_another_boards_column_clears_the_sprint(state).await;
+}
+
+async fn scenario_patch_with_status_and_a_cross_board_column_moves_the_card(state: AppState) {
+    let (card_id, board_b_id, col_b_id) = {
+        let mut ctx = state.ctx.lock().await;
+        let board_a_id = ctx
+            .create_board("A".to_string(), Some("AAA".to_string()))
+            .unwrap()
+            .id;
+        let col_a_id = ctx
+            .create_column(board_a_id, "Col".to_string(), None)
+            .unwrap()
+            .id;
+        let sprint_a_id = ctx.create_sprint(board_a_id, None, None).unwrap().id;
+        let card_id = ctx
+            .create_card(
+                board_a_id,
+                col_a_id,
+                "Task".to_string(),
+                CreateCardOptions {
+                    sprint_id: Some(sprint_a_id),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .id;
+
+        let board_b_id = ctx
+            .create_board("B".to_string(), Some("BBB".to_string()))
+            .unwrap()
+            .id;
+        let col_b_id = ctx
+            .create_column(board_b_id, "Col".to_string(), None)
+            .unwrap()
+            .id;
+        ctx.create_card(board_b_id, col_b_id, "B1".to_string(), Default::default())
+            .unwrap();
+        (card_id, board_b_id, col_b_id)
+    };
+
+    let response = send(
+        &state,
+        "PATCH",
+        &format!("/v1/cards/{card_id}"),
+        Some(&json!({"status": "in_progress", "column_id": col_b_id.to_string()})),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_of(response).await;
+    assert_eq!(body["board_id"], board_b_id.to_string());
+    assert_eq!(body["column_id"], col_b_id.to_string());
+    assert_eq!(body["position"], 1);
+    assert_eq!(body["status"], "in_progress");
+    assert!(body["sprint_id"].is_null());
+
+    let response = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{board_b_id}/cards/{card_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_patch_card_with_status_and_a_cross_board_column_moves_it_to_the_destination_board_on_json(
+) {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    scenario_patch_with_status_and_a_cross_board_column_moves_the_card(state).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_patch_card_with_status_and_a_cross_board_column_moves_it_to_the_destination_board_on_sqlite(
+) {
+    let dir = tempdir().unwrap();
+    let state = make_sqlite_state(&dir.path().join("s.sqlite")).await;
+    scenario_patch_with_status_and_a_cross_board_column_moves_the_card(state).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_patch_card_with_status_and_column_into_a_full_column_returns_409() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let (_board_id, dest_col, card_id) = {
+        let mut ctx = state.ctx.lock().await;
+        let board_id = ctx
+            .create_board("Board".to_string(), Some("KAN".to_string()))
+            .unwrap()
+            .id;
+        let source = ctx
+            .create_column(board_id, "Source".to_string(), None)
+            .unwrap();
+        let dest = ctx
+            .create_column(board_id, "Full".to_string(), None)
+            .unwrap();
+        ctx.update_column(
+            dest.id,
+            kanban_domain::ColumnUpdate {
+                wip_limit: kanban_domain::FieldUpdate::Set(1),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        ctx.create_card(
+            board_id,
+            dest.id,
+            "Blocking Task".to_string(),
+            Default::default(),
+        )
+        .unwrap();
+        let card = ctx
+            .create_card(
+                board_id,
+                source.id,
+                "To Move".to_string(),
+                Default::default(),
+            )
+            .unwrap();
+        (board_id, dest.id, card.id)
+    };
+
+    let response = send(
+        &state,
+        "PATCH",
+        &format!("/v1/cards/{card_id}"),
+        Some(&json!({"status": "in_progress", "column_id": dest_col.to_string()})),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    assert_eq!(json_of(response).await["code"], "WIP_LIMIT_EXCEEDED");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_assign_sprint_route_with_a_sprint_on_another_board_returns_422_sprint_board_mismatch()
+{
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let (card_id, sprint_b) = {
+        let mut ctx = state.ctx.lock().await;
+        let board_a = ctx
+            .create_board("A".to_string(), Some("AAA".to_string()))
+            .unwrap()
+            .id;
+        let col_a = ctx
+            .create_column(board_a, "Col".to_string(), None)
+            .unwrap()
+            .id;
+        let card_id = ctx
+            .create_card(board_a, col_a, "Task".to_string(), Default::default())
+            .unwrap()
+            .id;
+        let board_b = ctx
+            .create_board("B".to_string(), Some("BBB".to_string()))
+            .unwrap()
+            .id;
+        let sprint_b = ctx.create_sprint(board_b, None, None).unwrap().id;
+        (card_id, sprint_b)
+    };
+
+    let response = send(
+        &state,
+        "POST",
+        &format!("/v1/cards/{card_id}/assign-sprint?sprint_id={sprint_b}"),
+        None,
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(json_of(response).await["code"], "SPRINT_BOARD_MISMATCH");
+
+    let ctx = state.ctx.lock().await;
+    let card = ctx.get_card(card_id).unwrap().unwrap();
+    assert_eq!(card.sprint_id, None);
+    assert!(card.sprint_logs.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_patch_card_with_a_sprint_on_another_board_returns_422_sprint_board_mismatch() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let (card_id, sprint_b) = {
+        let mut ctx = state.ctx.lock().await;
+        let board_a = ctx
+            .create_board("A".to_string(), Some("AAA".to_string()))
+            .unwrap()
+            .id;
+        let col_a = ctx
+            .create_column(board_a, "Col".to_string(), None)
+            .unwrap()
+            .id;
+        let card_id = ctx
+            .create_card(board_a, col_a, "Task".to_string(), Default::default())
+            .unwrap()
+            .id;
+        let board_b = ctx
+            .create_board("B".to_string(), Some("BBB".to_string()))
+            .unwrap()
+            .id;
+        let sprint_b = ctx.create_sprint(board_b, None, None).unwrap().id;
+        (card_id, sprint_b)
+    };
+
+    let response = send(
+        &state,
+        "PATCH",
+        &format!("/v1/cards/{card_id}"),
+        Some(&json!({"sprint_id": sprint_b})),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(json_of(response).await["code"], "SPRINT_BOARD_MISMATCH");
+
+    let get_card = send(&state, "GET", &format!("/v1/cards/{card_id}"), None).await;
+    assert_eq!(get_card.status(), StatusCode::OK);
+    assert!(json_of(get_card).await["sprint_id"].is_null());
 }

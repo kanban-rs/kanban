@@ -1,11 +1,96 @@
 #![cfg(feature = "test-helpers")]
 
+use kanban_domain::NewBoard;
 use kanban_persistence_json::{JsonDataStore, JsonFileStore};
 use kanban_persistence_sqlite::SqliteBackend;
 use kanban_server::test_helpers::TestServer;
 use kanban_service::{AppConfig, KanbanContext};
 use std::sync::Arc;
 use uuid::Uuid;
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_start_with_fault_answers_only_the_armed_request_with_503() {
+    let (server, fault) = TestServer::start_with_fault(|_| {}).await;
+
+    let unarmed = server
+        .client()
+        .get(format!("{}/v1/boards", server.base_url()))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unarmed.status(), reqwest::StatusCode::OK);
+
+    *fault.lock().unwrap() = Some(("GET", "/v1/boards".to_string()));
+
+    let armed = server
+        .client()
+        .get(format!("{}/v1/boards", server.base_url()))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(armed.status(), reqwest::StatusCode::SERVICE_UNAVAILABLE);
+
+    let health_while_armed = server
+        .client()
+        .get(format!("{}/health", server.base_url()))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(health_while_armed.status(), reqwest::StatusCode::OK);
+
+    *fault.lock().unwrap() = None;
+
+    let disarmed = server
+        .client()
+        .get(format!("{}/v1/boards", server.base_url()))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(disarmed.status(), reqwest::StatusCode::OK);
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_start_with_one_shot_fault_answers_only_the_first_matching_request_with_503() {
+    let (server, fault) = TestServer::start_with_one_shot_fault(|_| {}).await;
+
+    *fault.lock().unwrap() = Some(("GET", "/v1/boards".to_string()));
+
+    let health = server
+        .client()
+        .get(format!("{}/health", server.base_url()))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(health.status(), reqwest::StatusCode::OK);
+    assert!(
+        fault.lock().unwrap().is_some(),
+        "a non-matching request must not consume the shot"
+    );
+
+    let first = server
+        .client()
+        .get(format!("{}/v1/boards", server.base_url()))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(first.status(), reqwest::StatusCode::SERVICE_UNAVAILABLE);
+    assert!(
+        fault.lock().unwrap().is_none(),
+        "the fault should disarm itself after firing once"
+    );
+
+    let second = server
+        .client()
+        .get(format!("{}/v1/boards", server.base_url()))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(second.status(), reqwest::StatusCode::OK);
+
+    server.shutdown().await;
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_health_endpoint_returns_ok_over_real_socket() {
@@ -127,4 +212,165 @@ async fn test_start_on_sqlite_serves_and_persists_to_the_given_path() {
     assert_eq!(boards.len(), 1);
     assert_eq!(boards[0].name, "Persisted");
     assert_eq!(boards[0].card_prefix, Some("PJ".to_string()));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_start_recording_logs_a_request_whose_handler_returned_404() {
+    let (server, log) = TestServer::start_recording(|_| {}).await;
+    let missing_path = format!("/v1/no-such-route/{}", Uuid::new_v4());
+
+    let response = server
+        .client()
+        .get(format!("{}{}", server.base_url(), missing_path))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+
+    let entries = log.lock().unwrap().clone();
+    assert!(
+        entries
+            .iter()
+            .any(|(method, path)| method == reqwest::Method::GET && path == &missing_path),
+        "expected the 404'd request to be logged, got {entries:?}"
+    );
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_start_recording_logs_each_request_in_arrival_order() {
+    let (server, log) = TestServer::start_recording(|_| {}).await;
+
+    server
+        .client()
+        .get(format!("{}/health", server.base_url()))
+        .send()
+        .await
+        .unwrap();
+    server
+        .client()
+        .get(format!("{}/v1/boards", server.base_url()))
+        .send()
+        .await
+        .unwrap();
+
+    let entries = log.lock().unwrap().clone();
+    assert_eq!(
+        entries,
+        vec![
+            (reqwest::Method::GET, "/health".to_string()),
+            (reqwest::Method::GET, "/v1/boards".to_string()),
+        ]
+    );
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_start_recording_records_the_path_without_the_query_string() {
+    let (server, log) = TestServer::start_recording(|ctx| {
+        let _ = ctx
+            .create_board_from_spec(
+                None,
+                NewBoard {
+                    name: "Recorded".to_string(),
+                    description: None,
+                    sprint_prefix: None,
+                    card_prefix: Some("RC".to_string()),
+                    task_sort_field: None,
+                    task_sort_order: None,
+                    sprint_duration_days: None,
+                    task_list_view: None,
+                },
+            )
+            .unwrap();
+    })
+    .await;
+
+    let boards: serde_json::Value = server
+        .client()
+        .get(format!("{}/v1/boards", server.base_url()))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let board_id = boards["items"][0]["id"].as_str().unwrap();
+    let path_with_query = format!("/v1/boards/{board_id}/cards?column_id={}", Uuid::new_v4());
+
+    server
+        .client()
+        .get(format!("{}{}", server.base_url(), path_with_query))
+        .send()
+        .await
+        .unwrap();
+
+    let entries = log.lock().unwrap().clone();
+    let expected_path = format!("/v1/boards/{board_id}/cards");
+    assert!(
+        entries
+            .iter()
+            .any(|(_, path)| path == &expected_path && !path.contains('?')),
+        "expected a logged entry for {expected_path} without a query string, got {entries:?}"
+    );
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_start_recording_seeds_the_context_like_start_with() {
+    let (server, _log) = TestServer::start_recording(|ctx| {
+        let _ = ctx
+            .create_board_from_spec(
+                None,
+                NewBoard {
+                    name: "Seeded".to_string(),
+                    description: None,
+                    sprint_prefix: None,
+                    card_prefix: Some("SD".to_string()),
+                    task_sort_field: None,
+                    task_sort_order: None,
+                    sprint_duration_days: None,
+                    task_list_view: None,
+                },
+            )
+            .unwrap();
+    })
+    .await;
+
+    let boards: serde_json::Value = server
+        .client()
+        .get(format!("{}/v1/boards", server.base_url()))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(boards["items"][0]["name"], "Seeded");
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_health_endpoint_reports_the_server_version_over_real_socket() {
+    let server = TestServer::start().await;
+
+    let response = server
+        .client()
+        .get(format!("{}/health", server.base_url()))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let json: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(json["version"], kanban_core::KANBAN_VERSION);
+    assert_eq!(json["status"], "ok");
+    let instance_id = json["instance_id"].as_str().expect("instance_id present");
+    Uuid::parse_str(instance_id).expect("instance_id is a valid uuid");
+
+    server.shutdown().await;
 }

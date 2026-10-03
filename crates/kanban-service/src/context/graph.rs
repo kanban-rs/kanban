@@ -106,6 +106,12 @@ impl KanbanContext {
         parent: Uuid,
         children: Vec<Uuid>,
     ) -> KanbanResult<Invalidation> {
+        if let Some(rw) = self.backend.remote_graph_writes() {
+            return rw.attach_children(parent, &children);
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("attach_children"));
+        }
         self.require_card_exists(parent)?;
         for child in &children {
             self.require_card_exists(*child)?;
@@ -129,6 +135,12 @@ impl KanbanContext {
         parent: Uuid,
         children: Vec<Uuid>,
     ) -> KanbanResult<Invalidation> {
+        if let Some(rw) = self.backend.remote_graph_writes() {
+            return rw.detach_children(parent, &children);
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("detach_children"));
+        }
         self.require_card_exists(parent)?;
         for child in &children {
             self.require_card_exists(*child)?;
@@ -153,6 +165,12 @@ impl KanbanContext {
         blocked: Uuid,
         severity: Severity,
     ) -> KanbanResult<Invalidation> {
+        if let Some(rw) = self.backend.remote_graph_writes() {
+            return rw.block(blocker, blocked, severity);
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("block"));
+        }
         self.require_card_exists(blocker)?;
         self.require_card_exists(blocked)?;
         let as_archived = self.edge_born_archived(blocker, blocked)?;
@@ -167,6 +185,12 @@ impl KanbanContext {
     }
 
     pub fn unblock_impl(&mut self, blocker: Uuid, blocked: Uuid) -> KanbanResult<Invalidation> {
+        if let Some(rw) = self.backend.remote_graph_writes() {
+            return rw.unblock(blocker, blocked);
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("unblock"));
+        }
         self.require_card_exists(blocker)?;
         self.require_card_exists(blocked)?;
         self.execute(vec![Command::Dependency(DependencyCommand::RemoveBlocks(
@@ -185,6 +209,12 @@ impl KanbanContext {
         b: Uuid,
         kind: RelatesKind,
     ) -> KanbanResult<Invalidation> {
+        if let Some(rw) = self.backend.remote_graph_writes() {
+            return rw.relate(a, b, kind);
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("relate"));
+        }
         self.require_card_exists(a)?;
         self.require_card_exists(b)?;
         let as_archived = self.edge_born_archived(a, b)?;
@@ -199,6 +229,12 @@ impl KanbanContext {
     }
 
     pub fn dissociate_impl(&mut self, a: Uuid, b: Uuid) -> KanbanResult<Invalidation> {
+        if let Some(rw) = self.backend.remote_graph_writes() {
+            return rw.dissociate(a, b);
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("dissociate"));
+        }
         self.require_card_exists(a)?;
         self.require_card_exists(b)?;
         self.execute(vec![Command::Dependency(DependencyCommand::RemoveRelates(

@@ -7,7 +7,9 @@ use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use kanban_domain::{KanbanError, KanbanOperations, Snapshot};
-use kanban_service::api::{ApiError, BoardResponse, ChangeKind, EntityType, ErrorCode};
+use kanban_service::api::{
+    ApiError, BoardResponse, ChangeKind, EntityType, ErrorCode, MutationResponse,
+};
 use uuid::Uuid;
 
 async fn export_board_route(
@@ -41,7 +43,7 @@ async fn import_route(
     State(state): State<AppState>,
     ClientIdent(client): ClientIdent,
     body: String,
-) -> Result<(StatusCode, Json<BoardResponse>), AppError> {
+) -> Result<(StatusCode, Json<MutationResponse<BoardResponse>>), AppError> {
     serde_json::from_str::<Snapshot>(&body).map_err(|e| {
         AppError(ApiError::new(
             ErrorCode::ValidationFailed,
@@ -62,7 +64,13 @@ async fn import_route(
         )
         .await
         .map_err(|e| AppError::from(&e))?;
-    Ok((StatusCode::CREATED, Json(BoardResponse::from(&board))))
+    Ok((
+        StatusCode::CREATED,
+        Json(MutationResponse::new(
+            BoardResponse::from(&board),
+            &invalidation,
+        )),
+    ))
 }
 
 pub fn write_router() -> Router<AppState> {

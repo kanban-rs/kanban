@@ -52,7 +52,7 @@ ctx.with_app_type(app_type: AppType) -> Self
 additionally awaits `backend.probe()` so a lazy backend's load/parse errors,
 or a remote backend's unreachable server, surface at construction time
 rather than on first use. The default `probe()` reads the command log;
-`HttpBackend` overrides it with a `GET /health` liveness check. `with_app_type`
+`HttpBackend` overrides it with a `GET /health` check that also refuses a server older than the client (the version handshake). `with_app_type`
 is a builder call made right after `open_deferred`/`open` to record which
 surface (CLI, MCP, TUI) owns the context, for command attribution.
 
@@ -207,7 +207,7 @@ itself has no pagination parameters.
 |--------|-------------|
 | `archive_cards(ids)` | Archive multiple cards; returns count |
 | `move_cards(ids, column_id)` | Move multiple cards; returns count |
-| `update_cards(updates)` | Per-card updates as one undo unit; auto-syncs the status ↔ completion-column invariant when only one side of a pair is set |
+| `update_cards(updates)` | Per-card updates as one undo unit; a `column_id` change always moves the card through `MoveCard`; when only one of `status`/`column_id` is set the other is auto-synced, when both are set the explicit status is kept |
 | `assign_cards_to_sprint(ids, sprint_id)` | Bulk sprint assignment; returns count |
 | `archive_cards_detailed(ids)` | Archive with per-card success/failure report |
 | `move_cards_detailed(ids, column_id)` | Move with per-card success/failure report |
@@ -272,10 +272,18 @@ pub struct BatchOperationResult {
 pub struct BatchOperationFailure {
     pub id: Uuid,
     pub error: String,
+    pub api_error: kanban_api::ApiError, // not serialized
 }
 ```
 
-Returned by the `*_detailed` bulk operation methods.
+Returned by the `*_detailed` bulk operation methods. `error` is the raw
+`KanbanError` `Display` string, unchanged for local callers (the CLI's JSON
+output and every local return value). `api_error` is the wire form built by
+`BatchOperationFailure::new`: it carries the `ErrorCode` and the client-safe
+message that `kanban-server` sends on `/v1/cards/batch/*`, scrubbing server
+faults the same way every other route does. Over HTTP (`From<RemoteBatchOutcome>`),
+`error` is the server's wire message and `api_error` is the server's `ApiError`
+as received, code included.
 
 ---
 

@@ -141,7 +141,7 @@ pub enum DomainError {
     WipLimitExceeded { column_id: Uuid, limit: u32 },
 
     #[error(
-        "sprint {sprint_id} belongs to board {sprint_board} but card is being created on board {card_board}"
+        "sprint {sprint_id} belongs to board {sprint_board} but the card is on board {card_board}"
     )]
     SprintBoardMismatch {
         sprint_id: Uuid,
@@ -248,6 +248,27 @@ pub enum KanbanError {
          please upgrade kanban"
     )]
     UnsupportedFutureVersion { file_version: u32, binary_max: u32 },
+
+    /// The remote server is older than this client's minor line, or predates
+    /// the version handshake. Raised by the HTTP backend's open probe, before
+    /// any request that could commit a write.
+    #[error(
+        "kanban server at {url} {}, which is older than this client (v{client_version}). \
+         Upgrade the server before the client.",
+        describe_server_version(.server_version)
+    )]
+    UnsupportedServerVersion {
+        url: String,
+        server_version: Option<String>,
+        client_version: String,
+    },
+}
+
+fn describe_server_version(version: &Option<String>) -> String {
+    match version {
+        Some(v) => format!("is v{v}"),
+        None => "reports no version".to_string(),
+    }
 }
 
 /// Return `noun` (when count is 1) or `noun + "s"` (otherwise).
@@ -552,6 +573,18 @@ mod tests {
     }
 
     #[test]
+    fn test_sprint_board_mismatch_display_does_not_assume_a_create() {
+        let err = KanbanError::Domain(DomainError::SprintBoardMismatch {
+            sprint_id: Uuid::new_v4(),
+            sprint_board: Uuid::new_v4(),
+            card_board: Uuid::new_v4(),
+        });
+        let msg = err.to_string();
+        assert!(msg.contains("but the card is on board"), "msg: {msg}");
+        assert!(!msg.contains("being created"), "msg: {msg}");
+    }
+
+    #[test]
     fn test_is_sprint_board_mismatch_predicate() {
         let err = KanbanError::Domain(DomainError::SprintBoardMismatch {
             sprint_id: Uuid::new_v4(),
@@ -587,6 +620,39 @@ mod tests {
     fn test_is_unsupported_future_version_returns_false_for_other_error() {
         let err = KanbanError::not_found("Card", Uuid::new_v4());
         assert!(!err.is_unsupported_future_version());
+    }
+
+    #[test]
+    fn test_unsupported_server_version_display_names_url_both_versions_and_the_fix() {
+        let err = KanbanError::UnsupportedServerVersion {
+            url: "http://host:5177".to_string(),
+            server_version: Some("0.10.0".to_string()),
+            client_version: "0.11.1".to_string(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("http://host:5177"), "msg: {msg}");
+        assert!(msg.contains("v0.10.0"), "msg: {msg}");
+        assert!(msg.contains("v0.11.1"), "msg: {msg}");
+        assert!(
+            msg.contains("Upgrade the server before the client"),
+            "msg: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_unsupported_server_version_display_without_server_version_says_it_reports_none() {
+        let err = KanbanError::UnsupportedServerVersion {
+            url: "http://host:5177".to_string(),
+            server_version: None,
+            client_version: "0.11.1".to_string(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("reports no version"), "msg: {msg}");
+        assert!(msg.contains("v0.11.1"), "msg: {msg}");
+        assert!(
+            msg.contains("Upgrade the server before the client"),
+            "msg: {msg}"
+        );
     }
 
     #[test]

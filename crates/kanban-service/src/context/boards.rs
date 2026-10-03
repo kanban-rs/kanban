@@ -277,8 +277,9 @@ impl KanbanContext {
         self.execute(commands)
     }
 
-    /// Archive a board (collection move). Undoable via the command's symmetric
-    /// inverse. NotFound if the board is not live.
+    /// Archive a board. Undoable via the command's symmetric inverse. Archiving an
+    /// already-archived board succeeds and changes nothing (its `archived_at` is
+    /// kept). NotFound only if no board row exists.
     pub fn archive_board_impl(&mut self, id: Uuid) -> KanbanResult<Invalidation> {
         if let Some(rw) = self.backend.remote_board_writes() {
             return rw.archive_board(id);

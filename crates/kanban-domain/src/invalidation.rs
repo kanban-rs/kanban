@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 /// The set of entities a command touched, scoped per collection.
@@ -13,6 +13,20 @@ pub struct EntityIds {
     pub sprints: HashSet<Uuid>,
     pub graph: bool,
     pub prefixes: bool,
+    /// For each card id this batch named, the columns whose `cards_by_column`
+    /// scope it invalidated. A card absent from this map means "column
+    /// unknown", forcing the conservative whole-tier drop. A producer must
+    /// name every column a card moved INTO; `Model::invalidate` also drops
+    /// every cached scope that already holds the card, but a destination
+    /// scope loaded before the move does not hold it yet.
+    pub card_columns: HashMap<Uuid, HashSet<Uuid>>,
+    /// Reserved. Not read by `Model::invalidate`, which drops every
+    /// archived-card tier on any `cards` invalidation: a `false` here cannot
+    /// tell "no archival change" apart from "this command did not say", and
+    /// `merge` would let a silent archive command hide behind another
+    /// command's `card_columns` for the same card. Make "unchanged"
+    /// positively assertable before anything narrows on this field.
+    pub archival_changed: bool,
 }
 
 impl EntityIds {
@@ -70,6 +84,10 @@ impl EntityIds {
         self.sprints.extend(other.sprints);
         self.graph |= other.graph;
         self.prefixes |= other.prefixes;
+        for (card, cols) in other.card_columns {
+            self.card_columns.entry(card).or_default().extend(cols);
+        }
+        self.archival_changed |= other.archival_changed;
     }
 }
 
@@ -81,6 +99,9 @@ impl EntityIds {
 /// invalidation").
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[must_use]
+// Boxing `EntityIds` would touch every `Invalidation::Entities(ids)` match site
+// across the workspace; not worth it for this lint alone.
+#[allow(clippy::large_enum_variant)]
 pub enum Invalidation {
     Entities(EntityIds),
     All,
@@ -115,6 +136,29 @@ pub fn invalidation_from_inverse(inverse: &[crate::commands::Command]) -> Invali
     Invalidation::Entities(acc)
 }
 
+/// Derives a forward mutation's [`Invalidation`] from the batch and its
+/// captured inverse. The inverse decides `Entities` versus `All`, exactly as
+/// [`invalidation_from_inverse`]; the forward batch only contributes
+/// `card_columns` (and `archival_changed`), because only it knows where a
+/// moved card went. A forward command that cannot enumerate its entities
+/// contributes nothing.
+pub fn invalidation_from_batch(
+    forward: &[crate::commands::Command],
+    inverse: &[crate::commands::Command],
+) -> Invalidation {
+    let mut acc = match invalidation_from_inverse(inverse) {
+        Invalidation::All => return Invalidation::All,
+        Invalidation::Entities(ids) => ids,
+    };
+    for ids in forward.iter().filter_map(|cmd| cmd.touched_entities()) {
+        for (card, columns) in ids.card_columns {
+            acc.card_columns.entry(card).or_default().extend(columns);
+        }
+        acc.archival_changed |= ids.archival_changed;
+    }
+    Invalidation::Entities(acc)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,6 +183,82 @@ mod tests {
         assert!(ids.columns.is_empty());
         assert!(ids.sprints.is_empty());
         assert!(!ids.graph);
+    }
+
+    #[test]
+    fn test_update_card_without_a_column_change_names_no_card_columns() {
+        let card_id = Uuid::new_v4();
+        let cmd = Command::Card(CardCommand::Update(UpdateCard {
+            card_id,
+            updates: CardUpdate {
+                status: Some(crate::CardStatus::Done),
+                ..Default::default()
+            },
+        }));
+        let ids = cmd.touched_entities().expect("enumerable");
+        assert!(ids.card_columns.is_empty());
+    }
+
+    #[test]
+    fn test_update_card_with_a_column_change_names_that_column() {
+        let card_id = Uuid::new_v4();
+        let column_id = Uuid::new_v4();
+        let cmd = Command::Card(CardCommand::Update(UpdateCard {
+            card_id,
+            updates: CardUpdate {
+                column_id: Some(column_id),
+                ..Default::default()
+            },
+        }));
+        let ids = cmd.touched_entities().expect("enumerable");
+        assert_eq!(
+            ids.card_columns.get(&card_id),
+            Some(&HashSet::from([column_id]))
+        );
+    }
+
+    #[test]
+    fn test_merging_two_entity_ids_unions_the_columns_of_a_shared_card() {
+        let card = Uuid::new_v4();
+        let col_a = Uuid::new_v4();
+        let col_b = Uuid::new_v4();
+        let mut acc = EntityIds {
+            card_columns: std::collections::HashMap::from([(card, HashSet::from([col_a]))]),
+            ..Default::default()
+        };
+        let other = EntityIds {
+            card_columns: std::collections::HashMap::from([(card, HashSet::from([col_b]))]),
+            ..Default::default()
+        };
+
+        acc.merge(other);
+
+        assert_eq!(
+            acc.card_columns,
+            std::collections::HashMap::from([(card, HashSet::from([col_a, col_b]))])
+        );
+    }
+
+    #[test]
+    fn test_entity_ids_with_only_card_columns_is_still_empty() {
+        let card = Uuid::new_v4();
+        let column = Uuid::new_v4();
+        let ids = EntityIds {
+            card_columns: std::collections::HashMap::from([(card, HashSet::from([column]))]),
+            ..Default::default()
+        };
+
+        assert!(ids.is_empty());
+    }
+
+    #[test]
+    fn test_entity_ids_with_only_archival_changed_is_still_empty() {
+        let ids = EntityIds {
+            archival_changed: true,
+            ..Default::default()
+        };
+
+        assert!(ids.is_empty());
     }
 
     #[test]
@@ -462,6 +582,108 @@ mod tests {
         }));
         assert_eq!(
             invalidation_from_inverse(std::slice::from_ref(&cmd)),
+            Invalidation::All
+        );
+    }
+
+    #[test]
+    fn test_move_card_touched_entities_names_the_destination_column() {
+        let card_id = Uuid::new_v4();
+        let col_b = Uuid::new_v4();
+        let cmd = Command::Card(CardCommand::Move(MoveCard {
+            card_id,
+            new_column_id: col_b,
+            new_position: 0,
+        }));
+        let ids = cmd.touched_entities().expect("enumerable");
+        assert_eq!(
+            ids.card_columns,
+            std::collections::HashMap::from([(card_id, HashSet::from([col_b]))])
+        );
+    }
+
+    #[test]
+    fn test_create_card_touched_entities_names_its_column() {
+        let id = Uuid::new_v4();
+        let board_id = Uuid::new_v4();
+        let column_id = Uuid::new_v4();
+        let cmd = Command::Card(CardCommand::Create(CreateCard {
+            id,
+            card_number: 1,
+            board_id,
+            column_id,
+            title: "t".into(),
+            position: 0,
+            options: CreateCardOptions::default(),
+            timestamp: Utc::now(),
+            default_card_prefix: "kan".into(),
+        }));
+        let ids = cmd.touched_entities().expect("enumerable");
+        assert_eq!(
+            ids.card_columns,
+            std::collections::HashMap::from([(id, HashSet::from([column_id]))])
+        );
+        assert_eq!(ids.boards, HashSet::from([board_id]));
+        assert!(ids.prefixes);
+    }
+
+    #[test]
+    fn test_invalidation_from_batch_names_both_the_source_and_destination_column() {
+        let card = Uuid::new_v4();
+        let col_a = Uuid::new_v4();
+        let col_b = Uuid::new_v4();
+        let forward = vec![Command::Card(CardCommand::Move(MoveCard {
+            card_id: card,
+            new_column_id: col_b,
+            new_position: 0,
+        }))];
+        let inverse = vec![Command::Card(CardCommand::Move(MoveCard {
+            card_id: card,
+            new_column_id: col_a,
+            new_position: 0,
+        }))];
+        match invalidation_from_batch(&forward, &inverse) {
+            Invalidation::Entities(ids) => {
+                assert_eq!(
+                    ids.card_columns,
+                    std::collections::HashMap::from([(card, HashSet::from([col_a, col_b]))])
+                );
+            }
+            Invalidation::All => panic!("expected Entities, got All"),
+        }
+    }
+
+    #[test]
+    fn test_invalidation_from_batch_ignores_an_unenumerable_forward_command() {
+        let column_id = Uuid::new_v4();
+        let forward = vec![Command::Card(CardCommand::CompactPositions(
+            CompactColumnPositions { column_id },
+        ))];
+        let inverse = vec![Command::Card(CardCommand::Move(MoveCard {
+            card_id: Uuid::new_v4(),
+            new_column_id: Uuid::new_v4(),
+            new_position: 0,
+        }))];
+        match invalidation_from_batch(&forward, &inverse) {
+            Invalidation::Entities(_) => {}
+            Invalidation::All => panic!("expected Entities, got All"),
+        }
+    }
+
+    #[test]
+    fn test_invalidation_from_batch_keeps_all_when_the_inverse_is_unenumerable() {
+        let forward = vec![Command::Card(CardCommand::Move(MoveCard {
+            card_id: Uuid::new_v4(),
+            new_column_id: Uuid::new_v4(),
+            new_position: 0,
+        }))];
+        let inverse = vec![Command::Card(CardCommand::CompactPositions(
+            CompactColumnPositions {
+                column_id: Uuid::new_v4(),
+            },
+        ))];
+        assert_eq!(
+            invalidation_from_batch(&forward, &inverse),
             Invalidation::All
         );
     }

@@ -2,7 +2,7 @@ use crate::context::McpContext;
 use crate::helpers::error_mapping::kanban_err_to_mcp;
 use kanban_domain::{Board, CardSummary, KanbanError, KanbanOperations, LoadState, Model, Sprint};
 use kanban_service::api::SprintResponse;
-use kanban_service::resolve_sprint_name;
+use kanban_service::resolve_committed_sprint_name;
 use rmcp::model::ErrorData as McpError;
 use uuid::Uuid;
 
@@ -63,13 +63,13 @@ pub(crate) fn board_head(
         .ok_or_else(|| kanban_err_to_mcp(KanbanError::not_found("Board", board_id)))
 }
 
-/// Project a domain `Sprint` into its v1 `SprintResponse`, resolving the wire
-/// `name` through the shared service helper (the internal `name_index` is
-/// never exposed). Used by the sprint mutating tools, whose service calls
-/// return a raw `Sprint`.
-pub(crate) fn project_sprint(ctx: &McpContext, sprint: Sprint) -> Result<SprintResponse, McpError> {
-    let name = resolve_sprint_name(ctx, &sprint).map_err(kanban_err_to_mcp)?;
-    Ok(SprintResponse::new(&sprint, name))
+/// Project a sprint the calling tool has just committed into its v1
+/// `SprintResponse`. The name goes through
+/// `kanban_service::resolve_committed_sprint_name`, so a failed lookup reports
+/// the sprint unnamed instead of failing the tool, because the write already
+/// happened.
+pub(crate) fn project_committed_sprint(ctx: &McpContext, sprint: &Sprint) -> SprintResponse {
+    SprintResponse::new(sprint, resolve_committed_sprint_name(ctx, sprint))
 }
 
 #[cfg(test)]

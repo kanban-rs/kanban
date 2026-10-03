@@ -8,6 +8,7 @@ pub mod lifecycle;
 pub mod movement;
 pub mod prefix;
 pub mod sprint;
+pub mod sprint_board;
 pub mod sprint_log;
 
 /// Assert two `Card`s are equal field-by-field (including `sprint_logs`), so a

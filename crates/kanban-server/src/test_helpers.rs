@@ -7,17 +7,32 @@
 use crate::app;
 use crate::state::AppState;
 use axum::body::Body;
-use axum::http::Request;
-use axum::response::Response;
+use axum::http::{Method, Request, StatusCode};
+use axum::middleware::{self, Next};
+use axum::response::{IntoResponse, Response};
 use kanban_backend_memory::InMemoryStore;
 use kanban_persistence_json::{JsonDataStore, JsonFileStore};
 use kanban_service::{AppConfig, KanbanBackend, KanbanContext};
 use serde_json::Value;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tower::ServiceExt;
+
+/// A log of every request a [`TestServer::start_recording`] router received,
+/// as `(method, path)` in arrival order.
+pub type RequestLog = Arc<Mutex<Vec<(Method, String)>>>;
+
+/// `(method, path)` that a [`TestServer::start_with_fault`] router answers with a
+/// bodiless `503 Service Unavailable` instead of routing, while armed.
+pub type FaultSwitch = Arc<Mutex<Option<(&'static str, String)>>>;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FaultMode {
+    UntilDisarmed,
+    Once,
+}
 
 /// Build an `AppState` over a fresh `JsonDataStore` at `path`, for the
 /// `tower::ServiceExt::oneshot` in-process route tests (as opposed to
@@ -103,34 +118,89 @@ impl TestServer {
     /// are valid the moment start() returns -- no race with a test hitting
     /// the port before bind completes).
     pub async fn start() -> Self {
-        Self::start_full(|_| {}, crate::layers::LayerConfig::default()).await
+        Self::start_full(|_| {}, crate::layers::LayerConfig::default(), None, None).await
     }
 
     /// Like [`Self::start`], but runs `seed` against the fresh `KanbanContext`
     /// before the router starts serving, so a test can put the context in a
     /// state (e.g. an archived card) that no HTTP write route can reach.
     pub async fn start_with(seed: impl FnOnce(&mut KanbanContext)) -> Self {
-        Self::start_full(seed, crate::layers::LayerConfig::default()).await
+        Self::start_full(seed, crate::layers::LayerConfig::default(), None, None).await
     }
 
     /// Like [`Self::start`], but with an explicit [`crate::layers::LayerConfig`].
     pub async fn start_with_layers(config: crate::layers::LayerConfig) -> Self {
-        Self::start_full(|_| {}, config).await
+        Self::start_full(|_| {}, config, None, None).await
+    }
+
+    /// Like [`Self::start_with`], but also returns a log of every request the
+    /// router received, as `(method, path)` in arrival order. Recorded by an
+    /// `axum::middleware::from_fn` layered on the router that
+    /// [`crate::app::router_with`] returns.
+    pub async fn start_recording(seed: impl FnOnce(&mut KanbanContext)) -> (Self, RequestLog) {
+        let log: RequestLog = Arc::new(Mutex::new(Vec::new()));
+        let server = Self::start_full(
+            seed,
+            crate::layers::LayerConfig::default(),
+            Some(log.clone()),
+            None,
+        )
+        .await;
+        (server, log)
+    }
+
+    /// Like [`Self::start_with`], but also returns a [`FaultSwitch`]; every
+    /// request not matching the armed `(method, path)` is served normally.
+    pub async fn start_with_fault(seed: impl FnOnce(&mut KanbanContext)) -> (Self, FaultSwitch) {
+        Self::start_with_fault_mode(seed, FaultMode::UntilDisarmed).await
+    }
+
+    /// Like [`Self::start_with_fault`], but the armed `(method, path)` answers
+    /// 503 to its first matching request only and then disarms itself, so the
+    /// switch reads `None` again once the fault has fired.
+    pub async fn start_with_one_shot_fault(
+        seed: impl FnOnce(&mut KanbanContext),
+    ) -> (Self, FaultSwitch) {
+        Self::start_with_fault_mode(seed, FaultMode::Once).await
+    }
+
+    async fn start_with_fault_mode(
+        seed: impl FnOnce(&mut KanbanContext),
+        mode: FaultMode,
+    ) -> (Self, FaultSwitch) {
+        let fault: FaultSwitch = Arc::new(Mutex::new(None));
+        let server = Self::start_full(
+            seed,
+            crate::layers::LayerConfig::default(),
+            None,
+            Some((fault.clone(), mode)),
+        )
+        .await;
+        (server, fault)
     }
 
     async fn start_full(
         seed: impl FnOnce(&mut KanbanContext),
         config: crate::layers::LayerConfig,
+        recorder: Option<RequestLog>,
+        fault: Option<(FaultSwitch, FaultMode)>,
     ) -> Self {
         let backend: Arc<dyn KanbanBackend> = Arc::new(InMemoryStore::new());
-        Self::start_full_on(backend, seed, config).await
+        Self::start_full_on(backend, seed, config, recorder, fault).await
     }
 
     /// Serve a `KanbanContext` backed by a `JsonDataStore` at `path`.
     pub async fn start_on_json(path: &std::path::Path) -> Self {
         let backend: Arc<dyn KanbanBackend> =
             Arc::new(JsonDataStore::new(Arc::new(JsonFileStore::new(path))));
-        Self::start_full_on(backend, |_| {}, crate::layers::LayerConfig::default()).await
+        Self::start_full_on(
+            backend,
+            |_| {},
+            crate::layers::LayerConfig::default(),
+            None,
+            None,
+        )
+        .await
     }
 
     /// Serve a `KanbanContext` backed by a `SqliteBackend` at `path`.
@@ -140,13 +210,22 @@ impl TestServer {
                 .await
                 .unwrap(),
         );
-        Self::start_full_on(backend, |_| {}, crate::layers::LayerConfig::default()).await
+        Self::start_full_on(
+            backend,
+            |_| {},
+            crate::layers::LayerConfig::default(),
+            None,
+            None,
+        )
+        .await
     }
 
     async fn start_full_on(
         backend: Arc<dyn KanbanBackend>,
         seed: impl FnOnce(&mut KanbanContext),
         config: crate::layers::LayerConfig,
+        recorder: Option<RequestLog>,
+        fault: Option<(FaultSwitch, FaultMode)>,
     ) -> Self {
         let mut ctx = KanbanContext::open(backend, AppConfig::default())
             .await
@@ -159,6 +238,46 @@ impl TestServer {
 
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
         let router = app::router_with(state, config);
+        let router = match recorder {
+            Some(log) => router.layer(middleware::from_fn(
+                move |req: Request<Body>, next: Next| {
+                    let log = log.clone();
+                    async move {
+                        log.lock()
+                            .unwrap()
+                            .push((req.method().clone(), req.uri().path().to_string()));
+                        next.run(req).await
+                    }
+                },
+            )),
+            None => router,
+        };
+        let router = match fault {
+            Some((switch, mode)) => router.layer(middleware::from_fn(
+                move |req: Request<Body>, next: Next| {
+                    let switch = switch.clone();
+                    async move {
+                        let hit = {
+                            let mut armed = switch.lock().unwrap();
+                            let hit = matches!(
+                                armed.as_ref(),
+                                Some((method, path))
+                                    if req.method().as_str() == *method && req.uri().path() == path.as_str()
+                            );
+                            if hit && mode == FaultMode::Once {
+                                *armed = None;
+                            }
+                            hit
+                        };
+                        if hit {
+                            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+                        }
+                        next.run(req).await
+                    }
+                },
+            )),
+            None => router,
+        };
         let handle = tokio::spawn(async move {
             axum::serve(listener, router)
                 .with_graceful_shutdown(async {

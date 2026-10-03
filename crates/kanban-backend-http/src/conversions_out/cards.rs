@@ -25,6 +25,17 @@ pub(crate) fn create_card_request(id: Option<Uuid>, spec: &NewCard) -> (String, 
     (path, body)
 }
 
+pub(crate) fn move_card_path(id: Uuid, column_id: Uuid, position: Option<i32>) -> String {
+    match position {
+        Some(position) => format!("/v1/cards/{id}/move?column_id={column_id}&position={position}"),
+        None => format!("/v1/cards/{id}/move?column_id={column_id}"),
+    }
+}
+
+pub(crate) fn assign_card_to_sprint_path(id: Uuid, sprint_id: Uuid) -> String {
+    format!("/v1/cards/{id}/assign-sprint?sprint_id={sprint_id}")
+}
+
 pub(crate) fn update_card_request(updates: &CardUpdate) -> UpdateCardRequest {
     let CardUpdate {
         title,
@@ -105,5 +116,42 @@ mod tests {
         assert_eq!(req.due_date, Patch::Clear);
         assert_eq!(req.points, Patch::Set(3));
         assert_eq!(req.sprint_id, Patch::NoChange);
+    }
+
+    #[test]
+    fn test_move_card_path_omits_position_when_none_so_the_server_appends() {
+        let id = Uuid::new_v4();
+        let column_id = Uuid::new_v4();
+
+        let path = move_card_path(id, column_id, None);
+
+        assert_eq!(path, format!("/v1/cards/{id}/move?column_id={column_id}"));
+        assert!(!path.contains("position"));
+    }
+
+    #[test]
+    fn test_move_card_path_carries_an_explicit_position() {
+        let id = Uuid::new_v4();
+        let column_id = Uuid::new_v4();
+
+        let path = move_card_path(id, column_id, Some(2));
+
+        assert_eq!(
+            path,
+            format!("/v1/cards/{id}/move?column_id={column_id}&position=2")
+        );
+    }
+
+    #[test]
+    fn test_assign_card_to_sprint_path_carries_the_sprint_id_query_param() {
+        let id = Uuid::new_v4();
+        let sprint_id = Uuid::new_v4();
+
+        let path = assign_card_to_sprint_path(id, sprint_id);
+
+        assert_eq!(
+            path,
+            format!("/v1/cards/{id}/assign-sprint?sprint_id={sprint_id}")
+        );
     }
 }

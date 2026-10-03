@@ -2,14 +2,17 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use kanban_backend_memory::InMemoryStore;
 use kanban_domain::GraphOperations;
 use kanban_server::app;
 use kanban_server::layers::LayerConfig;
 use kanban_server::state::AppState;
 use kanban_server::test_helpers::{json_of, make_sqlite_state, make_state, send};
-use kanban_service::api::{ArchivedCardResponse, BoardResponse, Page};
-use kanban_service::{KanbanContext, KanbanOperations};
+use kanban_service::api::{ArchivedCardResponse, BoardResponse, InvalidationDto};
+use kanban_service::api::{MutationResponse, Page};
+use kanban_service::{AppConfig, KanbanContext, KanbanOperations};
 use serde_json::Value;
+use std::sync::Arc;
 use tempfile::tempdir;
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -746,4 +749,33 @@ async fn test_import_body_over_the_global_limit_is_accepted_under_the_import_lim
         .replace("\"\"", &format!("\"{}\"", "a".repeat(1024)));
     let response = send_raw_with(&state_b, config, "POST", "/v1/boards", oversized_board).await;
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_import_route_returns_the_mutation_invalidation() {
+    let dir_a = tempdir().unwrap();
+    let state_a = make_state(&dir_a.path().join("s.json"));
+    let ids = {
+        let mut guard = state_a.ctx.lock().await;
+        seed_graph(&mut guard.ctx, true)
+    };
+    let body_string = export_body(&state_a, ids.board).await;
+
+    let mut expected_ctx =
+        KanbanContext::open_deferred(Arc::new(InMemoryStore::new()), AppConfig::default());
+    let (_, expected_invalidation) = expected_ctx.import_board_impl(&body_string).unwrap();
+
+    let dir_b = tempdir().unwrap();
+    let state_b = make_state(&dir_b.path().join("s.json"));
+
+    let response = send_raw(&state_b, "POST", "/v1/import", body_string).await;
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let json = json_of(response).await;
+    let imported: BoardResponse = serde_json::from_value(json.clone()).unwrap();
+    assert_eq!(imported.id, ids.board);
+
+    let wrapped: MutationResponse<BoardResponse> = serde_json::from_value(json).unwrap();
+    let expected_dto = InvalidationDto::from(&expected_invalidation);
+    assert_eq!(wrapped.invalidation, expected_dto);
 }

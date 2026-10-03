@@ -4,22 +4,16 @@ use axum::extract::{DefaultBodyLimit, State};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
-use serde::Serialize;
+use kanban_service::api::HealthResponse;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 
-#[derive(Serialize)]
-struct HealthResponse {
-    status: &'static str,
-    instance_id: uuid::Uuid,
-}
-
 async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
-    Json(HealthResponse {
-        status: "ok",
-        instance_id: state.instance_id,
-    })
+    Json(HealthResponse::ok(
+        state.instance_id,
+        kanban_core::KANBAN_VERSION,
+    ))
 }
 
 /// The single `Router` composition point. Entity route cards extend this via
@@ -57,6 +51,7 @@ pub fn router_with(state: AppState, config: LayerConfig) -> Router {
         .merge(crate::routes::sprints::flat_read_router())
         .merge(crate::routes::sprints::flat_write_router())
         .merge(crate::routes::sprints_lifecycle::write_router())
+        .merge(crate::routes::sprints_lifecycle::flat_write_router())
         .merge(crate::routes::transfer::read_router())
         .merge(crate::routes::events::router());
 

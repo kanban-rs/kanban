@@ -602,3 +602,193 @@ fn test_resync_invalidated_records_a_failed_repair_read_as_failed_not_empty() {
     assert!(model.card_by_id_state(card.id).is_failed());
     assert!(!model.card_by_id_state(card.id).is_loaded());
 }
+
+fn seed_three_columns_with_a_card_each(
+    ctx: &mut KanbanContext,
+) -> (
+    kanban_domain::Column,
+    kanban_domain::Column,
+    kanban_domain::Column,
+    kanban_domain::Card,
+) {
+    let board = ctx
+        .create_board("Board".into(), Some("BRD".into()))
+        .unwrap();
+    let source = ctx.create_column(board.id, "Source".into(), None).unwrap();
+    let dest = ctx.create_column(board.id, "Dest".into(), None).unwrap();
+    let third = ctx.create_column(board.id, "Third".into(), None).unwrap();
+    let k = ctx
+        .create_card(
+            board.id,
+            source.id,
+            "K".into(),
+            kanban_domain::CreateCardOptions::default(),
+        )
+        .unwrap();
+    ctx.create_card(
+        board.id,
+        third.id,
+        "M".into(),
+        kanban_domain::CreateCardOptions::default(),
+    )
+    .unwrap();
+    (source, dest, third, k)
+}
+
+#[test]
+fn test_moving_a_card_invalidates_the_source_column_not_only_the_destination() {
+    use std::collections::HashSet;
+
+    let mut ctx =
+        KanbanContext::open_deferred(Arc::new(InMemoryStore::new()), AppConfig::default());
+    let (source, dest, _third, k) = seed_three_columns_with_a_card_each(&mut ctx);
+
+    let (_, inv) = ctx.move_card_impl(k.id, dest.id, None).unwrap();
+
+    match inv {
+        Invalidation::Entities(ids) => {
+            assert_eq!(
+                ids.card_columns.get(&k.id),
+                Some(&HashSet::from([source.id, dest.id]))
+            );
+        }
+        Invalidation::All => panic!("expected Entities, got All"),
+    }
+}
+
+#[cfg(feature = "test-helpers")]
+#[test]
+fn test_moving_a_card_does_not_invalidate_an_untouched_third_column() {
+    use crate::test_helpers::contract::cache::ScopedCardsPlan;
+
+    let mut ctx =
+        KanbanContext::open_deferred(Arc::new(InMemoryStore::new()), AppConfig::default());
+    let (source, dest, third, k) = seed_three_columns_with_a_card_each(&mut ctx);
+
+    let mut model = Model::default();
+    ctx.sync(
+        &ScopedCardsPlan(vec![source.id, dest.id, third.id]),
+        &mut model,
+        &mut NoProjections,
+    );
+
+    let (_, inv) = ctx.move_card_impl(k.id, dest.id, None).unwrap();
+    let _ = model.invalidate(inv);
+
+    assert!(model.column_cards_state(source.id).is_not_loaded());
+    assert!(model.column_cards_state(dest.id).is_not_loaded());
+    assert!(model.column_cards_state(third.id).is_loaded());
+}
+
+#[cfg(feature = "test-helpers")]
+#[test]
+fn test_undoing_a_move_invalidates_the_column_the_card_left() {
+    use crate::test_helpers::contract::cache::ScopedCardsPlan;
+    use kanban_domain::UndoOperations;
+
+    let mut ctx =
+        KanbanContext::open_deferred(Arc::new(InMemoryStore::new()), AppConfig::default());
+    let (source, dest, third, k) = seed_three_columns_with_a_card_each(&mut ctx);
+
+    let mut model = Model::default();
+    ctx.sync(
+        &ScopedCardsPlan(vec![source.id, dest.id, third.id]),
+        &mut model,
+        &mut NoProjections,
+    );
+
+    let (_, inv) = ctx.move_card_impl(k.id, dest.id, None).unwrap();
+    let _ = model.invalidate(inv);
+
+    ctx.sync(
+        &ScopedCardsPlan(vec![source.id, dest.id, third.id]),
+        &mut model,
+        &mut NoProjections,
+    );
+
+    let inv = ctx.undo().unwrap().expect("undo applied");
+    let _ = model.invalidate(inv);
+
+    assert!(model.column_cards_state(source.id).is_not_loaded());
+    assert!(model.column_cards_state(dest.id).is_not_loaded());
+    assert!(model.column_cards_state(third.id).is_loaded());
+}
+
+#[cfg(feature = "test-helpers")]
+#[test]
+fn test_updating_a_cards_title_still_invalidates_every_column_scope() {
+    use crate::test_helpers::contract::cache::ScopedCardsPlan;
+
+    let mut ctx =
+        KanbanContext::open_deferred(Arc::new(InMemoryStore::new()), AppConfig::default());
+    let (source, dest, third, k) = seed_three_columns_with_a_card_each(&mut ctx);
+
+    let mut model = Model::default();
+    ctx.sync(
+        &ScopedCardsPlan(vec![source.id, dest.id, third.id]),
+        &mut model,
+        &mut NoProjections,
+    );
+
+    let (_, inv) = ctx
+        .update_card_impl(
+            k.id,
+            CardUpdate {
+                title: Some("t2".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let _ = model.invalidate(inv);
+
+    assert!(model.column_cards_state(source.id).is_not_loaded());
+    assert!(model.column_cards_state(dest.id).is_not_loaded());
+    assert!(model.column_cards_state(third.id).is_not_loaded());
+}
+
+#[cfg(feature = "test-helpers")]
+#[test]
+fn test_a_batch_update_naming_a_second_column_for_the_same_card_drops_the_final_destination() {
+    use crate::test_helpers::contract::cache::ScopedCardsPlan;
+    use kanban_domain::CardStatus;
+
+    let mut ctx =
+        KanbanContext::open_deferred(Arc::new(InMemoryStore::new()), AppConfig::default());
+    let (source, mid, dest, k) = seed_three_columns_with_a_card_each(&mut ctx);
+    let board_id = ctx.get_column(source.id).unwrap().unwrap().board_id;
+    let untouched = ctx
+        .create_column(board_id, "Untouched".into(), None)
+        .unwrap();
+
+    let mut model = Model::default();
+    ctx.sync(
+        &ScopedCardsPlan(vec![source.id, mid.id, dest.id, untouched.id]),
+        &mut model,
+        &mut NoProjections,
+    );
+
+    let (_, inv) = ctx
+        .update_cards_impl(vec![
+            (
+                k.id,
+                CardUpdate {
+                    column_id: Some(mid.id),
+                    ..Default::default()
+                },
+            ),
+            (
+                k.id,
+                CardUpdate {
+                    status: Some(CardStatus::Done),
+                    column_id: Some(dest.id),
+                    ..Default::default()
+                },
+            ),
+        ])
+        .unwrap();
+    let _ = model.invalidate(inv);
+
+    assert_eq!(ctx.get_card(k.id).unwrap().unwrap().column_id, dest.id);
+    assert!(model.column_cards_state(dest.id).is_not_loaded());
+    assert!(model.column_cards_state(untouched.id).is_loaded());
+}

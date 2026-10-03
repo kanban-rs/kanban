@@ -87,6 +87,17 @@ pub struct RestoreCardQuery {
     pub column_id: Option<Uuid>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct MoveCardQuery {
+    pub column_id: Uuid,
+    pub position: Option<i32>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AssignSprintQuery {
+    pub sprint_id: Uuid,
+}
+
 fn optional_card<'a>(
     state: kanban_domain::LoadState<&'a Card>,
     what: &str,
@@ -266,6 +277,39 @@ fn do_restore_card(
         .map_err(|e| AppError::from(&e))
 }
 
+fn do_move_card(
+    ctx: &mut crate::state::Session,
+    id: Uuid,
+    column_id: Uuid,
+    position: Option<i32>,
+) -> Result<(Card, Invalidation), AppError> {
+    crate::state::mutate(ctx, |c| c.move_card_impl(id, column_id, position))
+        .map_err(|e| AppError::from(&e))
+}
+
+fn do_assign_card_to_sprint(
+    ctx: &mut crate::state::Session,
+    id: Uuid,
+    sprint_id: Uuid,
+) -> Result<(Card, Invalidation), AppError> {
+    crate::state::mutate(ctx, |c| c.assign_card_to_sprint_impl(id, sprint_id))
+        .map_err(|e| AppError::from(&e))
+}
+
+fn do_unassign_card_from_sprint(
+    ctx: &mut crate::state::Session,
+    id: Uuid,
+) -> Result<(Card, Invalidation), AppError> {
+    crate::state::mutate(ctx, |c| c.unassign_card_from_sprint_impl(id))
+        .map_err(|e| AppError::from(&e))
+}
+
+fn require_card_exists(ctx: &crate::state::Session, id: Uuid) -> Result<(), AppError> {
+    card_current(ctx, id)?
+        .map(|_| ())
+        .ok_or_else(|| AppError::from(&KanbanError::not_found("Card", id)))
+}
+
 /// Fetch a card and 404 unless it belongs to `board_id`, since
 /// `KanbanOperations::{update_card, delete_card}` key on the global card id
 /// alone with no board scoping of their own.
@@ -426,6 +470,7 @@ async fn update_card_route_flat(
     let updates = CardUpdate::try_from(req).map_err(|e| AppError::from(&e))?;
     let (card, invalidation) = {
         let mut ctx = state.lock_for_write(client).await;
+        require_card_exists(&ctx, id)?;
         etag::check_if_match(&headers, || card_current(&ctx, id))?;
         let (card, invalidation) = do_update_card(&mut ctx, id, updates)?;
         state
@@ -454,6 +499,7 @@ async fn delete_card_route_flat(
 ) -> Result<(StatusCode, Json<DeleteResponse>), AppError> {
     let invalidation = {
         let mut ctx = state.lock_for_write(client).await;
+        require_card_exists(&ctx, id)?;
         etag::check_if_match(&headers, || card_current(&ctx, id))?;
         let invalidation = do_delete_card(&mut ctx, id)?;
         state
@@ -525,6 +571,80 @@ async fn restore_card_route(
     Ok(Json(MutationResponse::new(response, &invalidation)))
 }
 
+async fn move_card_route(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Query(q): Query<MoveCardQuery>,
+    ClientIdent(client): ClientIdent,
+) -> Result<Json<MutationResponse<CardResponse>>, AppError> {
+    let (card, invalidation) = {
+        let mut ctx = state.lock_for_write(client).await;
+        let (card, invalidation) = do_move_card(&mut ctx, id, q.column_id, q.position)?;
+        state
+            .persist_and_broadcast(
+                &ctx,
+                EntityType::Card,
+                id,
+                ChangeKind::Updated,
+                &invalidation,
+            )
+            .await
+            .map_err(|e| AppError::from(&e))?;
+        (card, invalidation)
+    };
+    let response = CardResponse::from(&card);
+    Ok(Json(MutationResponse::new(response, &invalidation)))
+}
+
+async fn assign_card_to_sprint_route(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Query(q): Query<AssignSprintQuery>,
+    ClientIdent(client): ClientIdent,
+) -> Result<Json<MutationResponse<CardResponse>>, AppError> {
+    let (card, invalidation) = {
+        let mut ctx = state.lock_for_write(client).await;
+        let (card, invalidation) = do_assign_card_to_sprint(&mut ctx, id, q.sprint_id)?;
+        state
+            .persist_and_broadcast(
+                &ctx,
+                EntityType::Card,
+                id,
+                ChangeKind::Updated,
+                &invalidation,
+            )
+            .await
+            .map_err(|e| AppError::from(&e))?;
+        (card, invalidation)
+    };
+    let response = CardResponse::from(&card);
+    Ok(Json(MutationResponse::new(response, &invalidation)))
+}
+
+async fn unassign_card_from_sprint_route(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    ClientIdent(client): ClientIdent,
+) -> Result<Json<MutationResponse<CardResponse>>, AppError> {
+    let (card, invalidation) = {
+        let mut ctx = state.lock_for_write(client).await;
+        let (card, invalidation) = do_unassign_card_from_sprint(&mut ctx, id)?;
+        state
+            .persist_and_broadcast(
+                &ctx,
+                EntityType::Card,
+                id,
+                ChangeKind::Updated,
+                &invalidation,
+            )
+            .await
+            .map_err(|e| AppError::from(&e))?;
+        (card, invalidation)
+    };
+    let response = CardResponse::from(&card);
+    Ok(Json(MutationResponse::new(response, &invalidation)))
+}
+
 #[derive(Debug, Deserialize)]
 struct CardLookupQuery {
     identifier: String,
@@ -559,6 +679,15 @@ pub fn flat_write_router() -> Router<AppState> {
         )
         .route("/v1/cards/{id}/archive", post(archive_card_route))
         .route("/v1/cards/{id}/restore", post(restore_card_route))
+        .route("/v1/cards/{id}/move", post(move_card_route))
+        .route(
+            "/v1/cards/{id}/assign-sprint",
+            post(assign_card_to_sprint_route),
+        )
+        .route(
+            "/v1/cards/{id}/unassign-sprint",
+            post(unassign_card_from_sprint_route),
+        )
 }
 
 #[cfg(test)]

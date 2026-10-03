@@ -42,6 +42,7 @@ pub mod sort;
 pub mod sprint;
 pub mod sprint_factory;
 pub mod sprint_log;
+pub mod sprint_membership;
 pub mod tag;
 pub mod task_list_view;
 pub mod undo_operations;
@@ -78,7 +79,9 @@ pub use export::{AllBoardsExport, BoardExport, BoardExporter, BoardImporter, Imp
 pub use field_update::FieldUpdate;
 pub use filter::CardFilters;
 pub use graph_operations::GraphOperations;
-pub use invalidation::{invalidation_from_inverse, EntityIds, Invalidation};
+pub use invalidation::{
+    invalidation_from_batch, invalidation_from_inverse, EntityIds, Invalidation,
+};
 pub use load_state::LoadState;
 #[cfg(any(test, feature = "test-helpers"))]
 pub use model::ModelLoadStates;

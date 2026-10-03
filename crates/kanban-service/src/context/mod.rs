@@ -39,6 +39,64 @@ pub struct BatchOperationResult {
 pub struct BatchOperationFailure {
     pub id: Uuid,
     pub error: String,
+    /// Wire form of the failure (code plus client-safe message); not part of
+    /// the CLI's JSON output.
+    #[serde(skip)]
+    pub api_error: kanban_api::ApiError,
+}
+
+impl BatchOperationFailure {
+    pub fn new(id: Uuid, error: &kanban_domain::KanbanError) -> Self {
+        Self {
+            id,
+            error: error.to_string(),
+            api_error: kanban_api::ApiError::from(error),
+        }
+    }
+}
+
+pub(super) fn remote_batch_count(
+    outcome: kanban_backend::RemoteBatchOutcome,
+) -> KanbanResult<usize> {
+    if outcome.succeeded.is_empty() {
+        return match outcome.failed.into_iter().next() {
+            Some((_, api_error)) => Err(kanban_domain::KanbanError::from(api_error)),
+            None => Ok(0),
+        };
+    }
+    for (id, api_error) in &outcome.failed {
+        tracing::warn!(%id, error = %api_error, "remote batch: id failed and was not applied");
+    }
+    Ok(outcome.succeeded.len())
+}
+
+impl From<kanban_backend::RemoteBatchOutcome> for BatchOperationResult {
+    fn from(outcome: kanban_backend::RemoteBatchOutcome) -> Self {
+        BatchOperationResult {
+            succeeded: outcome.succeeded,
+            failed: outcome
+                .failed
+                .into_iter()
+                .map(|(id, api_error)| BatchOperationFailure {
+                    id,
+                    error: api_error.message.clone(),
+                    api_error,
+                })
+                .collect(),
+        }
+    }
+}
+
+impl BatchOperationResult {
+    pub(crate) fn all_failed(ids: Vec<Uuid>, error: &kanban_domain::KanbanError) -> Self {
+        BatchOperationResult {
+            succeeded: vec![],
+            failed: ids
+                .into_iter()
+                .map(|id| BatchOperationFailure::new(id, error))
+                .collect(),
+        }
+    }
 }
 
 /// Service layer: wraps a pluggable [`KanbanBackend`] with undo/redo history

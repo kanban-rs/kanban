@@ -10,7 +10,7 @@ use axum::{Json, Router};
 use kanban_domain::{DependencyGraph, Model, NoProjections};
 use kanban_service::api::{
     AddBlockRequest, AddRelatedRequest, AttachChildrenRequest, CardGraphResponse, ChangeKind,
-    EntityType,
+    DeleteResponse, DetachChildrenRequest, EntityType, MutationResponse,
 };
 use kanban_service::KanbanContext;
 use uuid::Uuid;
@@ -57,13 +57,13 @@ async fn attach_children_route(
     Path(id): Path<Uuid>,
     ClientIdent(client): ClientIdent,
     AppJson(req): AppJson<AttachChildrenRequest>,
-) -> Result<Json<CardGraphResponse>, AppError> {
-    let body = {
+) -> Result<Json<MutationResponse<CardGraphResponse>>, AppError> {
+    let (body, invalidation) = {
         let mut ctx = state.lock_for_write(client).await;
         let invalidation =
             crate::state::mutate_unit(&mut ctx, |c| c.attach_children_impl(id, req.children))
                 .map_err(|e| AppError::from(&e))?;
-        let body = graph_mutation_response(&ctx.ctx, id)?;
+        let Json(body) = graph_mutation_response(&ctx.ctx, id)?;
         state
             .persist_and_broadcast(
                 &ctx,
@@ -74,17 +74,44 @@ async fn attach_children_route(
             )
             .await
             .map_err(|e| AppError::from(&e))?;
-        body
+        (body, invalidation)
     };
-    Ok(body)
+    Ok(Json(MutationResponse::new(body, &invalidation)))
+}
+
+async fn detach_children_route(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    ClientIdent(client): ClientIdent,
+    AppJson(req): AppJson<DetachChildrenRequest>,
+) -> Result<Json<MutationResponse<CardGraphResponse>>, AppError> {
+    let (body, invalidation) = {
+        let mut ctx = state.lock_for_write(client).await;
+        let invalidation =
+            crate::state::mutate_unit(&mut ctx, |c| c.detach_children_impl(id, req.children))
+                .map_err(|e| AppError::from(&e))?;
+        let Json(body) = graph_mutation_response(&ctx.ctx, id)?;
+        state
+            .persist_and_broadcast(
+                &ctx,
+                EntityType::Card,
+                id,
+                ChangeKind::Updated,
+                &invalidation,
+            )
+            .await
+            .map_err(|e| AppError::from(&e))?;
+        (body, invalidation)
+    };
+    Ok(Json(MutationResponse::new(body, &invalidation)))
 }
 
 async fn detach_child_route(
     State(state): State<AppState>,
     Path((id, child_id)): Path<(Uuid, Uuid)>,
     ClientIdent(client): ClientIdent,
-) -> Result<StatusCode, AppError> {
-    {
+) -> Result<(StatusCode, Json<DeleteResponse>), AppError> {
+    let invalidation = {
         let mut ctx = state.lock_for_write(client).await;
         let invalidation =
             crate::state::mutate_unit(&mut ctx, |c| c.detach_children_impl(id, vec![child_id]))
@@ -99,8 +126,9 @@ async fn detach_child_route(
             )
             .await
             .map_err(|e| AppError::from(&e))?;
-    }
-    Ok(StatusCode::NO_CONTENT)
+        invalidation
+    };
+    Ok((StatusCode::OK, Json(DeleteResponse::new(&invalidation))))
 }
 
 async fn add_block_route(
@@ -108,14 +136,14 @@ async fn add_block_route(
     Path(id): Path<Uuid>,
     ClientIdent(client): ClientIdent,
     AppJson(req): AppJson<AddBlockRequest>,
-) -> Result<Json<CardGraphResponse>, AppError> {
-    let body = {
+) -> Result<Json<MutationResponse<CardGraphResponse>>, AppError> {
+    let (body, invalidation) = {
         let mut ctx = state.lock_for_write(client).await;
         let invalidation = crate::state::mutate_unit(&mut ctx, |c| {
             c.block_impl(id, req.blocked, req.severity.into())
         })
         .map_err(|e| AppError::from(&e))?;
-        let body = graph_mutation_response(&ctx.ctx, id)?;
+        let Json(body) = graph_mutation_response(&ctx.ctx, id)?;
         state
             .persist_and_broadcast(
                 &ctx,
@@ -126,17 +154,17 @@ async fn add_block_route(
             )
             .await
             .map_err(|e| AppError::from(&e))?;
-        body
+        (body, invalidation)
     };
-    Ok(body)
+    Ok(Json(MutationResponse::new(body, &invalidation)))
 }
 
 async fn remove_block_route(
     State(state): State<AppState>,
     Path((id, blocked_id)): Path<(Uuid, Uuid)>,
     ClientIdent(client): ClientIdent,
-) -> Result<StatusCode, AppError> {
-    {
+) -> Result<(StatusCode, Json<DeleteResponse>), AppError> {
+    let invalidation = {
         let mut ctx = state.lock_for_write(client).await;
         let invalidation = crate::state::mutate_unit(&mut ctx, |c| c.unblock_impl(id, blocked_id))
             .map_err(|e| AppError::from(&e))?;
@@ -150,8 +178,9 @@ async fn remove_block_route(
             )
             .await
             .map_err(|e| AppError::from(&e))?;
-    }
-    Ok(StatusCode::NO_CONTENT)
+        invalidation
+    };
+    Ok((StatusCode::OK, Json(DeleteResponse::new(&invalidation))))
 }
 
 async fn add_related_route(
@@ -159,13 +188,13 @@ async fn add_related_route(
     Path(id): Path<Uuid>,
     ClientIdent(client): ClientIdent,
     AppJson(req): AppJson<AddRelatedRequest>,
-) -> Result<Json<CardGraphResponse>, AppError> {
-    let body = {
+) -> Result<Json<MutationResponse<CardGraphResponse>>, AppError> {
+    let (body, invalidation) = {
         let mut ctx = state.lock_for_write(client).await;
         let invalidation =
             crate::state::mutate_unit(&mut ctx, |c| c.relate_impl(id, req.other, req.kind.into()))
                 .map_err(|e| AppError::from(&e))?;
-        let body = graph_mutation_response(&ctx.ctx, id)?;
+        let Json(body) = graph_mutation_response(&ctx.ctx, id)?;
         state
             .persist_and_broadcast(
                 &ctx,
@@ -176,17 +205,17 @@ async fn add_related_route(
             )
             .await
             .map_err(|e| AppError::from(&e))?;
-        body
+        (body, invalidation)
     };
-    Ok(body)
+    Ok(Json(MutationResponse::new(body, &invalidation)))
 }
 
 async fn remove_related_route(
     State(state): State<AppState>,
     Path((id, other_id)): Path<(Uuid, Uuid)>,
     ClientIdent(client): ClientIdent,
-) -> Result<StatusCode, AppError> {
-    {
+) -> Result<(StatusCode, Json<DeleteResponse>), AppError> {
+    let invalidation = {
         let mut ctx = state.lock_for_write(client).await;
         let invalidation = crate::state::mutate_unit(&mut ctx, |c| c.dissociate_impl(id, other_id))
             .map_err(|e| AppError::from(&e))?;
@@ -200,13 +229,18 @@ async fn remove_related_route(
             )
             .await
             .map_err(|e| AppError::from(&e))?;
-    }
-    Ok(StatusCode::NO_CONTENT)
+        invalidation
+    };
+    Ok((StatusCode::OK, Json(DeleteResponse::new(&invalidation))))
 }
 
 pub fn write_router() -> Router<AppState> {
     Router::new()
         .route("/v1/cards/{id}/children", post(attach_children_route))
+        .route(
+            "/v1/cards/{id}/children/detach",
+            post(detach_children_route),
+        )
         .route(
             "/v1/cards/{id}/children/{child_id}",
             delete(detach_child_route),

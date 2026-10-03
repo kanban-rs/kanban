@@ -320,6 +320,7 @@ fn test_the_plan_never_emits_a_scoped_tier() {
             sprints: [sprint].into(),
             graph: true,
             prefixes: true,
+            ..Default::default()
         },
     ];
 
