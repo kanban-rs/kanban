@@ -86,8 +86,11 @@ before this crate had any `RemoteWrites` impl.
 `HttpBackend::probe()` (called by `KanbanContext::open`, before any write) reads the `version` field of `GET /health` and refuses to open when the server's `major.minor` is lower than this binary's, or the field is absent entirely (a server that predates the handshake). A newer server is accepted. The error names the URL, the server's version (or that it reports none), and this client's version, and says to upgrade the server first:
 
 ```
-kanban server at http://host:5177 is v0.10.0, which is older than this client (v0.11.1). Upgrade the server before the client.
+kanban server at http://host:5177 reports no version, which is older than this client (v0.11.0). Upgrade the server before the client.
+kanban server at http://host:5177 is v0.11.0, which is older than this client (v0.12.0). Upgrade the server before the client.
 ```
+
+The first form is what a server released before the handshake (v0.10.x) produces.
 
 ## Key public exports
 
