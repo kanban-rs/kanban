@@ -4,6 +4,7 @@ use crate::{read_full_snapshot, KanbanContext};
 use kanban_core::AppConfig;
 use kanban_domain::archival::ArchivedEntity;
 use kanban_domain::card::CardPriority;
+use kanban_domain::commands::{ArchiveBoards, BoardCommand, Command};
 use kanban_domain::{
     CardListFilter, ColumnUpdate, CreateCardOptions, FieldUpdate, GraphOperations,
     KanbanOperations, Severity, UndoOperations,
@@ -1130,6 +1131,213 @@ pub async fn test_board_archive_restore_full_graph_roundtrip(factory: &BackendFa
             .is_empty(),
         "sprint_logs survived archive/restore"
     );
+}
+
+/// Assert the full rich-seed graph is byte-for-byte unchanged from `before`,
+/// including every archived marker's `archived_at` and the dependency
+/// graph's archived edge.
+fn assert_store_unchanged(ctx: &KanbanContext, before: &kanban_domain::Snapshot, s: &RichSeed) {
+    let snap = read_full_snapshot(ctx.data_store()).unwrap();
+
+    let mut snap_boards = snap.boards.clone();
+    let mut before_boards = before.boards.clone();
+    snap_boards.sort_by_key(|b| b.id);
+    before_boards.sort_by_key(|b| b.id);
+    assert_eq!(snap_boards, before_boards, "boards unchanged");
+
+    let mut snap_ab: Vec<_> = snap
+        .archived_boards
+        .iter()
+        .map(|ab| (ab.entity_id, ab.metadata.archived_at))
+        .collect();
+    let mut before_ab: Vec<_> = before
+        .archived_boards
+        .iter()
+        .map(|ab| (ab.entity_id, ab.metadata.archived_at))
+        .collect();
+    snap_ab.sort();
+    before_ab.sort();
+    assert_eq!(snap_ab, before_ab, "archived_boards unchanged");
+
+    let mut snap_columns = snap.columns.clone();
+    let mut before_columns = before.columns.clone();
+    snap_columns.sort_by_key(|c| c.id);
+    before_columns.sort_by_key(|c| c.id);
+    assert_eq!(snap_columns, before_columns, "columns unchanged");
+
+    let mut snap_sprints = snap.sprints.clone();
+    let mut before_sprints = before.sprints.clone();
+    snap_sprints.sort_by_key(|sp| sp.id);
+    before_sprints.sort_by_key(|sp| sp.id);
+    assert_eq!(snap_sprints, before_sprints, "sprints unchanged");
+
+    let mut snap_cards = snap.cards.clone();
+    let mut before_cards = before.cards.clone();
+    snap_cards.sort_by_key(|c| c.id);
+    before_cards.sort_by_key(|c| c.id);
+    assert_eq!(snap_cards.len(), before_cards.len(), "card count unchanged");
+    for (a, b) in snap_cards.iter().zip(before_cards.iter()) {
+        assert_card_eq(a, b);
+    }
+
+    let mut snap_ac: Vec<_> = snap
+        .archived_cards
+        .iter()
+        .map(|ac| (ac.entity_id, ac.metadata.archived_at, ac.context.board_id))
+        .collect();
+    let mut before_ac: Vec<_> = before
+        .archived_cards
+        .iter()
+        .map(|ac| (ac.entity_id, ac.metadata.archived_at, ac.context.board_id))
+        .collect();
+    snap_ac.sort();
+    before_ac.sort();
+    assert_eq!(snap_ac, before_ac, "archived_cards unchanged");
+
+    let graph = ctx.data_store().get_graph().unwrap();
+    assert_eq!(graph.len(), 1, "graph unchanged: exactly one edge total");
+    assert!(
+        graph.contains_archived(s.live, s.arch),
+        "graph unchanged: edge still present in archived form"
+    );
+    assert_eq!(graph.active_len(), 0, "graph unchanged: no active edges");
+}
+
+pub async fn test_rearchive_board_undo_leaves_the_board_and_its_subtree_archived(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let s = seed_rich(&mut ctx).unwrap();
+    ctx.archive_board(s.board).unwrap();
+
+    let sentinel: chrono::DateTime<chrono::Utc> = "2000-01-01T00:00:00Z".parse().unwrap();
+    ctx.data_store()
+        .insert_archived_board(kanban_domain::Archived::at(s.board, sentinel))
+        .unwrap();
+
+    let before = read_full_snapshot(ctx.data_store()).unwrap();
+    ctx.clear_history().unwrap();
+
+    let _ = ctx.archive_board_impl(s.board).unwrap();
+    assert_eq!(
+        ctx.board_archived_at(s.board).unwrap(),
+        Some(sentinel),
+        "re-archiving an already-archived board must not refresh archived_at"
+    );
+
+    assert!(
+        ctx.undo().unwrap().is_some(),
+        "undo of the no-op re-archive must still report success"
+    );
+
+    assert_store_unchanged(&ctx, &before, &s);
+    assert_eq!(
+        ctx.board_archived_at(s.board).unwrap(),
+        Some(sentinel),
+        "board stays archived at the sentinel time after undo"
+    );
+    assert!(
+        !ctx.list_boards().unwrap().iter().any(|b| b.id == s.board),
+        "board must stay hidden from the live list after undo"
+    );
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+    assert_store_unchanged(&ctx, &before, &s);
+    assert_eq!(ctx.board_archived_at(s.board).unwrap(), Some(sentinel));
+    assert!(!ctx.list_boards().unwrap().iter().any(|b| b.id == s.board));
+}
+
+pub async fn test_archive_boards_with_a_duplicated_id_is_undoable(factory: &BackendFactory) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let s = seed_rich(&mut ctx).unwrap();
+    let before = read_full_snapshot(ctx.data_store()).unwrap();
+    ctx.clear_history().unwrap();
+
+    let _ = ctx
+        .execute(vec![Command::Board(BoardCommand::Archive(ArchiveBoards {
+            ids: vec![s.board, s.board],
+        }))])
+        .unwrap();
+    assert!(ctx
+        .data_store()
+        .get_archived_board(s.board)
+        .unwrap()
+        .is_some());
+
+    assert!(
+        ctx.undo().unwrap().is_some(),
+        "undo must succeed: the duplicated id captures only one restore"
+    );
+
+    assert_store_unchanged(&ctx, &before, &s);
+    assert!(ctx.list_boards().unwrap().iter().any(|b| b.id == s.board));
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+    assert_store_unchanged(&ctx, &before, &s);
+    assert!(ctx.list_boards().unwrap().iter().any(|b| b.id == s.board));
+}
+
+pub async fn test_archive_boards_mixing_live_and_archived_undo_restores_only_the_live_board(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let s = seed_rich(&mut ctx).unwrap();
+    let p = ctx.create_board("Other".into(), None).unwrap();
+    ctx.create_column(p.id, "Col".into(), None).unwrap();
+
+    ctx.archive_board(s.board).unwrap();
+    let sentinel: chrono::DateTime<chrono::Utc> = "2000-01-01T00:00:00Z".parse().unwrap();
+    ctx.data_store()
+        .insert_archived_board(kanban_domain::Archived::at(s.board, sentinel))
+        .unwrap();
+
+    let before = read_full_snapshot(ctx.data_store()).unwrap();
+    ctx.clear_history().unwrap();
+
+    let _ = ctx
+        .execute(vec![Command::Board(BoardCommand::Archive(ArchiveBoards {
+            ids: vec![p.id, s.board],
+        }))])
+        .unwrap();
+
+    assert!(
+        ctx.undo().unwrap().is_some(),
+        "undo must succeed: only P's restore is in the inverse"
+    );
+
+    assert_store_unchanged(&ctx, &before, &s);
+    assert!(
+        ctx.list_boards().unwrap().iter().any(|b| b.id == p.id),
+        "P is restored to the live set"
+    );
+    assert_eq!(
+        ctx.board_archived_at(s.board).unwrap(),
+        Some(sentinel),
+        "A stays archived at its original sentinel time, untouched"
+    );
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+    assert_store_unchanged(&ctx, &before, &s);
+    assert!(ctx.list_boards().unwrap().iter().any(|b| b.id == p.id));
+    assert_eq!(ctx.board_archived_at(s.board).unwrap(), Some(sentinel));
 }
 
 /// B2 (KAN-918): `list_boards_filtered` is the ONE path for live/archived/both
