@@ -1877,35 +1877,36 @@ async fn test_assign_cards_already_in_the_sprint_counts_one_over_http_and_zero_l
     already_in_sprint_assign_count_divergence(Backend::Sqlite).await;
 }
 
-async fn archived_only_archive_count_divergence(kind: Backend) {
+async fn already_archived_archive_count_divergence(kind: Backend) {
     let runs = run_both(kind, seed_graph, |ctx, s| {
-        vec![(
-            "archive_cards",
-            Outcome::counted(ctx.archive_cards_impl(vec![s.card_b])),
-        )]
+        vec![
+            (
+                "archive_cards only archived",
+                Outcome::counted(ctx.archive_cards_impl(vec![s.card_b])),
+            ),
+            (
+                "archive_cards live and archived",
+                Outcome::counted(ctx.archive_cards_impl(vec![s.card_d, s.card_b])),
+            ),
+        ]
     })
     .await;
     assert_snapshot_eq(&runs.remote_snap, &runs.control_snap);
-    assert!(
-        matches!(&runs.remote[0].1, Outcome::Rejected(_)),
-        "an all-archived batch must be rejected over HTTP, got {:?}",
-        runs.remote[0].1
-    );
     assert_eq!(
-        runs.local[0].1,
-        Outcome::Counted(0, Invalidation::All),
-        "an all-archived batch counts 0 locally"
+        runs.remote[0].1,
+        Outcome::Counted(1, Invalidation::Entities(EntityIds::default()))
     );
+    assert_eq!(runs.local[0].1, Outcome::Counted(0, Invalidation::All));
+    assert_eq!(runs.remote[1].1, Outcome::Counted(2, Invalidation::All));
+    assert_eq!(runs.local[1].1, Outcome::Counted(1, Invalidation::All));
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_archive_cards_of_only_archived_cards_is_rejected_over_http_and_counts_zero_locally_json(
-) {
-    archived_only_archive_count_divergence(Backend::Json).await;
+async fn test_archive_cards_counts_an_already_archived_card_over_http_but_not_locally_json() {
+    already_archived_archive_count_divergence(Backend::Json).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_archive_cards_of_only_archived_cards_is_rejected_over_http_and_counts_zero_locally_sqlite(
-) {
-    archived_only_archive_count_divergence(Backend::Sqlite).await;
+async fn test_archive_cards_counts_an_already_archived_card_over_http_but_not_locally_sqlite() {
+    already_archived_archive_count_divergence(Backend::Sqlite).await;
 }

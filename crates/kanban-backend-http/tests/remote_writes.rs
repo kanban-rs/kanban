@@ -705,6 +705,29 @@ async fn test_assign_cards_to_sprint_over_http_counts_a_card_already_in_the_spri
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_archive_cards_over_http_re_archiving_an_archived_card_returns_ok() {
+    let server = TestServer::start().await;
+    let mut ctx = ctx_over(&server).await;
+    let (board, _) = ctx.create_board_from_spec(None, a_new_board()).unwrap();
+    let (column, _) = ctx
+        .create_column_from_spec(None, a_new_column(board.id))
+        .unwrap();
+    let (card, _) = ctx
+        .create_card_from_spec(None, a_new_card(column.id))
+        .unwrap();
+    let _ = ctx.archive_card_impl(card.id).unwrap();
+
+    let (count, invalidation) = ctx
+        .archive_cards_impl(vec![card.id])
+        .expect("re-archiving an already-archived card should succeed over http");
+
+    assert_eq!(count, 1);
+    assert_eq!(invalidation, Invalidation::Entities(EntityIds::default()));
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_archive_cards_over_http_returns_the_same_invalidation_as_a_local_archive() {
     async fn archive_two_cards(ctx: &mut KanbanContext) -> (usize, Invalidation) {
         let (board, _) = ctx.create_board_from_spec(None, a_new_board()).unwrap();

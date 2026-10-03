@@ -4,12 +4,13 @@ use kanban_domain::commands::{
     UpdateBoard,
 };
 use kanban_domain::{
-    BoardUpdate, CardUpdate, EntityIds, Invalidation, KanbanOperations, KanbanResult,
-    UndoOperations,
+    BoardUpdate, CardUpdate, EntityIds, GraphOperations, Invalidation, KanbanOperations,
+    KanbanResult, UndoOperations,
 };
 use kanban_service::undo_stack::UndoStack;
 use kanban_service::{read_full_snapshot, write_full_snapshot, KanbanContext};
 use std::sync::Arc;
+use uuid::Uuid;
 
 async fn open_context(
     locator: &str,
@@ -1128,4 +1129,204 @@ async fn test_can_redo_uses_cached_count() -> KanbanResult<()> {
     assert!(!ctx.can_redo());
     assert_eq!(ctx.redo_depth(), 0);
     Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum ScenarioBackend {
+    InMemory,
+    Json,
+    Sqlite,
+}
+
+async fn open_scenario_ctx(kind: ScenarioBackend, dir: &tempfile::TempDir) -> KanbanContext {
+    match kind {
+        ScenarioBackend::InMemory => make_ctx().await,
+        ScenarioBackend::Json => {
+            let path = dir.path().join("t.json");
+            open_context(path.to_str().unwrap(), kanban_core::AppConfig::default())
+                .await
+                .unwrap()
+        }
+        ScenarioBackend::Sqlite => {
+            let path = dir.path().join("t.sqlite");
+            open_context(path.to_str().unwrap(), kanban_core::AppConfig::default())
+                .await
+                .unwrap()
+        }
+    }
+}
+
+async fn save_and_reopen_scenario_ctx(
+    kind: ScenarioBackend,
+    ctx: KanbanContext,
+    dir: &tempfile::TempDir,
+) -> KanbanContext {
+    match kind {
+        ScenarioBackend::InMemory => ctx,
+        ScenarioBackend::Json => {
+            ctx.save().await.unwrap();
+            let path = dir.path().join("t.json");
+            open_context(path.to_str().unwrap(), kanban_core::AppConfig::default())
+                .await
+                .unwrap()
+        }
+        ScenarioBackend::Sqlite => {
+            ctx.save().await.unwrap();
+            let path = dir.path().join("t.sqlite");
+            open_context(path.to_str().unwrap(), kanban_core::AppConfig::default())
+                .await
+                .unwrap()
+        }
+    }
+}
+
+fn archived_at_of(ctx: &KanbanContext, id: Uuid) -> KanbanResult<chrono::DateTime<chrono::Utc>> {
+    Ok(ctx
+        .archived_cards()?
+        .into_iter()
+        .find(|ac| ac.entity_id == id)
+        .expect("card must be archived")
+        .metadata
+        .archived_at)
+}
+
+fn is_archived(ctx: &KanbanContext, id: Uuid) -> KanbanResult<bool> {
+    Ok(ctx.archived_cards()?.iter().any(|ac| ac.entity_id == id))
+}
+
+async fn archive_cards_detailed_with_an_already_archived_id_scenario(
+    kind: ScenarioBackend,
+) -> KanbanResult<()> {
+    let dir = tempfile::tempdir().unwrap();
+    let mut ctx = open_scenario_ctx(kind, &dir).await;
+
+    let board = ctx.create_board("B".into(), None)?;
+    let col = ctx.create_column(board.id, "Col".into(), None)?;
+    let card_a = ctx.create_card(board.id, col.id, "A".into(), Default::default())?;
+    let card_b = ctx.create_card(board.id, col.id, "B".into(), Default::default())?;
+    let card_c = ctx.create_card(board.id, col.id, "C".into(), Default::default())?;
+    let sprint = ctx.create_sprint(board.id, None, None)?;
+    ctx.assign_card_to_sprint(card_c.id, sprint.id)?;
+    ctx.attach_children(card_a.id, vec![card_c.id])?;
+
+    ctx.archive_card(card_b.id)?;
+    let b_archived_at = archived_at_of(&ctx, card_b.id)?;
+
+    ctx.clear_history()?;
+    ctx.mark_clean();
+
+    let a_column_before = card_a.column_id;
+    let a_position_before = card_a.position;
+
+    let (result, _invalidation) = ctx.archive_cards_detailed(vec![card_a.id, card_b.id]);
+    assert_eq!(result.succeeded, vec![card_a.id, card_b.id]);
+    assert!(result.failed.is_empty());
+    assert!(is_archived(&ctx, card_a.id)?);
+    assert!(is_archived(&ctx, card_b.id)?);
+    assert_eq!(archived_at_of(&ctx, card_b.id)?, b_archived_at);
+
+    assert!(ctx.undo()?.is_some());
+
+    let assert_post_undo_state = |ctx: &KanbanContext| -> KanbanResult<()> {
+        assert!(
+            !is_archived(ctx, card_a.id)?,
+            "A should be live again after undo"
+        );
+        assert!(
+            is_archived(ctx, card_b.id)?,
+            "B should still be archived after undo"
+        );
+        assert_eq!(archived_at_of(ctx, card_b.id)?, b_archived_at);
+
+        let a_after = ctx
+            .cards()?
+            .into_iter()
+            .find(|c| c.id == card_a.id)
+            .expect("A must still be live");
+        assert_eq!(a_after.column_id, a_column_before);
+        assert_eq!(a_after.position, a_position_before);
+
+        let c_after = ctx
+            .cards()?
+            .into_iter()
+            .find(|c| c.id == card_c.id)
+            .expect("C must still be live");
+        assert_eq!(c_after.sprint_id, Some(sprint.id));
+
+        assert_eq!(ctx.list_children_of(card_a.id)?, vec![card_c.id]);
+        Ok(())
+    };
+    assert_post_undo_state(&ctx)?;
+
+    let ctx = save_and_reopen_scenario_ctx(kind, ctx, &dir).await;
+    assert_post_undo_state(&ctx)?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_archive_cards_detailed_with_an_already_archived_id_reports_it_succeeded_and_undo_keeps_it_archived_in_memory(
+) -> KanbanResult<()> {
+    archive_cards_detailed_with_an_already_archived_id_scenario(ScenarioBackend::InMemory).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_archive_cards_detailed_with_an_already_archived_id_reports_it_succeeded_and_undo_keeps_it_archived_json(
+) -> KanbanResult<()> {
+    archive_cards_detailed_with_an_already_archived_id_scenario(ScenarioBackend::Json).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_archive_cards_detailed_with_an_already_archived_id_reports_it_succeeded_and_undo_keeps_it_archived_sqlite(
+) -> KanbanResult<()> {
+    archive_cards_detailed_with_an_already_archived_id_scenario(ScenarioBackend::Sqlite).await
+}
+
+async fn archive_cards_detailed_with_only_already_archived_ids_is_a_clean_no_op_scenario(
+    kind: ScenarioBackend,
+) -> KanbanResult<()> {
+    let dir = tempfile::tempdir().unwrap();
+    let mut ctx = open_scenario_ctx(kind, &dir).await;
+
+    let board = ctx.create_board("B".into(), None)?;
+    let col = ctx.create_column(board.id, "Col".into(), None)?;
+    let card_b = ctx.create_card(board.id, col.id, "B".into(), Default::default())?;
+    ctx.archive_card(card_b.id)?;
+
+    ctx.clear_history()?;
+    ctx.mark_clean();
+
+    let (result, invalidation) = ctx.archive_cards_detailed(vec![card_b.id]);
+    assert_eq!(result.succeeded, vec![card_b.id]);
+    assert!(result.failed.is_empty());
+    assert_eq!(invalidation, Invalidation::Entities(EntityIds::default()));
+    assert!(!ctx.can_undo());
+    assert!(!ctx.is_dirty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_archive_cards_detailed_with_only_already_archived_ids_is_a_clean_no_op_in_memory(
+) -> KanbanResult<()> {
+    archive_cards_detailed_with_only_already_archived_ids_is_a_clean_no_op_scenario(
+        ScenarioBackend::InMemory,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_archive_cards_detailed_with_only_already_archived_ids_is_a_clean_no_op_json(
+) -> KanbanResult<()> {
+    archive_cards_detailed_with_only_already_archived_ids_is_a_clean_no_op_scenario(
+        ScenarioBackend::Json,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_archive_cards_detailed_with_only_already_archived_ids_is_a_clean_no_op_sqlite(
+) -> KanbanResult<()> {
+    archive_cards_detailed_with_only_already_archived_ids_is_a_clean_no_op_scenario(
+        ScenarioBackend::Sqlite,
+    )
+    .await
 }
