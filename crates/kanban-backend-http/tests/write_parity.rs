@@ -1352,11 +1352,16 @@ async fn test_seed_graph_leaves_a_non_trivial_graph() {
     assert_ne!(seeded.card_a, Uuid::nil(), "card_a");
     assert_ne!(seeded.card_b, Uuid::nil(), "card_b");
     assert_ne!(seeded.card_c, Uuid::nil(), "card_c");
+    assert_ne!(seeded.card_d, Uuid::nil(), "card_d");
     assert_ne!(seeded.sprint_id, Uuid::nil(), "sprint_id");
+    assert_ne!(seeded.other_board_id, Uuid::nil(), "other_board_id");
+    assert_ne!(seeded.backlog, Uuid::nil(), "backlog");
+    assert_ne!(seeded.card_e, Uuid::nil(), "card_e");
 
     let ds = ctx.data_store();
-    assert_eq!(ds.list_all_columns().unwrap().len(), 2, "columns");
-    assert_eq!(ds.list_all_cards().unwrap().len(), 2, "live cards");
+    assert_eq!(ds.list_boards().unwrap().len(), 2, "boards");
+    assert_eq!(ds.list_all_columns().unwrap().len(), 3, "columns");
+    assert_eq!(ds.list_all_cards().unwrap().len(), 4, "live cards");
     assert_eq!(ds.list_all_sprints().unwrap().len(), 1, "sprints");
     assert_eq!(ds.list_archived_cards().unwrap().len(), 1, "archived_cards");
     assert!(
@@ -1366,6 +1371,8 @@ async fn test_seed_graph_leaves_a_non_trivial_graph() {
 
     let graph = ds.get_graph().unwrap();
     assert_eq!(graph.spawns_edges().len(), 1, "spawns edges");
+    assert_eq!(graph.blocks_edges().len(), 1, "blocks edges");
+    assert_eq!(graph.relates_edges().len(), 1, "relates edges");
 }
 
 async fn card_move_and_sprint_parity(kind: Backend) {
