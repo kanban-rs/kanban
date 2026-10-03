@@ -45,7 +45,7 @@ pub use kanban_backend::{
 };
 pub use path::validate_path;
 pub use resolve::resolve;
-pub use sprint_name::{resolve_sprint_name, resolve_sprint_names};
+pub use sprint_name::{resolve_committed_sprint_name, resolve_sprint_name, resolve_sprint_names};
 pub use store_manager::StoreManager;
 
 #[cfg(feature = "test-helpers")]

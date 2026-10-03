@@ -29,3 +29,10 @@ pub fn resolve_sprint_names<O: KanbanOperations + ?Sized>(
         .map(|s| s.get_name(&board).map(str::to_string))
         .collect())
 }
+
+pub fn resolve_committed_sprint_name<O: KanbanOperations + ?Sized>(
+    _ops: &O,
+    _sprint: &Sprint,
+) -> Option<String> {
+    todo!("committed sprint name recovery")
+}

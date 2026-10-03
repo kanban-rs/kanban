@@ -496,3 +496,241 @@ async fn test_cli_relation_remove_missing_edge_against_http_locator_shows_the_lo
 
     server.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_cli_sprint_create_over_http_when_the_board_reread_fails_once_reports_the_real_name() {
+    let ids = Arc::new(Mutex::new(None::<Uuid>));
+    let ids_for_seed = Arc::clone(&ids);
+
+    let (server, fault) = TestServer::start_with_one_shot_fault(move |ctx| {
+        let board_id = ctx
+            .create_board("Sprint Board".to_string(), Some("KAN".to_string()))
+            .unwrap()
+            .id;
+        *ids_for_seed.lock().unwrap() = Some(board_id);
+    })
+    .await;
+    let board_id = ids.lock().unwrap().take().unwrap();
+    let base_url = server.base_url();
+    *fault.lock().unwrap() = Some(("GET", format!("/v1/boards/{board_id}")));
+
+    let output = tokio::task::spawn_blocking(move || {
+        use assert_cmd::cargo_bin_cmd;
+        cargo_bin_cmd!("kanban")
+            .args([
+                &base_url,
+                "sprint",
+                "create",
+                "--board",
+                &board_id.to_string(),
+                "--name",
+                "Alpha",
+            ])
+            .output()
+            .unwrap()
+    })
+    .await
+    .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let response: Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(response["success"], true);
+    assert_eq!(response["data"]["name"], "Alpha");
+    assert!(
+        fault.lock().unwrap().is_none(),
+        "the shot should have fired"
+    );
+
+    let list: Value = server
+        .client()
+        .get(format!(
+            "{}/v1/boards/{board_id}/sprints",
+            server.base_url()
+        ))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let items = list["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["id"], response["data"]["id"]);
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_cli_sprint_create_over_http_when_the_board_reads_keep_failing_reports_the_committed_sprint_unnamed(
+) {
+    let ids = Arc::new(Mutex::new(None::<Uuid>));
+    let ids_for_seed = Arc::clone(&ids);
+
+    let (server, fault) = TestServer::start_with_fault(move |ctx| {
+        let board_id = ctx
+            .create_board("Sprint Board".to_string(), Some("KAN".to_string()))
+            .unwrap()
+            .id;
+        *ids_for_seed.lock().unwrap() = Some(board_id);
+    })
+    .await;
+    let board_id = ids.lock().unwrap().take().unwrap();
+    let base_url = server.base_url();
+    *fault.lock().unwrap() = Some(("GET", format!("/v1/boards/{board_id}")));
+
+    let output = tokio::task::spawn_blocking(move || {
+        use assert_cmd::cargo_bin_cmd;
+        cargo_bin_cmd!("kanban")
+            .args([
+                &base_url,
+                "sprint",
+                "create",
+                "--board",
+                &board_id.to_string(),
+                "--name",
+                "Alpha",
+            ])
+            .output()
+            .unwrap()
+    })
+    .await
+    .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let response: Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(response["success"], true);
+    assert!(response["data"]["name"].is_null());
+
+    let list: Value = server
+        .client()
+        .get(format!(
+            "{}/v1/boards/{board_id}/sprints",
+            server.base_url()
+        ))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let items = list["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["id"], response["data"]["id"]);
+    assert_eq!(items[0]["name"], "Alpha");
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_cli_sprint_activate_over_http_when_the_board_reread_fails_once_reports_the_real_name()
+{
+    let ids = Arc::new(Mutex::new(None::<(Uuid, Uuid)>));
+    let ids_for_seed = Arc::clone(&ids);
+
+    let (server, fault) = TestServer::start_with_one_shot_fault(move |ctx| {
+        let board_id = ctx
+            .create_board("Sprint Board".to_string(), Some("KAN".to_string()))
+            .unwrap()
+            .id;
+        let sprint_id = ctx
+            .create_sprint_from_spec(board_id, None, Some("Alpha".to_string()), None, false)
+            .unwrap()
+            .0
+            .id;
+        *ids_for_seed.lock().unwrap() = Some((board_id, sprint_id));
+    })
+    .await;
+    let (board_id, sprint_id) = ids.lock().unwrap().take().unwrap();
+    let base_url = server.base_url();
+    *fault.lock().unwrap() = Some(("GET", format!("/v1/boards/{board_id}")));
+
+    let output = tokio::task::spawn_blocking(move || {
+        use assert_cmd::cargo_bin_cmd;
+        cargo_bin_cmd!("kanban")
+            .args([&base_url, "sprint", "activate", &sprint_id.to_string()])
+            .output()
+            .unwrap()
+    })
+    .await
+    .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let response: Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(response["success"], true);
+    assert_eq!(response["data"]["status"], "active");
+    assert_eq!(response["data"]["name"], "Alpha");
+    assert!(
+        fault.lock().unwrap().is_none(),
+        "the shot should have fired"
+    );
+
+    let list: Value = server
+        .client()
+        .get(format!(
+            "{}/v1/boards/{board_id}/sprints",
+            server.base_url()
+        ))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let items = list["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["status"], "active");
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_cli_sprint_get_over_http_when_the_board_read_fails_still_errors() {
+    let ids = Arc::new(Mutex::new(None::<(Uuid, Uuid)>));
+    let ids_for_seed = Arc::clone(&ids);
+
+    let (server, fault) = TestServer::start_with_fault(move |ctx| {
+        let board_id = ctx
+            .create_board("Sprint Board".to_string(), Some("KAN".to_string()))
+            .unwrap()
+            .id;
+        let sprint_id = ctx
+            .create_sprint_from_spec(board_id, None, Some("Alpha".to_string()), None, false)
+            .unwrap()
+            .0
+            .id;
+        *ids_for_seed.lock().unwrap() = Some((board_id, sprint_id));
+    })
+    .await;
+    let (board_id, sprint_id) = ids.lock().unwrap().take().unwrap();
+    let base_url = server.base_url();
+    *fault.lock().unwrap() = Some(("GET", format!("/v1/boards/{board_id}")));
+
+    let output = tokio::task::spawn_blocking(move || {
+        use assert_cmd::cargo_bin_cmd;
+        cargo_bin_cmd!("kanban")
+            .args([&base_url, "sprint", "get", &sprint_id.to_string()])
+            .output()
+            .unwrap()
+    })
+    .await
+    .unwrap();
+
+    assert!(!output.status.success());
+
+    server.shutdown().await;
+}
