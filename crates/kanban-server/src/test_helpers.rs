@@ -157,6 +157,12 @@ impl TestServer {
         (server, fault)
     }
 
+    pub async fn start_with_one_shot_fault(
+        seed: impl FnOnce(&mut KanbanContext),
+    ) -> (Self, FaultSwitch) {
+        Self::start_with_fault(seed).await
+    }
+
     async fn start_full(
         seed: impl FnOnce(&mut KanbanContext),
         config: crate::layers::LayerConfig,
