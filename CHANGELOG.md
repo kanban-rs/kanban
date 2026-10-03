@@ -5,6 +5,238 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-10-03 ([#920](https://github.com/kanban-rs/kanban/pull/920))
+
+### Other Changes (2026-10-03)
+
+Run CI on pushes to master so the README CI badge reflects the actual state of the default branch. The badge previously showed the latest run whose head branch was master, which was a failed develop-sync PR from the v0.8.0 era; with syncs now done by direct push, no newer run ever replaced it and the badge stayed red permanently. A concurrency group cancels the superseded run when the release pipeline pushes master twice in quick succession (release commit, then the AUR bump).
+
+docs: the README's nixpkgs stable and unstable badges read the packaged version straight from `pkgs/by-name/ka/kanban/package.nix` on the `nixos-26.05` and `nixos-unstable` branches through a shields.io regex badge, instead of from Repology, whose domain is suspended and no longer resolves, leaving both badges as unstyled alt text.
+
+### KAN-1616 Divert Card Move And Sprint Assign (2026-10-03)
+
+backend-http,server: `RemoteCardWrites` grows three required methods (`move_card`, `assign_card_to_sprint`, `unassign_card_from_sprint`), and `HttpBackend` diverts card move and sprint assign/unassign to the new `POST /v1/cards/{id}/move`, `POST /v1/cards/{id}/assign-sprint` and `POST /v1/cards/{id}/unassign-sprint` routes instead of the local command-execute-then-log path. Breaking for any external `RemoteCardWrites` implementor; additive server API surface. Parity tests prove the diverted ops leave the store graph identical to a local run on both the JSON and SQLite backends.
+
+### KAN-1625 Sprint Read Board Refetch (2026-10-03)
+
+backend-http: `list_all_sprints` no longer refetches a live board's body per id for its `sprint_names`; live boards' bodies are already in hand from the single `GET /v1/boards` call. Archived boards keep their per-id refetch, since their bodies aren't returned by that route. Same sprints, resolved names and order as before, fewer requests.
+
+### KAN-1632 If Match Unknown Id 404 (2026-10-03)
+
+server: `PATCH`/`DELETE /v1/boards/{id}` resolve existence before evaluating `If-Match`, so an unknown board id answers `404` instead of `412` regardless of the header (RFC 9110 §13.2.1).
+
+### KAN-1637 Detach Children Request Dto (2026-10-03)
+
+api: add `DetachChildrenRequest`, the wire DTO for the upcoming batch child-detach route. Additive only; nothing consumes it yet.
+
+### KAN-1638 Graph Post Routes (2026-10-03)
+
+server: the three graph POST routes (`attach_children`, `add_block`, `add_related`) now return `MutationResponse<CardGraphResponse>`, carrying the mutation's `invalidation` instead of discarding it. Responses still deserialize as a bare `CardGraphResponse` (the wrap is additive via `#[serde(flatten)]`), so existing clients are unaffected. Also adds `POST /v1/cards/{id}/children/detach`, which runs `detach_children_impl`'s single transaction so a batch detach removes every edge or none.
+
+### KAN-1639 Graph Delete Routes 200 (2026-10-03)
+
+server: the three graph edge DELETE routes (`DELETE /v1/cards/{id}/children/{child_id}`, `DELETE /v1/cards/{id}/blocks/{blocked_id}`, `DELETE /v1/cards/{id}/related/{other_id}`) now return `200 OK` with a `DeleteResponse` body carrying the mutation's `invalidation`, instead of `204 No Content` with an empty body. This matches the other five graph write routes and the existing flat card delete, and is a breaking change for any client that expected `204`.
+
+### KAN-1640 Remote Graph Writes (2026-10-03)
+
+backend,backend-http: `RemoteGraphWrites` grows six required methods (`attach_children`, `detach_children`, `block`, `unblock`, `relate`, `dissociate`), and `HttpBackend` implements them against the graph mutation routes, turning on the `remote_graph_writes()` accessor. Breaking: `RemoteGraphWrites` gains six required methods, so any external `impl RemoteGraphWrites for X {}` stops compiling. No in-tree backend implemented it before.
+
+### KAN-1641 Service Divert Graph (2026-10-03)
+
+service: the six graph mutators (`attach_children_impl`, `detach_children_impl`, `block_impl`, `unblock_impl`, `relate_impl`, `dissociate_impl`) now divert to `KanbanBackend::remote_graph_writes()` as their first statement, before `require_card_exists`/`edge_born_archived` run any client read. Over `HttpBackend` each graph op is now one request instead of up to `2 + 3N` client reads followed by the blanket fence.
+
+### KAN-1642 Graph Parity Closer (2026-10-03)
+
+backend-http: `write_parity.rs`'s `GraphSnapshot` now compares each spawns/blocks/relates edge's archival state, not just its endpoints, and adds `test_remote_graph_mutations_leave_graph_equal_to_local_{json,sqlite}` (the six graph edge mutations over HTTP, whole-store parity against a local run) and `test_attach_no_children_over_http_returns_the_same_invalidation_as_local` (an empty `attach_children` invalidates the same thing over HTTP as it does locally, since the server is the reference). Test-only; no src item changes shape.
+
+### KAN-1643 Import Route Invalidation (2026-10-03)
+
+server: `POST /v1/import` now returns a `MutationResponse<BoardResponse>`, carrying the import's own `invalidation` alongside the board. The response still deserializes as a bare `BoardResponse` (the wrap is additive via `#[serde(flatten)]`), so existing clients are unaffected.
+
+### KAN-1658 Entity Ids Card Columns (2026-10-03)
+
+domain,api: `EntityIds`/`EntityIdsDto` gain `card_columns` (per-card set of invalidated `cards_by_column` scopes) and `archival_changed` (reserved, unset in this slice). Additive only: `merge` unions `card_columns`, `is_empty` is unaffected, and both new fields default to empty/false so existing producers and older wire peers are unchanged.
+
+### KAN-1659 Invalidate Narrowing (2026-10-03)
+
+domain: `Model::invalidate` now narrows a `cards` invalidation to just the affected `cards_by_column`/`scoped_card_index` scopes when `EntityIds::card_columns` names every touched card's columns, falling back to today's whole-tier drop otherwise. The four `archived_*` tiers still drop on every card invalidation. Takes effect in this release through KAN-1660, which makes card moves, creates and column-setting updates name their columns.
+
+### KAN-1660 Fold Forward Batch (2026-10-03)
+
+domain, service: `MoveCard` and `CreateCard` now name their column in `EntityIds::card_columns`, and a forward mutation's `Invalidation` folds the forward batch's column hints into the inverse's (`kanban_domain::invalidation_from_batch`), so a card move invalidates only its source and destination column scopes instead of every column. `UpdateCard` names its own column too whenever its update sets `column_id`, so a batch that resolves a card into a column through a plain update rather than a chained move still drops that column's cached scope.
+
+### KAN-1663 Testserver Recording (2026-10-03)
+
+server: add `TestServer::start_recording`, a `test-helpers` constructor that returns a `RequestLog` of every `(method, path)` the router received in arrival order, including requests answered 404 by the router's fallback. Additive only; the existing five constructors are unchanged.
+
+### KAN-1665 Flat If Match 404 (2026-10-03)
+
+server: the four flat card/column write routes (`PATCH`/`DELETE /v1/cards/{id}` and `PATCH`/`DELETE /v1/columns/{id}`) now resolve existence before evaluating `If-Match`. An unknown id now answers `404` regardless of whether an `If-Match` header is present, matching RFC 9110 §13.2.1 and the nested board-scoped routes for the same entities.
+
+### KAN-1667 Op Parity Harness (2026-10-03)
+
+backend-http: add the `seed_graph`/`op_parity` write-parity test harness that every remote-write slice proves itself against. Test-only, no runtime change.
+
+### KAN-1668 Flat Card Routes (2026-10-03)
+
+server: add flat `POST /v1/cards/{id}/move`, `/assign-sprint` and `/unassign-sprint` routes that run the service's `move_card_impl`, `assign_card_to_sprint_impl` and `unassign_card_from_sprint_impl` and return the mutation's invalidation, so a remote client can move a card (server-side append position and status chaining) and bind or unbind a sprint (sprint log written server-side) without the PATCH shortcut that skips both.
+
+### KAN-1669 Remote Card Writes Move Sprint (2026-10-03)
+
+backend,backend-http: `RemoteCardWrites` grows three required methods (`move_card`, `assign_card_to_sprint`, `unassign_card_from_sprint`), and `HttpBackend` implements them against the card move and sprint assignment routes. Breaking: `RemoteCardWrites` gains three required methods, so any external `impl RemoteCardWrites for X {}` stops compiling.
+
+### KAN-1670 Service Divert Card Move (2026-10-03)
+
+service,backend-http: `move_card_impl`, `assign_card_to_sprint_impl` and `unassign_card_from_sprint_impl` now divert to `KanbanBackend::remote_card_writes()` as their first statement, before any local read (column count, sprint batch delegation). Over `HttpBackend` each op is now one request and zero client reads, returning the server's `Invalidation` verbatim.
+
+### KAN-1672 Batch Response Invalidation (2026-10-03)
+
+api,server: `BatchOperationResponse` now carries the mutation's `invalidation` on the wire (required on `new`, defaulting to `all` when absent on deserialize), and every `/v1/cards/batch/*` route forwards the exact invalidation it computed instead of discarding it after the broadcast.
+
+### KAN-1673 Remote Batch Writes Trait (2026-10-03)
+
+backend: `RemoteBatchWrites` gains four required methods (`archive_cards`, `move_cards`, `assign_cards_to_sprint`, `update_cards`) and a new `RemoteBatchOutcome` struct carrying per-id success/failure results. No in-tree type implements the trait yet, so nothing breaks, but any external implementor must add these methods.
+
+### KAN-1674 Http Batch Writes (2026-10-03)
+
+backend-http: `HttpBackend` implements `RemoteBatchWrites`, sending
+`archive_cards`, `move_cards`, `assign_cards_to_sprint` and `update_cards`
+to the existing `/v1/cards/batch/*` routes and mapping the response into
+`RemoteBatchOutcome`. Additive; no route or DTO changes.
+
+### KAN-1675 Service Divert Batch (2026-10-03)
+
+service: `archive_cards`, `move_cards`, `assign_cards_to_sprint` and `update_cards` divert to `RemoteBatchWrites` as their first statement when a backend declares it, returning the server's count and invalidation verbatim. Falls back to the existing local command-execute-then-log path otherwise. Additive: `MockBackend` gains an optional batch-writes field alongside its existing per-family mocks.
+
+### KAN-1676 Divert Detailed Batch Card Ops (2026-10-03)
+
+service: `archive_cards_detailed`, `move_cards_detailed` and `assign_cards_to_sprint_detailed` divert to `RemoteBatchWrites` when the backend has one, matching the non-detailed batch ops. A batch write transport error, or a remote backend with no batch-write support, now fails every input id with the per-op message instead of falling through to the local command path.
+
+### KAN-1677 Batch Parity Closer (2026-10-03)
+
+backend-http: add HTTP-backed behavioural and parity coverage for the four card batch mutations (`archive_cards`, `move_cards`, `assign_cards_to_sprint`, `update_cards`) against a real `kanban-server`, pinning that the server's `Invalidation` (scoped `Entities` for move, `All` for archive and for a no-op reassign) is carried through verbatim, and that the local-vs-server divergences (an unknown id moves the rest instead of failing the whole batch; a card already on the target sprint still counts as succeeded) hold end to end. Docs-only otherwise: the server and backend-http READMEs now list the four `/v1/cards/batch/*` routes among the write routes that return the mutation's `Invalidation`.
+
+### KAN-1678 Sprint Update Dates (2026-10-03)
+
+api: `PATCH /v1/sprints/{id}` (nested and flat routes) now accepts `start_date` and `end_date` as `Patch<DateTime<Utc>>`, so callers can set or clear a sprint's dates instead of only leaving them unchanged. `status` and `name_index` stay off the wire.
+
+### KAN-1679 Sprint Mutation Responses (2026-10-03)
+
+server: `POST /v1/boards/{board_id}/sprints` and `PATCH /v1/sprints/{id}` now return their body wrapped in a `MutationResponse` carrying the mutation's `invalidation` (the entity fields stay readable as the bare `SprintResponse`), and `DELETE /v1/sprints/{id}` now returns `200 OK` with a `DeleteResponse` body instead of `204 No Content`. The nested `PUT`/`PATCH`/`DELETE /v1/boards/{board_id}/sprints/{id}` routes are unchanged (`DELETE` still answers `204`).
+
+### KAN-1680 Remote Sprint Writes Trait (2026-10-03)
+
+backend: `RemoteSprintWrites` grows three required methods (`create_sprint`, `update_sprint`, `delete_sprint`). No in-tree implementor exists yet, so this is additive in practice; breaking for any external implementor of the trait.
+
+### KAN-1681 Http Sprint Writes (2026-10-03)
+
+backend-http: `HttpBackend` implements `RemoteSprintWrites` (`create_sprint`, `update_sprint`, `delete_sprint`) over `POST /v1/boards/{board_id}/sprints`, `PATCH /v1/sprints/{id}` and `DELETE /v1/sprints/{id}`, and `remote_sprint_writes()` now returns `Some(self)`. `update_sprint` declines `name_index` and `status` as server-managed fields. `get_sprint` now shares the board-pool lookup with the new `sprint_with_pool` helper instead of duplicating it.
+
+### KAN-1682 Sprint Create Divert (2026-10-03)
+
+service: `create_sprint_from_spec` diverts to `RemoteSprintWrites::create_sprint` before the board FK read when the backend exposes sprint writes, so sprint creation over the HTTP backend no longer hits the local fence. `auto_consume_name` with no explicit name declines loudly (`create_sprint.auto_consume_name over HTTP`) instead of silently changing which pooled name gets consumed.
+
+### KAN-1683 Divert Sprint Update Delete (2026-10-03)
+
+service: `update_sprint_impl` and `delete_sprint_impl` divert to `RemoteSprintWrites` when the backend supports it, matching the diversion already in place for sprint create. The diverted update returns the server's `Sprint` directly rather than re-reading it locally.
+
+### KAN-1684 Sprint Crud Parity Closer (2026-10-03)
+
+backend-http: adds behavioural and parity coverage for the sprint create/update/delete mutations `RemoteSprintWrites` already diverts to the server. `test_create_sprint_over_http_hits_the_sprint_route_and_returns_a_named_sprint` pins that the returned `Sprint` resolves its name against the board's `sprint_names` pool rather than an empty one; `test_update_sprint_over_http_sets_dates` and `test_delete_sprint_over_http_returns_the_server_invalidation` round out the family, and `test_remote_sprint_crud_leaves_graph_equal_to_local_{json,sqlite}` prove the counters and name pool match a local run on both backends. Test and docs only; `RemoteSprintWrites` and the flat sprint `DELETE` route landed in earlier children of KAN-1618.
+
+### KAN-1685 Sprint Lifecycle Mutation Response (2026-10-03)
+
+server: the four nested sprint lifecycle routes (`activate`, `complete`, `cancel`, `carry-over`) now wrap their response body in `MutationResponse<T>`, carrying the mutation's `Invalidation` alongside the entity fields. Non-breaking: the flattened body still deserializes as the bare `SprintResponse`/`CarryOverResponse`. The four handlers share one write-lock/persist/broadcast helper instead of four near-identical blocks.
+
+### KAN-1686 Flat Lifecycle Routes (2026-10-03)
+
+server: add `POST /v1/sprints/{id}/{activate,complete,cancel,carry-over}`, flat aliases for the board-scoped sprint lifecycle routes so a client holding only a sprint id can drive the lifecycle in one request. Additive only; the nested routes are unchanged.
+
+### KAN-1687 Sprint Lifecycle Remote Writes (2026-10-03)
+
+backend,backend-http: `RemoteSprintWrites` grows four required methods (`activate_sprint`, `complete_sprint`, `cancel_sprint`, `carry_over_sprint_cards`), and `HttpBackend` implements them against the flat `POST /v1/sprints/{id}/activate|complete|cancel|carry-over` routes added alongside the nested ones. `duration_days` travels through untouched as `Option<i32>` so the wire never claims a default the caller didn't ask for; the server still applies its own default of 14 when absent. Breaking for any external `RemoteSprintWrites` implementor.
+
+### KAN-1688 Divert Sprint Lifecycle (2026-10-03)
+
+service: `activate_sprint_impl`, `complete_sprint_impl`, `cancel_sprint_impl` and `carry_over_sprint_cards_impl` divert to `RemoteSprintWrites` as their first statement when the backend supports it, and decline with a per-op `unsupported` error over `HttpBackend` without one. `carry_over_sprint_cards_impl` now issues a single request over HTTP instead of two sprint reads plus a full live-card walk.
+
+### KAN-1689 Pin Sprint Lifecycle Over Http (2026-10-03)
+
+backend-http: add HTTP behavioural, request-shape and JSON/SQLite parity coverage for the sprint lifecycle ops (`activate_sprint`, `complete_sprint`, `cancel_sprint`, `carry_over_sprint_cards`) that `RemoteSprintWrites` already diverts to the server, pinning that each returned `Sprint` resolves its name and that carry-over is one request. Docs: the README now lists carry-over as diverted and no longer says the lifecycle writes decline. Test and docs only.
+
+### KAN-1693 Server Version Handshake (2026-10-03)
+
+server,backend-http: `GET /health` now reports the server's kanban version, and `HttpBackend` checks it when it opens. A client refuses to open a server older than its own minor release (or one that reports no version) with an error naming the server's version (or that it reports none), this client's version and the URL, instead of committing writes it then cannot decode. Upgrade `kanban-server` before upgrading its clients; a client containing this check refuses every server that predates it. Adds `KanbanError::UnsupportedServerVersion` and the shared `kanban_api::HealthResponse` DTO.
+
+### KAN-1694 Remote Sprint Write Name Fallback (2026-10-03)
+
+backend-http: a sprint create/update/activate/complete/cancel that the server committed no longer reports an error when the follow-up board read fails; the sprint is returned unnamed with a warning, and its invalidation is kept.
+
+### KAN-1695 Batch Rearchive Idempotent (2026-10-03)
+
+Re-archiving an already-archived card in a batch (CLI `card archive`, `POST /v1/cards/batch/archive`, and MCP `archive_cards` and the TUI over HTTP) now reports it as archived instead of not found. In the CLI and the server batch routes (the detailed batch paths), a failed remote batch (`archive_cards`, `move_cards`, `assign_cards_to_sprint`) now invalidates the whole client cache instead of nothing, since the server may have applied the batch before the connection dropped.
+
+### KAN-1696 Batch Failure Error Code (2026-10-03)
+
+batch failures on `/v1/cards/batch/*` carry an `ErrorCode` and a client-safe message; server faults in a batch are no longer echoed to clients. `BatchOperationFailure` gains an `api_error` field (not serialized).
+
+### KAN-1697 Remote Typed Dependency Errors (2026-10-03)
+
+api: against a remote server, cycle / self-reference / duplicate-edge / missing-edge rejections now come back as the typed `DependencyError`, so `relation add`/`remove` (CLI) and the card-parent MCP tools show the same card-naming hints as locally.
+
+### KAN-1698 Op Parity Return Values (2026-10-03)
+
+backend-http: `op_parity` now compares each op's returned value and `Invalidation` between the HTTP and local runs, the parity seed gains a second board and a blocks and relates edge, the `*_detailed` batch ops get parity coverage including archived and unknown ids, and three batch count divergences are pinned and documented. Test and docs only, no runtime change.
+
+### KAN-1699 Exact Invalidation Fail Safe (2026-10-03)
+
+domain: `Model::invalidate`'s exact card branch now also drops the column a card is currently cached in, so a producer that names only a move's destination cannot leave a stale copy in the source column; the four archived-card tiers now drop on every card invalidation, and `EntityIds::archival_changed` is documented as unread. Takes effect in this release through KAN-1660, which makes card moves, creates and column-setting updates name their columns.
+
+### KAN-1700 Bind Addr Windows Flake (2026-10-03)
+
+server (tests only): the bind_addr integration tests re-probe a fresh port and retry up to three times when the spawned server fails to report its address, and include the server's stderr in the failure message.
+
+### KAN-1701 Require Ci On Master (2026-10-03)
+
+ci: every pull request into `master` (release and hotfix PRs) now requires Format Check, Lint, Test, Test (Windows), Build, Build (no-tui), Release Validation and Changeset Check to pass before it can merge. Documented in CONTRIBUTING.md.
+
+### KAN-1702 Undo Archive Batch Prearchived (2026-10-03)
+
+undoing a batch archive (MCP `archive_cards`/`archive_card`, TUI) no longer un-archives cards that were already archived before it, and a batch that names the same card twice can be undone.
+
+### KAN-1703 Refuse Cross Board Sprint Binding (2026-10-03)
+
+domain,service,server: binding a card to a sprint on a different board is now refused. Assigning (single, batch, detailed batch), carrying over, and setting `sprint_id` through a card update now fail with `SprintBoardMismatch` (`422 SPRINT_BOARD_MISMATCH` over HTTP) on every backend, so the flat `POST /v1/sprints/{id}/carry-over` refuses a target sprint on another board instead of accepting it; the nested route still answers 404. The detailed batch assign fails only the cards on another board. Undoing a sprint delete or a card update now restores the card's sprint binding and sprint log exactly. Existing cross-board bindings are not migrated and keep reading; import still restores them, and carry-over skips such cards, leaving them on the source sprint. A card update naming a sprint that does not exist now fails with `NotFound` (`404` over HTTP) instead of storing a dangling id on the JSON and in-memory backends. The `SprintBoardMismatch` message now reads "...but the card is on board ..." instead of "...but card is being created on board ...". Breaking for callers that relied on cross-board binding.
+
+### KAN-1704 Detach Sprint On Cross Board Move (2026-10-03)
+
+domain: moving a card to a column on another board (single move, batch move, a card update that changes only `column_id`, or a restore redirected to another board's column) now drops its sprint binding, closing the sprint log entry, unless the sprint lives on the destination board. Undoing the move restores the binding and log exactly, and undoing a restore that was redirected to another board's column now restores the card's original column, board, position, sprint binding, and sprint log exactly too, instead of leaving the binding permanently lost. Breaking for callers that expected a moved card to keep its old board's sprint; a card update that moves a card to another board while resubmitting its current sprint is now refused with `SPRINT_BOARD_MISMATCH`.
+
+### KAN-1705 Sprint Board Mismatch Entry Points (2026-10-03)
+
+server,backend-http,mcp,cli: pin the `SPRINT_BOARD_MISMATCH` refusal at every entry point (tests only).
+
+### KAN-1706 Batch Errors From Api Error (2026-10-03)
+
+remote batch failures are rebuilt through `From<ApiError>`: a server fault in a batch over HTTP surfaces as an internal error instead of a validation error. A client error in an all-failed remote batch now carries its code, e.g. `validation error: NOT_FOUND: Card <id> not found`. `RemoteBatchOutcome.failed` is now `Vec<(Uuid, ApiError)>`, and `kanban-backend` depends on `kanban-api`.
+
+### KAN-1707 Cli Mcp Committed Sprint Name Fallback (2026-10-03)
+
+cli,mcp,service: a sprint create/update/activate/complete/cancel that committed no longer reports an error when the follow-up name lookup fails. A sprint returned unnamed is re-read once so it keeps its name; only if that also fails is it reported with a null name and a warning on stderr. Adds `kanban_service::resolve_committed_sprint_name`.
+
+### KAN-1708 Multi Scope Invalidate (2026-10-03)
+
+domain: `Model::invalidate`'s exact card branch now drops every cached column scope that holds an invalidated card, not just the one the scoped card index points at, so a stale copy left in a moved card's old column cannot keep rendering after a narrowed invalidation. Takes effect in this release through KAN-1660, which makes card moves, creates and column-setting updates name their columns.
+
+### KAN-1709 Archive Board Already Archived (2026-10-03)
+
+Archiving a board that is already archived (MCP `archive_board`, CLI `board archive`, `POST /v1/boards/{id}/archive`) no longer resets its `archived_at`, and undoing it no longer un-archives the board and its contents.
+
+### KAN-1711 Move On Status And Column Update (2026-10-03)
+
+service: a card update that sets both `status` and `column_id` (`PATCH /v1/cards/{id}`, `PATCH /v1/boards/{board_id}/cards/{id}`, `POST /v1/cards/batch/update`) now moves the card like a column-only update: it appends to the destination column (or takes an explicit `position`), follows it onto the destination board, drops a sprint not on that board, and enforces the destination's WIP limit (409 `WIP_LIMIT_EXCEEDED` where it used to succeed); the explicit status is kept. Previously the card kept its old board, position and sprint. With a cross-board `column_id`, also setting a `sprint_id` on the destination board now succeeds, and resubmitting the card's old sprint is now refused with `SPRINT_BOARD_MISMATCH` (it used to be accepted and left the card inconsistent). domain: `UpdateCard` refuses to move a card onto another board's column (422 `VALIDATION_FAILED`), which also refuses a batch update that moves one card to another board and back. A card already left inconsistent is repaired by `POST /v1/cards/{id}/move` to its current column.
+
+
 ## [0.10.0] - 2026-09-28 ([#845](https://github.com/kanban-rs/kanban/pull/845))
 
 ### Other Changes (2026-09-28)

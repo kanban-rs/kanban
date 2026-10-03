@@ -14,8 +14,8 @@ name = "kanban_backend_memory"
 path = "src/lib.rs"
 
 [dependencies]
-kanban-domain = { path = "../kanban-domain", version = "^0.10" }
-kanban-backend = { path = "../kanban-backend", version = "^0.10" }
+kanban-domain = { path = "../kanban-domain", version = "^0.11" }
+kanban-backend = { path = "../kanban-backend", version = "^0.11" }
 uuid.workspace = true
 chrono.workspace = true
 

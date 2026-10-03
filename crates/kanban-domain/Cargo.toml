@@ -16,7 +16,7 @@ categories = ["command-line-utilities", "development-tools"]
 test-helpers = []
 
 [dependencies]
-kanban-core = { path = "../kanban-core", version = "^0.10" }
+kanban-core = { path = "../kanban-core", version = "^0.11" }
 anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true
