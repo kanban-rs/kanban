@@ -1104,6 +1104,18 @@ async fn op_parity<S>(
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[should_panic(expected = "differs between HTTP and local")]
+async fn test_op_parity_panics_when_remote_and_local_outcomes_differ() {
+    let counter = std::cell::Cell::new(0usize);
+    op_parity(Backend::Json, seed_graph, |_ctx, _s| {
+        let n = counter.get();
+        counter.set(n + 1);
+        vec![("probe", Outcome::Counted(n, Invalidation::All))]
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_op_parity_harness_matches_local_for_an_already_diverted_card_archive_json() {
     op_parity(Backend::Json, seed_graph, |ctx, s| {
         let _ = ctx.archive_card_impl(s.card_a).unwrap();
