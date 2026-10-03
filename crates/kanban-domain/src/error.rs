@@ -141,7 +141,7 @@ pub enum DomainError {
     WipLimitExceeded { column_id: Uuid, limit: u32 },
 
     #[error(
-        "sprint {sprint_id} belongs to board {sprint_board} but card is being created on board {card_board}"
+        "sprint {sprint_id} belongs to board {sprint_board} but the card is on board {card_board}"
     )]
     SprintBoardMismatch {
         sprint_id: Uuid,

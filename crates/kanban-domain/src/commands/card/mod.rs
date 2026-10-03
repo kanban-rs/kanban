@@ -27,8 +27,8 @@ pub enum CardCommand {
     ApplyMetadata(ApplyCardMetadata),
     CompactPositions(CompactColumnPositions),
     /// Synthetic: restore a card's sprint binding and sprint_logs to a
-    /// captured pre-state. Emitted by Assign/Unassign inverses; not a
-    /// user-facing command.
+    /// captured pre-state. Emitted by Assign/Unassign/UpdateCard/DeleteSprint
+    /// inverses; not a user-facing command.
     RestoreSprintAttachment(RestoreCardSprintAttachment),
 }
 

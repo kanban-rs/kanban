@@ -39,6 +39,10 @@ impl KanbanContext {
         let to_sprint = self
             .get_sprint_impl(to_sprint_id)?
             .ok_or_else(|| KanbanError::not_found("Sprint", to_sprint_id))?;
+        kanban_domain::sprint_membership::require_sprint_on_board(
+            &to_sprint,
+            from_sprint.board_id,
+        )?;
         if to_sprint.status != kanban_domain::SprintStatus::Planning {
             return Err(KanbanError::validation(format!(
                 "Target sprint must be Planning, got {:?}",
@@ -50,6 +54,7 @@ impl KanbanContext {
         let all_cards = self.list_live_cards_impl()?;
         let ids: Vec<Uuid> = get_sprint_uncompleted_cards(from_sprint_id, &all_cards)
             .iter()
+            .filter(|c| c.board_id == to_sprint.board_id)
             .map(|c| c.id)
             .collect();
         self.assign_cards_to_sprint_impl(ids, to_sprint_id)

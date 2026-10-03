@@ -1,6 +1,6 @@
 use super::{BatchOperationFailure, BatchOperationResult, KanbanContext};
 use kanban_domain::commands::{CardCommand, Command};
-use kanban_domain::{EntityIds, Invalidation, KanbanError};
+use kanban_domain::{Card, EntityIds, Invalidation, KanbanError};
 use uuid::Uuid;
 
 impl KanbanContext {
@@ -222,13 +222,13 @@ impl KanbanContext {
                 );
             }
         };
-        if !all_sprints.iter().any(|s| s.id == sprint_id) {
+        let Some(sprint) = all_sprints.iter().find(|s| s.id == sprint_id) else {
             let e = KanbanError::not_found("Sprint", sprint_id);
             return (
                 BatchOperationResult::all_failed(ids, &e),
                 Invalidation::Entities(EntityIds::default()),
             );
-        }
+        };
         let all_cards = match self.list_live_cards_impl() {
             Ok(c) => c,
             Err(e) => {
@@ -238,17 +238,29 @@ impl KanbanContext {
                 );
             }
         };
-        let card_ids: std::collections::HashSet<Uuid> = all_cards.iter().map(|c| c.id).collect();
+        let cards_by_id: std::collections::HashMap<Uuid, &Card> =
+            all_cards.iter().map(|c| (c.id, c)).collect();
         let mut to_assign = Vec::new();
         let mut failed = Vec::new();
         for id in ids {
-            if card_ids.contains(&id) {
-                to_assign.push(id);
-            } else {
-                failed.push(BatchOperationFailure {
+            match cards_by_id.get(&id) {
+                None => failed.push(BatchOperationFailure {
                     id,
                     error: KanbanError::not_found("Card", id).to_string(),
-                });
+                }),
+                Some(card) if card.sprint_id != Some(sprint_id) => {
+                    match kanban_domain::sprint_membership::require_sprint_on_board(
+                        sprint,
+                        card.board_id,
+                    ) {
+                        Ok(()) => to_assign.push(id),
+                        Err(e) => failed.push(BatchOperationFailure {
+                            id,
+                            error: e.to_string(),
+                        }),
+                    }
+                }
+                Some(_) => to_assign.push(id),
             }
         }
         if to_assign.is_empty() {
