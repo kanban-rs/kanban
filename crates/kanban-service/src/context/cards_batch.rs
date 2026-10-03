@@ -1,7 +1,15 @@
 use super::KanbanContext;
 use kanban_domain::commands::{CardCommand, Command};
 use kanban_domain::{CardStatus, CardUpdate, FieldUpdate, Invalidation, KanbanError, KanbanResult};
+use std::collections::HashMap;
 use uuid::Uuid;
+
+fn next_batch_position(offsets: &mut HashMap<Uuid, i32>, column_id: Uuid, base: i32) -> i32 {
+    let offset = offsets.entry(column_id).or_insert(0);
+    let pos = base + *offset;
+    *offset += 1;
+    pos
+}
 
 impl KanbanContext {
     /// KAN-394: given a status that's about to be applied to a card, compute the
@@ -204,7 +212,6 @@ impl KanbanContext {
     ) -> KanbanResult<(usize, Invalidation)> {
         use kanban_domain::commands::{MoveCard, UpdateCard};
         use kanban_domain::ArchivedFilter;
-        use std::collections::HashMap;
 
         if let Some(rw) = self.backend.remote_batch_writes() {
             let (outcome, invalidation) = rw.update_cards(&updates)?;
@@ -239,9 +246,7 @@ impl KanbanContext {
                     if let Some((col, base_pos)) =
                         self.compute_target_column_for_status(card_id, new_status)?
                     {
-                        let offset = position_offsets.entry(col).or_insert(0);
-                        let pos = base_pos + *offset;
-                        *offset += 1;
+                        let pos = next_batch_position(&mut position_offsets, col, base_pos);
                         chained.mov = Some((col, pos));
                     }
                 }
@@ -265,10 +270,7 @@ impl KanbanContext {
                                     new_col,
                                     ArchivedFilter::Include,
                                 )? as i32;
-                                let offset = position_offsets.entry(new_col).or_insert(0);
-                                let pos = base_pos + *offset;
-                                *offset += 1;
-                                pos
+                                next_batch_position(&mut position_offsets, new_col, base_pos)
                             }
                         };
                         card_updates.column_id = None;
