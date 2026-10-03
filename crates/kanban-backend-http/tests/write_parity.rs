@@ -1,14 +1,14 @@
 use kanban_backend_http::HttpBackend;
 use kanban_domain::{
     ArchivedBoard, ArchivedCard, Board, BoardUpdate, Card, CardPriority, CardStatus, CardUpdate,
-    Column, ColumnUpdate, CreateCardOptions, FieldUpdate, GraphOperations, KanbanOperations,
-    NewBoard, NewCard, NewColumn, Prefix, RelatesKind, Severity, SortField, SortOrder, Sprint,
-    SprintUpdate, TaskListView,
+    Column, ColumnUpdate, CreateCardOptions, FieldUpdate, GraphOperations, Invalidation,
+    KanbanOperations, KanbanResult, NewBoard, NewCard, NewColumn, Prefix, RelatesKind, Severity,
+    SortField, SortOrder, Sprint, SprintUpdate, TaskListView,
 };
 use kanban_persistence_json::{JsonDataStore, JsonFileStore};
 use kanban_persistence_sqlite::SqliteBackend;
 use kanban_server::test_helpers::TestServer;
-use kanban_service::{AppConfig, KanbanContext};
+use kanban_service::{AppConfig, BatchOperationResult, KanbanContext};
 use std::path::Path;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -209,8 +209,19 @@ fn snapshot(ctx: &KanbanContext) -> GraphSnapshot {
     }
 }
 
+fn epoch() -> chrono::DateTime<chrono::Utc> {
+    chrono::DateTime::from_timestamp(0, 0).unwrap()
+}
+
+fn canonicalize_sprint(sp: &mut Sprint, epoch: chrono::DateTime<chrono::Utc>) {
+    sp.created_at = epoch;
+    sp.updated_at = epoch;
+    sp.start_date = sp.start_date.map(|_| epoch);
+    sp.end_date = sp.end_date.map(|_| epoch);
+}
+
 fn canonicalize(s: &mut GraphSnapshot) {
-    let epoch = chrono::DateTime::from_timestamp(0, 0).unwrap();
+    let epoch = epoch();
 
     for b in s.boards.iter_mut() {
         b.created_at = epoch;
@@ -224,10 +235,7 @@ fn canonicalize(s: &mut GraphSnapshot) {
         canonicalize_card(c, epoch);
     }
     for sp in s.sprints.iter_mut() {
-        sp.created_at = epoch;
-        sp.updated_at = epoch;
-        sp.start_date = sp.start_date.map(|_| epoch);
-        sp.end_date = sp.end_date.map(|_| epoch);
+        canonicalize_sprint(sp, epoch);
     }
     for a in s.archived_cards.iter_mut() {
         a.metadata.archived_at = epoch;
@@ -1059,11 +1067,78 @@ fn seed_graph(ctx: &mut KanbanContext) -> Seeded {
     }
 }
 
-async fn op_parity<S>(
+#[derive(Debug, PartialEq)]
+enum Outcome {
+    Invalidated(Invalidation),
+    Counted(usize, Invalidation),
+    Card(Card, Invalidation),
+    Sprint(Sprint, Invalidation),
+    Batch {
+        succeeded: Vec<Uuid>,
+        failed: Vec<(Uuid, String)>,
+        invalidation: Invalidation,
+    },
+    Rejected(String),
+}
+
+type Outcomes = Vec<(&'static str, Outcome)>;
+
+impl Outcome {
+    fn unit(r: KanbanResult<((), Invalidation)>) -> Self {
+        r.map_or_else(
+            |e| Self::Rejected(e.to_string()),
+            |((), inv)| Self::Invalidated(inv),
+        )
+    }
+    fn invalidated(r: KanbanResult<Invalidation>) -> Self {
+        r.map_or_else(|e| Self::Rejected(e.to_string()), Self::Invalidated)
+    }
+    fn counted(r: KanbanResult<(usize, Invalidation)>) -> Self {
+        r.map_or_else(
+            |e| Self::Rejected(e.to_string()),
+            |(n, inv)| Self::Counted(n, inv),
+        )
+    }
+    fn card(r: KanbanResult<(Card, Invalidation)>) -> Self {
+        r.map_or_else(
+            |e| Self::Rejected(e.to_string()),
+            |(mut card, inv)| {
+                canonicalize_card(&mut card, epoch());
+                card.sprint_logs.clear();
+                Self::Card(card, inv)
+            },
+        )
+    }
+    fn sprint(r: KanbanResult<(Sprint, Invalidation)>) -> Self {
+        r.map_or_else(
+            |e| Self::Rejected(e.to_string()),
+            |(mut sprint, inv)| {
+                canonicalize_sprint(&mut sprint, epoch());
+                Self::Sprint(sprint, inv)
+            },
+        )
+    }
+    fn batch((result, invalidation): (BatchOperationResult, Invalidation)) -> Self {
+        Self::Batch {
+            succeeded: result.succeeded,
+            failed: result.failed.into_iter().map(|f| (f.id, f.error)).collect(),
+            invalidation,
+        }
+    }
+}
+
+struct BothRuns {
+    remote: Outcomes,
+    local: Outcomes,
+    remote_snap: GraphSnapshot,
+    control_snap: GraphSnapshot,
+}
+
+async fn run_both<S>(
     kind: Backend,
     seed: impl FnOnce(&mut KanbanContext) -> S,
-    op: impl Fn(&mut KanbanContext, &S),
-) {
+    op: impl Fn(&mut KanbanContext, &S) -> Outcomes,
+) -> BothRuns {
     let dir = tempfile::tempdir().unwrap();
     let remote_path = dir.path().join("remote.store");
     let control_path = dir.path().join("control.store");
@@ -1076,15 +1151,15 @@ async fn op_parity<S>(
     copy_store(kind, &remote_path, &control_path);
 
     let server = start_server(kind, &remote_path).await;
-    let mut remote = ctx_over(&server).await;
-    op(&mut remote, &seeded);
-    drop(remote);
+    let mut remote_ctx = ctx_over(&server).await;
+    let remote = op(&mut remote_ctx, &seeded);
+    drop(remote_ctx);
     server.shutdown().await;
 
-    let mut local = open_local(kind, &control_path).await;
-    op(&mut local, &seeded);
-    local.save().await.unwrap();
-    drop(local);
+    let mut local_ctx = open_local(kind, &control_path).await;
+    let local = op(&mut local_ctx, &seeded);
+    local_ctx.save().await.unwrap();
+    drop(local_ctx);
 
     let remote_reopened = open_local(kind, &remote_path).await;
     let local_reopened = open_local(kind, &control_path).await;
@@ -1100,7 +1175,42 @@ async fn op_parity<S>(
     canonicalize(&mut remote_snap);
     canonicalize(&mut control_snap);
 
-    assert_snapshot_eq(&remote_snap, &control_snap);
+    BothRuns {
+        remote,
+        local,
+        remote_snap,
+        control_snap,
+    }
+}
+
+async fn op_parity<S>(
+    kind: Backend,
+    seed: impl FnOnce(&mut KanbanContext) -> S,
+    op: impl Fn(&mut KanbanContext, &S) -> Outcomes,
+) -> BothRuns {
+    let runs = run_both(kind, seed, op).await;
+    assert_snapshot_eq(&runs.remote_snap, &runs.control_snap);
+    assert_no_rejections("remote", &runs.remote);
+    assert_no_rejections("local", &runs.local);
+    assert_outcomes_eq(&runs.remote, &runs.local);
+    runs
+}
+
+fn assert_no_rejections(side: &str, outcomes: &Outcomes) {
+    for (label, outcome) in outcomes {
+        assert!(
+            !matches!(outcome, Outcome::Rejected(_)),
+            "{side} op `{label}` was rejected: {outcome:?}"
+        );
+    }
+}
+
+fn assert_outcomes_eq(remote: &Outcomes, local: &Outcomes) {
+    let labels = |o: &Outcomes| o.iter().map(|(l, _)| *l).collect::<Vec<_>>();
+    assert_eq!(labels(remote), labels(local), "op outcome labels");
+    for ((label, r), (_, l)) in remote.iter().zip(local) {
+        assert_eq!(r, l, "op outcome `{label}` differs between HTTP and local");
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1118,8 +1228,16 @@ async fn test_op_parity_panics_when_remote_and_local_outcomes_differ() {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_op_parity_harness_matches_local_for_an_already_diverted_card_archive_json() {
     op_parity(Backend::Json, seed_graph, |ctx, s| {
-        let _ = ctx.archive_card_impl(s.card_a).unwrap();
-        let _ = ctx.restore_card_impl(s.card_a, None).unwrap();
+        vec![
+            (
+                "archive_card",
+                Outcome::unit(ctx.archive_card_impl(s.card_a)),
+            ),
+            (
+                "restore_card",
+                Outcome::card(ctx.restore_card_impl(s.card_a, None)),
+            ),
+        ]
     })
     .await;
 }
@@ -1127,8 +1245,16 @@ async fn test_op_parity_harness_matches_local_for_an_already_diverted_card_archi
 #[tokio::test(flavor = "multi_thread")]
 async fn test_op_parity_harness_matches_local_for_an_already_diverted_card_archive_sqlite() {
     op_parity(Backend::Sqlite, seed_graph, |ctx, s| {
-        let _ = ctx.archive_card_impl(s.card_a).unwrap();
-        let _ = ctx.restore_card_impl(s.card_a, None).unwrap();
+        vec![
+            (
+                "archive_card",
+                Outcome::unit(ctx.archive_card_impl(s.card_a)),
+            ),
+            (
+                "restore_card",
+                Outcome::card(ctx.restore_card_impl(s.card_a, None)),
+            ),
+        ]
     })
     .await;
 }
@@ -1169,17 +1295,36 @@ async fn test_attach_no_children_over_http_returns_the_same_invalidation_as_loca
 
 async fn remote_graph_ops(kind: Backend) {
     op_parity(kind, seed_graph, |ctx, s: &Seeded| {
-        let _ = ctx.attach_children_impl(s.card_a, vec![s.card_b]).unwrap();
-        let _ = ctx.block_impl(s.card_c, s.card_a, Severity::High).unwrap();
-        let _ = ctx
-            .relate_impl(s.card_b, s.card_c, RelatesKind::Duplicates)
-            .unwrap();
-        let _ = ctx
-            .relate_impl(s.card_a, s.card_c, RelatesKind::General)
-            .unwrap();
-        let _ = ctx.unblock_impl(s.card_c, s.card_a).unwrap();
-        let _ = ctx.dissociate_impl(s.card_a, s.card_c).unwrap();
-        let _ = ctx.detach_children_impl(s.card_a, vec![s.card_c]).unwrap();
+        vec![
+            (
+                "attach_children",
+                Outcome::invalidated(ctx.attach_children_impl(s.card_a, vec![s.card_b])),
+            ),
+            (
+                "block",
+                Outcome::invalidated(ctx.block_impl(s.card_c, s.card_a, Severity::High)),
+            ),
+            (
+                "relate_duplicates",
+                Outcome::invalidated(ctx.relate_impl(s.card_b, s.card_c, RelatesKind::Duplicates)),
+            ),
+            (
+                "relate_general",
+                Outcome::invalidated(ctx.relate_impl(s.card_a, s.card_c, RelatesKind::General)),
+            ),
+            (
+                "unblock",
+                Outcome::invalidated(ctx.unblock_impl(s.card_c, s.card_a)),
+            ),
+            (
+                "dissociate",
+                Outcome::invalidated(ctx.dissociate_impl(s.card_a, s.card_c)),
+            ),
+            (
+                "detach_children",
+                Outcome::invalidated(ctx.detach_children_impl(s.card_a, vec![s.card_c])),
+            ),
+        ]
     })
     .await;
 }
@@ -1225,12 +1370,24 @@ async fn test_seed_graph_leaves_a_non_trivial_graph() {
 
 async fn card_move_and_sprint_parity(kind: Backend) {
     op_parity(kind, seed_graph, |ctx, s| {
-        let _ = ctx.move_card_impl(s.card_a, s.done, None).unwrap();
-        let _ = ctx.move_card_impl(s.card_a, s.todo, Some(0)).unwrap();
-        let _ = ctx.unassign_card_from_sprint_impl(s.card_c).unwrap();
-        let _ = ctx
-            .assign_card_to_sprint_impl(s.card_a, s.sprint_id)
-            .unwrap();
+        vec![
+            (
+                "move_card_to_done",
+                Outcome::card(ctx.move_card_impl(s.card_a, s.done, None)),
+            ),
+            (
+                "move_card_to_todo",
+                Outcome::card(ctx.move_card_impl(s.card_a, s.todo, Some(0))),
+            ),
+            (
+                "unassign_card_from_sprint",
+                Outcome::card(ctx.unassign_card_from_sprint_impl(s.card_c)),
+            ),
+            (
+                "assign_card_to_sprint",
+                Outcome::card(ctx.assign_card_to_sprint_impl(s.card_a, s.sprint_id)),
+            ),
+        ]
     })
     .await;
 }
@@ -1247,20 +1404,30 @@ async fn test_remote_move_and_sprint_binding_leave_graph_equal_to_local_sqlite()
 
 async fn batch_ops_parity(kind: Backend) {
     op_parity(kind, seed_graph, |ctx, s| {
-        let _ = ctx.move_cards_impl(vec![s.card_a], s.done).unwrap();
-        let _ = ctx
-            .assign_cards_to_sprint_impl(vec![s.card_a], s.sprint_id)
-            .unwrap();
-        let _ = ctx
-            .update_cards_impl(vec![(
-                s.card_a,
-                CardUpdate {
-                    title: Some("A2".into()),
-                    ..Default::default()
-                },
-            )])
-            .unwrap();
-        let _ = ctx.archive_cards_impl(vec![s.card_a]).unwrap();
+        vec![
+            (
+                "move_cards",
+                Outcome::counted(ctx.move_cards_impl(vec![s.card_a], s.done)),
+            ),
+            (
+                "assign_cards_to_sprint",
+                Outcome::counted(ctx.assign_cards_to_sprint_impl(vec![s.card_a], s.sprint_id)),
+            ),
+            (
+                "update_cards",
+                Outcome::counted(ctx.update_cards_impl(vec![(
+                    s.card_a,
+                    CardUpdate {
+                        title: Some("A2".into()),
+                        ..Default::default()
+                    },
+                )])),
+            ),
+            (
+                "archive_cards",
+                Outcome::counted(ctx.archive_cards_impl(vec![s.card_a])),
+            ),
+        ]
     })
     .await;
 }
@@ -1372,24 +1539,44 @@ async fn test_unassign_card_from_sprint_over_http_issues_exactly_one_request() {
 const S1: Uuid = Uuid::from_u128(0x5171);
 const S2: Uuid = Uuid::from_u128(0x5172);
 
-fn sprint_crud_ops(ctx: &mut KanbanContext, s: &Seeded) {
-    let _ = ctx
-        .create_sprint_from_spec(s.board_id, Some(S1), Some("Named".into()), None, false)
-        .unwrap();
-    let _ = ctx
-        .create_sprint_from_spec(s.board_id, Some(S2), None, Some("ALT".into()), false)
-        .unwrap();
-    let _ = ctx
-        .update_sprint_impl(
-            S1,
-            SprintUpdate {
-                name: Some("Renamed".into()),
-                start_date: FieldUpdate::Set(fixed_due()),
-                ..Default::default()
-            },
-        )
-        .unwrap();
-    let _ = ctx.delete_sprint_impl(s.sprint_id).unwrap();
+fn sprint_crud_ops(ctx: &mut KanbanContext, s: &Seeded) -> Outcomes {
+    vec![
+        (
+            "create_sprint_named",
+            Outcome::sprint(ctx.create_sprint_from_spec(
+                s.board_id,
+                Some(S1),
+                Some("Named".into()),
+                None,
+                false,
+            )),
+        ),
+        (
+            "create_sprint_alt_prefix",
+            Outcome::sprint(ctx.create_sprint_from_spec(
+                s.board_id,
+                Some(S2),
+                None,
+                Some("ALT".into()),
+                false,
+            )),
+        ),
+        (
+            "update_sprint",
+            Outcome::sprint(ctx.update_sprint_impl(
+                S1,
+                SprintUpdate {
+                    name: Some("Renamed".into()),
+                    start_date: FieldUpdate::Set(fixed_due()),
+                    ..Default::default()
+                },
+            )),
+        ),
+        (
+            "delete_sprint",
+            Outcome::invalidated(ctx.delete_sprint_impl(s.sprint_id)),
+        ),
+    ]
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1418,17 +1605,22 @@ fn seed_lifecycle_graph(ctx: &mut KanbanContext) -> LifecycleSeeded {
     }
 }
 
-fn sprint_lifecycle_ops(ctx: &mut KanbanContext, s: &LifecycleSeeded) {
-    let _ = ctx.activate_sprint_impl(s.base.sprint_id, Some(7)).unwrap();
-    let _ = ctx.complete_sprint_impl(s.base.sprint_id).unwrap();
-    let (moved, _) = ctx
-        .carry_over_sprint_cards_impl(s.base.sprint_id, s.second_sprint)
-        .unwrap();
-    assert_eq!(
-        moved, 2,
-        "card_a and card_c are uncompleted in the first sprint"
+fn sprint_lifecycle_ops(ctx: &mut KanbanContext, s: &LifecycleSeeded) -> Outcomes {
+    let activate = Outcome::sprint(ctx.activate_sprint_impl(s.base.sprint_id, Some(7)));
+    let complete = Outcome::sprint(ctx.complete_sprint_impl(s.base.sprint_id));
+    let carry_over =
+        Outcome::counted(ctx.carry_over_sprint_cards_impl(s.base.sprint_id, s.second_sprint));
+    assert!(
+        matches!(carry_over, Outcome::Counted(2, _)),
+        "card_a and card_c are uncompleted in the first sprint: {carry_over:?}"
     );
-    let _ = ctx.cancel_sprint_impl(s.second_sprint).unwrap();
+    let cancel = Outcome::sprint(ctx.cancel_sprint_impl(s.second_sprint));
+    vec![
+        ("activate_sprint", activate),
+        ("complete_sprint", complete),
+        ("carry_over_sprint_cards", carry_over),
+        ("cancel_sprint", cancel),
+    ]
 }
 
 #[tokio::test(flavor = "multi_thread")]
