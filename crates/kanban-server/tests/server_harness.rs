@@ -52,6 +52,47 @@ async fn test_start_with_fault_answers_only_the_armed_request_with_503() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_start_with_one_shot_fault_answers_only_the_first_matching_request_with_503() {
+    let (server, fault) = TestServer::start_with_one_shot_fault(|_| {}).await;
+
+    *fault.lock().unwrap() = Some(("GET", "/v1/boards".to_string()));
+
+    let health = server
+        .client()
+        .get(format!("{}/health", server.base_url()))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(health.status(), reqwest::StatusCode::OK);
+    assert!(
+        fault.lock().unwrap().is_some(),
+        "a non-matching request must not consume the shot"
+    );
+
+    let first = server
+        .client()
+        .get(format!("{}/v1/boards", server.base_url()))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(first.status(), reqwest::StatusCode::SERVICE_UNAVAILABLE);
+    assert!(
+        fault.lock().unwrap().is_none(),
+        "the fault should disarm itself after firing once"
+    );
+
+    let second = server
+        .client()
+        .get(format!("{}/v1/boards", server.base_url()))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(second.status(), reqwest::StatusCode::OK);
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_health_endpoint_returns_ok_over_real_socket() {
     let server = TestServer::start().await;
 
