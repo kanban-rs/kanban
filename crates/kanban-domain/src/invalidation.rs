@@ -186,6 +186,38 @@ mod tests {
     }
 
     #[test]
+    fn test_update_card_without_a_column_change_names_no_card_columns() {
+        let card_id = Uuid::new_v4();
+        let cmd = Command::Card(CardCommand::Update(UpdateCard {
+            card_id,
+            updates: CardUpdate {
+                status: Some(crate::CardStatus::Done),
+                ..Default::default()
+            },
+        }));
+        let ids = cmd.touched_entities().expect("enumerable");
+        assert!(ids.card_columns.is_empty());
+    }
+
+    #[test]
+    fn test_update_card_with_a_column_change_names_that_column() {
+        let card_id = Uuid::new_v4();
+        let column_id = Uuid::new_v4();
+        let cmd = Command::Card(CardCommand::Update(UpdateCard {
+            card_id,
+            updates: CardUpdate {
+                column_id: Some(column_id),
+                ..Default::default()
+            },
+        }));
+        let ids = cmd.touched_entities().expect("enumerable");
+        assert_eq!(
+            ids.card_columns.get(&card_id),
+            Some(&HashSet::from([column_id]))
+        );
+    }
+
+    #[test]
     fn test_merging_two_entity_ids_unions_the_columns_of_a_shared_card() {
         let card = Uuid::new_v4();
         let col_a = Uuid::new_v4();

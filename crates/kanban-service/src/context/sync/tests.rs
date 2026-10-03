@@ -745,3 +745,52 @@ fn test_updating_a_cards_title_still_invalidates_every_column_scope() {
     assert!(model.column_cards_state(dest.id).is_not_loaded());
     assert!(model.column_cards_state(third.id).is_not_loaded());
 }
+
+#[cfg(feature = "test-helpers")]
+#[test]
+fn test_a_batch_update_naming_a_second_column_for_the_same_card_drops_the_final_destination() {
+    use crate::test_helpers::contract::cache::ScopedCardsPlan;
+    use kanban_domain::CardStatus;
+
+    let mut ctx =
+        KanbanContext::open_deferred(Arc::new(InMemoryStore::new()), AppConfig::default());
+    let (source, mid, dest, k) = seed_three_columns_with_a_card_each(&mut ctx);
+    let board_id = ctx.get_column(source.id).unwrap().unwrap().board_id;
+    let untouched = ctx
+        .create_column(board_id, "Untouched".into(), None)
+        .unwrap();
+
+    let mut model = Model::default();
+    ctx.sync(
+        &ScopedCardsPlan(vec![source.id, mid.id, dest.id, untouched.id]),
+        &mut model,
+        &mut NoProjections,
+    );
+
+    // Same card named twice in one batch: first settles into `mid`, then a
+    // second update (carrying a status change too) re-targets it to `dest`.
+    let (_, inv) = ctx
+        .update_cards_impl(vec![
+            (
+                k.id,
+                CardUpdate {
+                    column_id: Some(mid.id),
+                    ..Default::default()
+                },
+            ),
+            (
+                k.id,
+                CardUpdate {
+                    status: Some(CardStatus::Done),
+                    column_id: Some(dest.id),
+                    ..Default::default()
+                },
+            ),
+        ])
+        .unwrap();
+    let _ = model.invalidate(inv);
+
+    assert_eq!(ctx.get_card(k.id).unwrap().unwrap().column_id, dest.id);
+    assert!(model.column_cards_state(dest.id).is_not_loaded());
+    assert!(model.column_cards_state(untouched.id).is_loaded());
+}
