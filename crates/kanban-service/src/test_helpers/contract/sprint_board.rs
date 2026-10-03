@@ -1,4 +1,5 @@
 use super::super::BackendFactory;
+use super::assert_card_eq;
 use crate::KanbanContext;
 use kanban_core::AppConfig;
 use kanban_domain::dependencies::edge_meta::Severity;
@@ -561,6 +562,50 @@ pub async fn test_restoring_an_archived_card_into_another_boards_column_detaches
         std::collections::HashSet::from([fx.a_col, fx.b_col])
     );
     assert_eq!(ctx.list_blocked_by(fx.a1).unwrap(), vec![fx.a2]);
+}
+
+pub async fn test_undo_restoring_a_bound_card_into_another_boards_column_restores_the_whole_graph(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+    let fx = seed_two_boards(&mut ctx).await.unwrap();
+
+    ctx.archive_card(fx.a1).unwrap();
+    let before = graph_state(&ctx, fx.a2).unwrap();
+
+    ctx.restore_card(fx.a1, Some(fx.b_col)).unwrap();
+    let a1 = ctx.get_card(fx.a1).unwrap().unwrap();
+    assert_eq!(a1.board_id, fx.board_b);
+    assert_eq!(a1.sprint_id, None);
+    let first_restore = a1;
+
+    ctx.undo().unwrap();
+    let a1 = ctx.get_card(fx.a1).unwrap().unwrap();
+    assert_eq!(a1.board_id, fx.board_a);
+    assert_eq!(a1.column_id, fx.a_col);
+    assert_eq!(a1.sprint_id, Some(fx.sa));
+    assert!(
+        ctx.data_store().get_archived_card(fx.a1).unwrap().is_some(),
+        "undo must leave the card archived again"
+    );
+
+    ctx.redo().unwrap();
+    let a1 = ctx.get_card(fx.a1).unwrap().unwrap();
+    assert_card_eq(&first_restore, &a1);
+
+    ctx.undo().unwrap();
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+    let after = graph_state(&ctx, fx.a2).unwrap();
+    assert_graph_unchanged(&before, &after);
+    assert!(
+        ctx.data_store().get_archived_card(fx.a1).unwrap().is_some(),
+        "undo must leave the card archived again after reload"
+    );
 }
 
 pub async fn test_undo_moving_a_card_onto_its_cross_board_sprints_board_restores_the_binding(

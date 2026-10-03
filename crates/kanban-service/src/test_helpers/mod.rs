@@ -288,6 +288,10 @@ macro_rules! context_contract_tests {
         async fn test_undo_moving_a_card_onto_its_cross_board_sprints_board_restores_the_binding() {
             $crate::test_helpers::contract::sprint_board::test_undo_moving_a_card_onto_its_cross_board_sprints_board_restores_the_binding(&$factory_fn()).await;
         }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_undo_restoring_a_bound_card_into_another_boards_column_restores_the_whole_graph() {
+            $crate::test_helpers::contract::sprint_board::test_undo_restoring_a_bound_card_into_another_boards_column_restores_the_whole_graph(&$factory_fn()).await;
+        }
 
         // Archive tests
         #[tokio::test(flavor = "multi_thread")]

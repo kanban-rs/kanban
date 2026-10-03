@@ -441,6 +441,75 @@ fn test_restore_card_revives_an_edge_to_a_live_neighbour() {
 }
 
 #[test]
+fn test_restore_card_capture_inverse_for_cross_board_bound_card_restores_exact_pre_state() {
+    let tc = TestContext::new();
+    let board_a = kanban_domain::Board::new("A", Some("AAA"));
+    let board_a_id = board_a.id;
+    let col_a = kanban_domain::Column::new(board_a_id, "Col", 0);
+    let col_a_id = col_a.id;
+    let sprint_a = kanban_domain::Sprint::new(board_a_id, 1, None, Some("Sprint A"));
+    let sa = sprint_a.id;
+    let mut card = kanban_domain::Card::new(board_a_id, col_a_id, "Card", 3);
+    card.assign_to_sprint(sa, 1, None::<String>, "Planning", Utc::now());
+    let card_id = card.id;
+    let original_position = card.position;
+    let original_updated_at = card.updated_at;
+    let original_sprint_logs = card.sprint_logs.clone();
+
+    let board_b = kanban_domain::Board::new("B", Some("BBB"));
+    let board_b_id = board_b.id;
+    let col_b = kanban_domain::Column::new(board_b_id, "Col", 0);
+    let col_b_id = col_b.id;
+
+    tc.store.upsert_board(board_a).unwrap();
+    tc.store.upsert_column(col_a).unwrap();
+    tc.store.upsert_sprint(sprint_a).unwrap();
+    tc.store.upsert_card(card).unwrap();
+    tc.store
+        .insert_archived_card(kanban_domain::ArchivedCard::new(card_id, board_a_id))
+        .unwrap();
+    tc.store.upsert_board(board_b).unwrap();
+    tc.store.upsert_column(col_b).unwrap();
+
+    let context = tc.as_command_context();
+    let cmd = RestoreCard {
+        card_id,
+        column_id: col_b_id,
+        position: 0,
+        timestamp: Utc::now(),
+    };
+
+    // capture_inverse runs before execute in the undo engine (see
+    // kanban-service's `execute_with_extra`), so the pre-restore state is
+    // still live when the inverse is captured.
+    let inverse = cmd.capture_inverse(&tc.store).unwrap();
+    cmd.execute(&context).unwrap();
+
+    let moved = tc.store.get_card(card_id).unwrap().unwrap();
+    assert_eq!(
+        moved.board_id, board_b_id,
+        "forward restore lands on board B"
+    );
+    assert_eq!(moved.sprint_id, None, "forward restore detaches the sprint");
+
+    for command in inverse {
+        command.execute(&context).unwrap();
+    }
+
+    let restored = tc.store.get_card(card_id).unwrap().unwrap();
+    assert_eq!(restored.column_id, col_a_id);
+    assert_eq!(restored.board_id, board_a_id);
+    assert_eq!(restored.position, original_position);
+    assert_eq!(restored.sprint_id, Some(sa));
+    assert_eq!(restored.sprint_logs, original_sprint_logs);
+    assert_eq!(restored.updated_at, original_updated_at);
+    assert!(
+        tc.store.get_archived_card(card_id).unwrap().is_some(),
+        "undo must leave the card archived again"
+    );
+}
+
+#[test]
 fn test_restore_card_revives_edges_of_every_kind_to_a_live_neighbour() {
     let tc = TestContext::new();
     let board = kanban_domain::Board::new("Test", Some("TST"));
