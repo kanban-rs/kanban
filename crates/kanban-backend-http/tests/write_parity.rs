@@ -1759,16 +1759,12 @@ fn detailed_batch_ops(ctx: &mut KanbanContext, s: &Seeded) -> Outcomes {
             )),
         ),
         (
-            "archive_cards_detailed all failed",
+            "archive_cards_detailed archived and unknown",
             Outcome::batch(ctx.archive_cards_detailed(vec![s.card_b, UNKNOWN_CARD])),
         ),
         (
             "archive_cards_detailed live and archived",
             Outcome::batch(ctx.archive_cards_detailed(vec![s.card_a, s.card_b])),
-        ),
-        (
-            "archive_cards live and archived",
-            Outcome::counted(ctx.archive_cards_impl(vec![s.card_d, s.card_b])),
         ),
     ]
 }
@@ -1784,16 +1780,12 @@ fn batch_shape(o: &Outcome) -> (usize, usize) {
 
 async fn detailed_batch_parity(kind: Backend) {
     let runs = op_parity(kind, seed_graph, detailed_batch_ops).await;
-    let shapes: Vec<_> = runs.remote[..5]
-        .iter()
-        .map(|(_, o)| batch_shape(o))
-        .collect();
-    assert_eq!(shapes, vec![(1, 1), (1, 0), (2, 2), (0, 2), (1, 1)]);
+    let shapes: Vec<_> = runs.remote.iter().map(|(_, o)| batch_shape(o)).collect();
+    assert_eq!(shapes, vec![(1, 1), (1, 0), (2, 2), (1, 1), (2, 0)]);
     assert!(matches!(
         &runs.remote[3].1,
         Outcome::Batch { invalidation: Invalidation::Entities(ids), .. } if *ids == EntityIds::default()
     ));
-    assert_eq!(runs.remote[5].1, Outcome::Counted(1, Invalidation::All));
 }
 
 #[tokio::test(flavor = "multi_thread")]

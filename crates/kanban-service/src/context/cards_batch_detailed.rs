@@ -12,10 +12,7 @@ impl KanbanContext {
         if let Some(rw) = self.backend.remote_batch_writes() {
             return match rw.archive_cards(&ids) {
                 Ok((outcome, invalidation)) => (outcome.into(), invalidation),
-                Err(e) => (
-                    BatchOperationResult::all_failed(ids, &e),
-                    Invalidation::Entities(EntityIds::default()),
-                ),
+                Err(e) => (BatchOperationResult::all_failed(ids, &e), Invalidation::All),
             };
         }
         if self.backend.remote_writes().is_some() {
@@ -36,41 +33,50 @@ impl KanbanContext {
         };
         let card_ids: std::collections::HashSet<Uuid> = all_cards.iter().map(|c| c.id).collect();
         let mut to_archive = Vec::new();
+        let mut succeeded = Vec::new();
         let mut failed = Vec::new();
         for id in ids {
             if card_ids.contains(&id) {
                 to_archive.push(id);
-            } else {
-                failed.push(BatchOperationFailure {
+                succeeded.push(id);
+                continue;
+            }
+            match self.backend.get_archived_card(id) {
+                Ok(Some(_)) => succeeded.push(id),
+                Ok(None) => failed.push(BatchOperationFailure {
                     id,
                     error: KanbanError::not_found("Card", id).to_string(),
-                });
+                }),
+                Err(e) => failed.push(BatchOperationFailure {
+                    id,
+                    error: e.to_string(),
+                }),
             }
         }
         if to_archive.is_empty() {
             return (
-                BatchOperationResult {
-                    succeeded: vec![],
-                    failed,
-                },
+                BatchOperationResult { succeeded, failed },
                 Invalidation::Entities(EntityIds::default()),
             );
         }
-        let succeeded = to_archive.clone();
+        let to_archive_set: std::collections::HashSet<Uuid> = to_archive.iter().copied().collect();
         match self.execute(vec![Command::Card(CardCommand::Archive(ArchiveCards {
             ids: to_archive,
         }))]) {
             Ok(invalidation) => (BatchOperationResult { succeeded, failed }, invalidation),
             Err(e) => {
                 let err = e.to_string();
+                let (lost, kept): (Vec<Uuid>, Vec<Uuid>) = succeeded
+                    .into_iter()
+                    .partition(|id| to_archive_set.contains(id));
                 let mut all_failed = failed;
-                all_failed.extend(succeeded.into_iter().map(|id| BatchOperationFailure {
+                all_failed.extend(lost.into_iter().map(|id| BatchOperationFailure {
                     id,
                     error: err.clone(),
                 }));
                 (
                     BatchOperationResult {
-                        succeeded: vec![],
+                        succeeded: kept,
                         failed: all_failed,
                     },
                     Invalidation::Entities(EntityIds::default()),
@@ -92,10 +98,7 @@ impl KanbanContext {
         if let Some(rw) = self.backend.remote_batch_writes() {
             return match rw.move_cards(&ids, column_id) {
                 Ok((outcome, invalidation)) => (outcome.into(), invalidation),
-                Err(e) => (
-                    BatchOperationResult::all_failed(ids, &e),
-                    Invalidation::Entities(EntityIds::default()),
-                ),
+                Err(e) => (BatchOperationResult::all_failed(ids, &e), Invalidation::All),
             };
         }
         if self.backend.remote_writes().is_some() {
@@ -200,10 +203,7 @@ impl KanbanContext {
         if let Some(rw) = self.backend.remote_batch_writes() {
             return match rw.assign_cards_to_sprint(&ids, sprint_id) {
                 Ok((outcome, invalidation)) => (outcome.into(), invalidation),
-                Err(e) => (
-                    BatchOperationResult::all_failed(ids, &e),
-                    Invalidation::Entities(EntityIds::default()),
-                ),
+                Err(e) => (BatchOperationResult::all_failed(ids, &e), Invalidation::All),
             };
         }
         if self.backend.remote_writes().is_some() {
