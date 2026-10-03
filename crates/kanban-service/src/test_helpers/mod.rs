@@ -264,6 +264,30 @@ macro_rules! context_contract_tests {
         async fn test_undo_delete_sprint_restores_a_pre_existing_cross_board_binding_verbatim() {
             $crate::test_helpers::contract::sprint_board::test_undo_delete_sprint_restores_a_pre_existing_cross_board_binding_verbatim(&$factory_fn()).await;
         }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_moving_a_sprint_bound_card_cross_board_detaches_it_and_undo_restores_the_whole_graph() {
+            $crate::test_helpers::contract::sprint_board::test_moving_a_sprint_bound_card_cross_board_detaches_it_and_undo_restores_the_whole_graph(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_batch_moving_sprint_bound_cards_cross_board_detaches_each() {
+            $crate::test_helpers::contract::sprint_board::test_batch_moving_sprint_bound_cards_cross_board_detaches_each(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_update_moving_a_card_cross_board_closes_the_old_sprint_log() {
+            $crate::test_helpers::contract::sprint_board::test_update_moving_a_card_cross_board_closes_the_old_sprint_log(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_update_moving_a_card_cross_board_while_resubmitting_its_old_sprint_is_refused() {
+            $crate::test_helpers::contract::sprint_board::test_update_moving_a_card_cross_board_while_resubmitting_its_old_sprint_is_refused(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_restoring_an_archived_card_into_another_boards_column_detaches_its_sprint() {
+            $crate::test_helpers::contract::sprint_board::test_restoring_an_archived_card_into_another_boards_column_detaches_its_sprint(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_undo_moving_a_card_onto_its_cross_board_sprints_board_restores_the_binding() {
+            $crate::test_helpers::contract::sprint_board::test_undo_moving_a_card_onto_its_cross_board_sprints_board_restores_the_binding(&$factory_fn()).await;
+        }
 
         // Archive tests
         #[tokio::test(flavor = "multi_thread")]
