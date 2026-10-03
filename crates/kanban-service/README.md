@@ -272,10 +272,16 @@ pub struct BatchOperationResult {
 pub struct BatchOperationFailure {
     pub id: Uuid,
     pub error: String,
+    pub api_error: kanban_api::ApiError, // not serialized
 }
 ```
 
-Returned by the `*_detailed` bulk operation methods.
+Returned by the `*_detailed` bulk operation methods. `error` is the raw
+`KanbanError` `Display` string, unchanged for local callers (the CLI's JSON
+output and every local return value). `api_error` is the wire form built by
+`BatchOperationFailure::new`: it carries the `ErrorCode` and the client-safe
+message that `kanban-server` sends on `/v1/cards/batch/*`, scrubbing server
+faults the same way every other route does.
 
 ---
 

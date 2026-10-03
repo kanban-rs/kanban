@@ -60,6 +60,7 @@ async fn scenario_batch_archive_reports_per_id_success_and_failure(state: AppSta
     assert_eq!(failed.len(), 1);
     assert_eq!(failed[0]["id"], missing.to_string());
     assert!(failed[0]["error"].as_str().unwrap().contains("not found"));
+    assert_eq!(failed[0]["code"], "NOT_FOUND");
 
     let archived_resp = send(
         &state,

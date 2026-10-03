@@ -19,7 +19,7 @@ fn to_wire(result: &BatchOperationResult, invalidation: &Invalidation) -> BatchO
         result
             .failed
             .iter()
-            .map(|f| BatchFailure::new(f.id, f.error.clone()))
+            .map(|f| BatchFailure::from_api_error(f.id, &f.api_error))
             .collect(),
         invalidation,
     )
@@ -126,4 +126,30 @@ pub fn write_router() -> Router<AppState> {
             post(batch_assign_sprint_route),
         )
         .route("/v1/cards/batch/update", post(batch_update_route))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kanban_domain::KanbanError;
+    use kanban_service::api::ErrorCode;
+    use kanban_service::BatchOperationFailure;
+
+    #[test]
+    fn test_to_wire_scrubs_a_server_fault_message_and_carries_its_code() {
+        let id = Uuid::new_v4();
+        let result = BatchOperationResult {
+            succeeded: vec![],
+            failed: vec![BatchOperationFailure::new(
+                id,
+                &KanbanError::Database("secret schema".into()),
+            )],
+        };
+
+        let wire = to_wire(&result, &Invalidation::All);
+
+        assert_eq!(wire.failed[0].code, Some(ErrorCode::DatabaseError));
+        assert_eq!(wire.failed[0].error, "internal server error");
+        assert!(!wire.failed[0].error.contains("secret"));
+    }
 }
