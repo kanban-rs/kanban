@@ -162,6 +162,7 @@ graph LR
     HTTP[kanban-backend-http] --> BE
     HTTP --> API
     MEM --> BE
+    BE --> API
     BE --> PER
     JSON --> PER
     SQL --> PER
