@@ -1278,3 +1278,93 @@ async fn test_get_sprint_over_http_when_the_board_read_fails_still_returns_an_er
     server.shutdown().await;
     Ok(())
 }
+
+fn scoped(invalidation: Invalidation) -> EntityIds {
+    match invalidation {
+        Invalidation::Entities(ids) => ids,
+        Invalidation::All => panic!("expected a scoped invalidation"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_activate_complete_and_carry_over_over_http_return_named_sprints_and_move_the_cards(
+) -> KanbanResult<()> {
+    let server = TestServer::start().await;
+    let mut ctx = ctx_over(&server).await;
+    let (board, _) = ctx.create_board_from_spec(None, a_new_board())?;
+    let (column, _) = ctx.create_column_from_spec(None, a_new_column(board.id))?;
+    let (first, _) = ctx.create_card_from_spec(None, a_new_card(column.id))?;
+    let (second, _) = ctx.create_card_from_spec(None, a_new_card(column.id))?;
+    let (alpha, _) =
+        ctx.create_sprint_from_spec(board.id, None, Some("Alpha".into()), None, false)?;
+    let (beta, _) =
+        ctx.create_sprint_from_spec(board.id, None, Some("Beta".into()), None, false)?;
+    let _ = ctx.assign_card_to_sprint_impl(first.id, alpha.id)?;
+    let _ = ctx.assign_card_to_sprint_impl(second.id, alpha.id)?;
+
+    let (activated, activate_inv) = ctx.activate_sprint_impl(alpha.id, Some(7))?;
+    let (completed, complete_inv) = ctx.complete_sprint_impl(alpha.id)?;
+    let (moved, carry_inv) = ctx.carry_over_sprint_cards_impl(alpha.id, beta.id)?;
+
+    let board = ctx.get_board(board.id)?.unwrap();
+    assert_eq!(activated.status, SprintStatus::Active);
+    assert_eq!(
+        activated.get_name(&board),
+        Some("Alpha"),
+        "activate must resolve the name"
+    );
+    assert_eq!(
+        activated.end_date.unwrap() - activated.start_date.unwrap(),
+        chrono::Duration::days(7)
+    );
+    assert_eq!(completed.status, SprintStatus::Completed);
+    assert_eq!(
+        completed.get_name(&board),
+        Some("Alpha"),
+        "complete must resolve the name"
+    );
+    assert_eq!(scoped(activate_inv), EntityIds::sprints([alpha.id]));
+    assert_eq!(scoped(complete_inv), EntityIds::sprints([alpha.id]));
+
+    assert_eq!(moved, 2);
+    let carried = scoped(carry_inv);
+    assert_eq!(carried.cards.len(), 2);
+    assert!(carried.cards.contains(&first.id) && carried.cards.contains(&second.id));
+    for id in [first.id, second.id] {
+        assert_eq!(
+            ctx.data_store().get_card(id)?.unwrap().sprint_id,
+            Some(beta.id)
+        );
+    }
+
+    server.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_cancel_sprint_over_http_returns_a_named_sprint_and_the_server_invalidation(
+) -> KanbanResult<()> {
+    let server = TestServer::start().await;
+    let mut ctx = ctx_over(&server).await;
+    let (board, _) = ctx.create_board_from_spec(None, a_new_board())?;
+    let (sprint, _) =
+        ctx.create_sprint_from_spec(board.id, None, Some("Alpha".into()), None, false)?;
+
+    let (cancelled, invalidation) = ctx.cancel_sprint_impl(sprint.id)?;
+
+    let board = ctx.get_board(board.id)?.unwrap();
+    assert_eq!(cancelled.status, SprintStatus::Cancelled);
+    assert_eq!(
+        cancelled.get_name(&board),
+        Some("Alpha"),
+        "cancel must resolve the name"
+    );
+    assert_eq!(scoped(invalidation), EntityIds::sprints([sprint.id]));
+    assert_eq!(
+        ctx.data_store().list_sprints_by_board(board.id)?[0].status,
+        SprintStatus::Cancelled
+    );
+
+    server.shutdown().await;
+    Ok(())
+}
