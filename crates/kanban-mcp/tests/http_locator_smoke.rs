@@ -1,7 +1,11 @@
 #![cfg(feature = "http")]
 
+use kanban_domain::dependencies::messages;
 use kanban_domain::{CreateCardOptions, GraphOperations, KanbanOperations};
-use kanban_mcp::{CreateCardParams, GetColumnRequest, KanbanMcpServer, ListCardChildrenRequest};
+use kanban_mcp::{
+    CreateCardParams, GetColumnRequest, KanbanMcpServer, ListCardChildrenRequest,
+    SetCardParentRequest,
+};
 use kanban_server::test_helpers::TestServer;
 use kanban_service::{AppConfig, StoreManager};
 use rmcp::handler::server::wrapper::Parameters;
@@ -188,6 +192,64 @@ async fn test_tool_get_column_by_name_with_a_board_resolves_over_an_http_locator
         .expect("tool result should carry a text content block");
     let payload: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(payload["id"], ready_b.to_string());
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_tool_set_card_parent_closing_a_cycle_against_http_locator_returns_the_local_hint() {
+    let ids = Arc::new(Mutex::new(None::<(Uuid, Uuid)>));
+    let ids_for_seed = Arc::clone(&ids);
+
+    let server = TestServer::start_with(move |ctx| {
+        let board_id = ctx
+            .create_board("MCP Relation Board".to_string(), Some("KAN".to_string()))
+            .unwrap()
+            .id;
+        let column_id = ctx
+            .create_column(board_id, "To Do".to_string(), None)
+            .unwrap()
+            .id;
+        let a = ctx
+            .create_card(
+                board_id,
+                column_id,
+                "A".to_string(),
+                CreateCardOptions::default(),
+            )
+            .unwrap()
+            .id;
+        let b = ctx
+            .create_card(
+                board_id,
+                column_id,
+                "B".to_string(),
+                CreateCardOptions::default(),
+            )
+            .unwrap()
+            .id;
+        ctx.attach_children(a, vec![b]).unwrap();
+        *ids_for_seed.lock().unwrap() = Some((a, b));
+    })
+    .await;
+    let (a, b) = ids.lock().unwrap().take().unwrap();
+    let (a_s, b_s) = (a.to_string(), b.to_string());
+
+    let store_manager = http_only_store_manager();
+    let mcp_server = KanbanMcpServer::new(&store_manager, &server.base_url(), AppConfig::default())
+        .await
+        .unwrap();
+
+    let err = mcp_server
+        .tool_set_card_parent(Parameters(SetCardParentRequest {
+            child: a_s.clone(),
+            parent: b_s.clone(),
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(err.message, messages::parent_cycle(&b_s, &a_s));
+    assert_eq!(err.code, rmcp::model::ErrorCode::INVALID_PARAMS);
 
     server.shutdown().await;
 }

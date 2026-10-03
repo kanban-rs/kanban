@@ -343,4 +343,55 @@ mod tests {
             .message
             .contains("title must not be empty"));
     }
+
+    type IsDependencyVariant = fn(&KanbanError) -> bool;
+
+    #[test]
+    fn test_api_error_with_a_dependency_code_rebuilds_the_typed_dependency_variant() {
+        let cases: [(ErrorCode, IsDependencyVariant); 4] = [
+            (ErrorCode::CycleDetected, KanbanError::is_cycle_detected),
+            (ErrorCode::SelfReference, KanbanError::is_self_reference),
+            (ErrorCode::EdgeNotFound, KanbanError::is_edge_not_found),
+            (ErrorCode::DuplicateEdge, KanbanError::is_duplicate_edge),
+        ];
+        for (code, is_variant) in cases {
+            let err = KanbanError::from(ApiError::new(code, "irrelevant"));
+            assert!(is_variant(&err), "{code} rebuilt as {err:?}");
+        }
+    }
+
+    #[test]
+    fn test_dependency_error_round_trips_through_the_wire_to_the_same_variant() {
+        let cases: [(fn() -> DependencyError, IsDependencyVariant); 4] = [
+            (
+                || DependencyError::CycleDetected,
+                KanbanError::is_cycle_detected,
+            ),
+            (
+                || DependencyError::SelfReference,
+                KanbanError::is_self_reference,
+            ),
+            (
+                || DependencyError::EdgeNotFound,
+                KanbanError::is_edge_not_found,
+            ),
+            (
+                || DependencyError::DuplicateEdge,
+                KanbanError::is_duplicate_edge,
+            ),
+        ];
+        for (make, is_variant) in cases {
+            let original = KanbanError::Domain(DomainError::Dependency(make()));
+            let back = KanbanError::from(ApiError::from(&original));
+            assert!(is_variant(&back), "round trip of {original} gave {back:?}");
+            assert_eq!(back.to_string(), original.to_string());
+        }
+    }
+
+    #[test]
+    fn test_generic_dependency_error_code_still_maps_to_validation() {
+        let err = KanbanError::from(ApiError::new(ErrorCode::DependencyError, "generic"));
+        assert!(err.is_validation(), "got: {err:?}");
+        assert!(err.to_string().contains("DEPENDENCY_ERROR"), "got: {err}");
+    }
 }
