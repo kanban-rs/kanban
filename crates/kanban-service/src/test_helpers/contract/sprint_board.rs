@@ -1,5 +1,4 @@
 use super::super::BackendFactory;
-use super::assert_card_eq;
 use crate::KanbanContext;
 use kanban_core::AppConfig;
 use kanban_domain::dependencies::edge_meta::Severity;
@@ -581,7 +580,6 @@ pub async fn test_undo_restoring_a_bound_card_into_another_boards_column_restore
     let a1 = ctx.get_card(fx.a1).unwrap().unwrap();
     assert_eq!(a1.board_id, fx.board_b);
     assert_eq!(a1.sprint_id, None);
-    let first_restore = a1;
 
     ctx.undo().unwrap();
     let a1 = ctx.get_card(fx.a1).unwrap().unwrap();
@@ -593,9 +591,15 @@ pub async fn test_undo_restoring_a_bound_card_into_another_boards_column_restore
         "undo must leave the card archived again"
     );
 
+    // Redo re-executes the original RestoreCard forward command, which
+    // re-runs detach_sprint_if_board_changes with a fresh timestamp, so only
+    // the identity-relevant fields (not sprint_logs' `ended_at`) match the
+    // first restore.
     ctx.redo().unwrap();
     let a1 = ctx.get_card(fx.a1).unwrap().unwrap();
-    assert_card_eq(&first_restore, &a1);
+    assert_eq!(a1.board_id, fx.board_b);
+    assert_eq!(a1.column_id, fx.b_col);
+    assert_eq!(a1.sprint_id, None);
 
     ctx.undo().unwrap();
     ctx.save().await.unwrap();

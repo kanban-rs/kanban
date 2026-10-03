@@ -234,12 +234,41 @@ pub struct RestoreCard {
 }
 
 impl RestoreCard {
-    /// Inverse: archive the card again. The card id is in the forward
-    /// command. ArchiveCards captures original column/position from the
-    /// live card at capture time — by the time this runs the card has
-    /// been restored to (self.column_id, self.position), so the
-    /// re-archive will use those values as the new "original" location.
-    pub fn capture_inverse(&self, _store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
+    /// Inverse: archive the card again, preceded by a `MoveCard` back to
+    /// its original column/position plus a `RestoreSprintAttachment` when
+    /// the restore changed its board on a sprint-bound card. `capture_inverse`
+    /// runs before `execute`, so `store` still holds the pre-restore state
+    /// (reference-marker model). Mirrors `MoveCard::capture_inverse`: the
+    /// move back is itself a board change and may re-detach, so the
+    /// sprint restore is appended unconditionally, last, to win over that.
+    pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
+        let original = match store.get_card(self.card_id)? {
+            Some(c) => c,
+            None => return Err(KanbanError::not_found("Card", self.card_id)),
+        };
+        let changes_board = store
+            .get_column(self.column_id)?
+            .is_some_and(|target| target.board_id != original.board_id);
+        if changes_board && original.sprint_id.is_some() {
+            return Ok(vec![
+                Command::Card(CardCommand::Move(super::MoveCard {
+                    card_id: self.card_id,
+                    new_column_id: original.column_id,
+                    new_position: original.position,
+                })),
+                Command::Card(CardCommand::RestoreSprintAttachment(
+                    super::RestoreCardSprintAttachment {
+                        card_id: self.card_id,
+                        sprint_id: original.sprint_id,
+                        sprint_logs: original.sprint_logs.clone(),
+                        updated_at: original.updated_at,
+                    },
+                )),
+                Command::Card(CardCommand::Archive(ArchiveCards {
+                    ids: vec![self.card_id],
+                })),
+            ]);
+        }
         Ok(vec![Command::Card(CardCommand::Archive(ArchiveCards {
             ids: vec![self.card_id],
         }))])
