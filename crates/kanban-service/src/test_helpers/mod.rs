@@ -339,6 +339,18 @@ macro_rules! context_contract_tests {
             $crate::test_helpers::contract::archive::test_board_archive_restore_full_graph_roundtrip(&$factory_fn()).await;
         }
         #[tokio::test(flavor = "multi_thread")]
+        async fn test_rearchive_board_undo_leaves_the_board_and_its_subtree_archived() {
+            $crate::test_helpers::contract::archive::test_rearchive_board_undo_leaves_the_board_and_its_subtree_archived(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_archive_boards_with_a_duplicated_id_is_undoable() {
+            $crate::test_helpers::contract::archive::test_archive_boards_with_a_duplicated_id_is_undoable(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_archive_boards_mixing_live_and_archived_undo_restores_only_the_live_board() {
+            $crate::test_helpers::contract::archive::test_archive_boards_mixing_live_and_archived_undo_restores_only_the_live_board(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
         async fn test_list_boards_archived_selector_roundtrip() {
             $crate::test_helpers::contract::archive::test_list_boards_archived_selector_roundtrip(&$factory_fn()).await;
         }
