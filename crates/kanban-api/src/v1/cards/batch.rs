@@ -42,6 +42,14 @@ pub struct BatchUpdateRequest {
 pub struct BatchFailure {
     pub id: Uuid,
     pub error: String,
+    /// Absent from servers that predate per-failure codes, and `None` for a code
+    /// this build does not know; read it through [`BatchFailure::to_api_error`].
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient_error_code"
+    )]
+    pub code: Option<ErrorCode>,
 }
 
 impl BatchFailure {
@@ -49,8 +57,36 @@ impl BatchFailure {
         Self {
             id,
             error: error.into(),
+            code: None,
         }
     }
+
+    pub fn from_api_error(id: Uuid, err: &ApiError) -> Self {
+        Self {
+            id,
+            error: err.message.clone(),
+            code: Some(err.code),
+        }
+    }
+
+    pub fn to_api_error(&self) -> ApiError {
+        ApiError::new(
+            self.code.unwrap_or(ErrorCode::ValidationFailed),
+            self.error.clone(),
+        )
+    }
+}
+
+fn lenient_error_code<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<ErrorCode>, D::Error> {
+    use serde::de::value::{Error as ValueError, StringDeserializer};
+    use serde::de::IntoDeserializer;
+    let raw: Option<String> = Option::deserialize(d)?;
+    Ok(raw.and_then(|s| {
+        let de: StringDeserializer<ValueError> = s.into_deserializer();
+        ErrorCode::deserialize(de).ok()
+    }))
 }
 
 fn invalidation_all() -> InvalidationDto {

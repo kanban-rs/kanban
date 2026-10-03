@@ -1340,13 +1340,10 @@ async fn test_archive_cards_detailed_with_remote_writes_but_no_batch_writes_fail
     let (result, inv) = ctx.archive_cards_detailed(vec![a, b]);
 
     assert!(result.succeeded.is_empty());
-    let expected_message = kanban_domain::KanbanError::unsupported("archive_cards").to_string();
+    let expected_error = kanban_domain::KanbanError::unsupported("archive_cards");
     let expected: Vec<BatchOperationFailure> = vec![a, b]
         .into_iter()
-        .map(|id| BatchOperationFailure {
-            id,
-            error: expected_message.clone(),
-        })
+        .map(|id| BatchOperationFailure::new(id, &expected_error))
         .collect();
     for (got, want) in result.failed.iter().zip(expected.iter()) {
         assert_eq!(got.id, want.id);

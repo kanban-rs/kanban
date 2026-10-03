@@ -44,15 +44,14 @@ impl KanbanContext {
         }))]) {
             Ok(invalidation) => (BatchOperationResult { succeeded, failed }, invalidation),
             Err(e) => {
-                let err = e.to_string();
                 let (lost, kept): (Vec<Uuid>, Vec<Uuid>) = succeeded
                     .into_iter()
                     .partition(|id| to_archive_set.contains(id));
                 let mut all_failed = failed;
-                all_failed.extend(lost.into_iter().map(|id| BatchOperationFailure {
-                    id,
-                    error: err.clone(),
-                }));
+                all_failed.extend(
+                    lost.into_iter()
+                        .map(|id| BatchOperationFailure::new(id, &e)),
+                );
                 (
                     BatchOperationResult {
                         succeeded: kept,
@@ -81,14 +80,11 @@ impl KanbanContext {
             }
             match self.backend.get_archived_card(id) {
                 Ok(Some(_)) => succeeded.push(id),
-                Ok(None) => failed.push(BatchOperationFailure {
+                Ok(None) => failed.push(BatchOperationFailure::new(
                     id,
-                    error: KanbanError::not_found("Card", id).to_string(),
-                }),
-                Err(e) => failed.push(BatchOperationFailure {
-                    id,
-                    error: e.to_string(),
-                }),
+                    &KanbanError::not_found("Card", id),
+                )),
+                Err(e) => failed.push(BatchOperationFailure::new(id, &e)),
             }
         }
         (to_archive, succeeded, failed)
@@ -123,14 +119,11 @@ impl KanbanContext {
         for id in ids {
             match self.backend.get_card(id) {
                 Ok(Some(_)) => to_move.push(id),
-                Ok(None) => failed.push(BatchOperationFailure {
+                Ok(None) => failed.push(BatchOperationFailure::new(
                     id,
-                    error: KanbanError::not_found("Card", id).to_string(),
-                }),
-                Err(e) => failed.push(BatchOperationFailure {
-                    id,
-                    error: e.to_string(),
-                }),
+                    &KanbanError::not_found("Card", id),
+                )),
+                Err(e) => failed.push(BatchOperationFailure::new(id, &e)),
             }
         }
         if to_move.is_empty() {
@@ -148,12 +141,12 @@ impl KanbanContext {
             match self.chained_status_updates_for_batch_move(&to_move, column_id) {
                 Ok(v) => v,
                 Err(e) => {
-                    let err = e.to_string();
                     let mut all_failed = failed;
-                    all_failed.extend(succeeded.into_iter().map(|id| BatchOperationFailure {
-                        id,
-                        error: err.clone(),
-                    }));
+                    all_failed.extend(
+                        succeeded
+                            .into_iter()
+                            .map(|id| BatchOperationFailure::new(id, &e)),
+                    );
                     return (
                         BatchOperationResult {
                             succeeded: vec![],
@@ -167,12 +160,12 @@ impl KanbanContext {
         let batch = match self.build_move_cards_batch(&to_move, column_id, chained_status_updates) {
             Ok(b) => b,
             Err(e) => {
-                let err = e.to_string();
                 let mut all_failed = failed;
-                all_failed.extend(succeeded.into_iter().map(|id| BatchOperationFailure {
-                    id,
-                    error: err.clone(),
-                }));
+                all_failed.extend(
+                    succeeded
+                        .into_iter()
+                        .map(|id| BatchOperationFailure::new(id, &e)),
+                );
                 return (
                     BatchOperationResult {
                         succeeded: vec![],
@@ -186,12 +179,12 @@ impl KanbanContext {
         match self.execute(batch) {
             Ok(invalidation) => (BatchOperationResult { succeeded, failed }, invalidation),
             Err(e) => {
-                let err = e.to_string();
                 let mut all_failed = failed;
-                all_failed.extend(succeeded.into_iter().map(|id| BatchOperationFailure {
-                    id,
-                    error: err.clone(),
-                }));
+                all_failed.extend(
+                    succeeded
+                        .into_iter()
+                        .map(|id| BatchOperationFailure::new(id, &e)),
+                );
                 (
                     BatchOperationResult {
                         succeeded: vec![],
@@ -253,20 +246,17 @@ impl KanbanContext {
         let mut failed = Vec::new();
         for id in ids {
             match cards_by_id.get(&id) {
-                None => failed.push(BatchOperationFailure {
+                None => failed.push(BatchOperationFailure::new(
                     id,
-                    error: KanbanError::not_found("Card", id).to_string(),
-                }),
+                    &KanbanError::not_found("Card", id),
+                )),
                 Some(card) if card.sprint_id != Some(sprint_id) => {
                     match kanban_domain::sprint_membership::require_sprint_on_board(
                         sprint,
                         card.board_id,
                     ) {
                         Ok(()) => to_assign.push(id),
-                        Err(e) => failed.push(BatchOperationFailure {
-                            id,
-                            error: e.to_string(),
-                        }),
+                        Err(e) => failed.push(BatchOperationFailure::new(id, &e)),
                     }
                 }
                 Some(_) => to_assign.push(id),
@@ -290,12 +280,12 @@ impl KanbanContext {
         ))]) {
             Ok(invalidation) => (BatchOperationResult { succeeded, failed }, invalidation),
             Err(e) => {
-                let err = e.to_string();
                 let mut all_failed = failed;
-                all_failed.extend(succeeded.into_iter().map(|id| BatchOperationFailure {
-                    id,
-                    error: err.clone(),
-                }));
+                all_failed.extend(
+                    succeeded
+                        .into_iter()
+                        .map(|id| BatchOperationFailure::new(id, &e)),
+                );
                 (
                     BatchOperationResult {
                         succeeded: vec![],

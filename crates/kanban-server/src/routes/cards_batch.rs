@@ -19,7 +19,7 @@ fn to_wire(result: &BatchOperationResult, invalidation: &Invalidation) -> BatchO
         result
             .failed
             .iter()
-            .map(|f| BatchFailure::new(f.id, f.error.clone()))
+            .map(|f| BatchFailure::from_api_error(f.id, &f.api_error))
             .collect(),
         invalidation,
     )

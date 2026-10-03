@@ -97,7 +97,7 @@ impl ErrorCode {
 
 /// HTTP error response envelope returned by all kanban-server routes.
 #[non_exhaustive]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct ApiError {
     pub code: ErrorCode,

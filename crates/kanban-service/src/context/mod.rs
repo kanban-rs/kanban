@@ -39,6 +39,20 @@ pub struct BatchOperationResult {
 pub struct BatchOperationFailure {
     pub id: Uuid,
     pub error: String,
+    /// Wire form of the failure (code plus client-safe message); not part of
+    /// the CLI's JSON output.
+    #[serde(skip)]
+    pub api_error: kanban_api::ApiError,
+}
+
+impl BatchOperationFailure {
+    pub fn new(id: Uuid, error: &kanban_domain::KanbanError) -> Self {
+        Self {
+            id,
+            error: error.to_string(),
+            api_error: kanban_api::ApiError::from(error),
+        }
+    }
 }
 
 pub(super) fn remote_batch_count(
@@ -59,7 +73,14 @@ impl From<kanban_backend::RemoteBatchOutcome> for BatchOperationResult {
             failed: outcome
                 .failed
                 .into_iter()
-                .map(|(id, error)| BatchOperationFailure { id, error })
+                .map(|(id, error)| BatchOperationFailure {
+                    api_error: kanban_api::ApiError::new(
+                        kanban_api::ErrorCode::ValidationFailed,
+                        error.clone(),
+                    ),
+                    id,
+                    error,
+                })
                 .collect(),
         }
     }
@@ -71,10 +92,7 @@ impl BatchOperationResult {
             succeeded: vec![],
             failed: ids
                 .into_iter()
-                .map(|id| BatchOperationFailure {
-                    id,
-                    error: error.to_string(),
-                })
+                .map(|id| BatchOperationFailure::new(id, error))
                 .collect(),
         }
     }
