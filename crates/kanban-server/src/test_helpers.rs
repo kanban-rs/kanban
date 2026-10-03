@@ -28,6 +28,12 @@ pub type RequestLog = Arc<Mutex<Vec<(Method, String)>>>;
 /// bodiless `503 Service Unavailable` instead of routing, while armed.
 pub type FaultSwitch = Arc<Mutex<Option<(&'static str, String)>>>;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FaultMode {
+    UntilDisarmed,
+    Once,
+}
+
 /// Build an `AppState` over a fresh `JsonDataStore` at `path`, for the
 /// `tower::ServiceExt::oneshot` in-process route tests (as opposed to
 /// `TestServer`'s real-socket harness below).
@@ -146,28 +152,38 @@ impl TestServer {
     /// Like [`Self::start_with`], but also returns a [`FaultSwitch`]; every
     /// request not matching the armed `(method, path)` is served normally.
     pub async fn start_with_fault(seed: impl FnOnce(&mut KanbanContext)) -> (Self, FaultSwitch) {
+        Self::start_with_fault_mode(seed, FaultMode::UntilDisarmed).await
+    }
+
+    /// Like [`Self::start_with_fault`], but the armed `(method, path)` answers
+    /// 503 to its first matching request only and then disarms itself, so the
+    /// switch reads `None` again once the fault has fired.
+    pub async fn start_with_one_shot_fault(
+        seed: impl FnOnce(&mut KanbanContext),
+    ) -> (Self, FaultSwitch) {
+        Self::start_with_fault_mode(seed, FaultMode::Once).await
+    }
+
+    async fn start_with_fault_mode(
+        seed: impl FnOnce(&mut KanbanContext),
+        mode: FaultMode,
+    ) -> (Self, FaultSwitch) {
         let fault: FaultSwitch = Arc::new(Mutex::new(None));
         let server = Self::start_full(
             seed,
             crate::layers::LayerConfig::default(),
             None,
-            Some(fault.clone()),
+            Some((fault.clone(), mode)),
         )
         .await;
         (server, fault)
-    }
-
-    pub async fn start_with_one_shot_fault(
-        seed: impl FnOnce(&mut KanbanContext),
-    ) -> (Self, FaultSwitch) {
-        Self::start_with_fault(seed).await
     }
 
     async fn start_full(
         seed: impl FnOnce(&mut KanbanContext),
         config: crate::layers::LayerConfig,
         recorder: Option<RequestLog>,
-        fault: Option<FaultSwitch>,
+        fault: Option<(FaultSwitch, FaultMode)>,
     ) -> Self {
         let backend: Arc<dyn KanbanBackend> = Arc::new(InMemoryStore::new());
         Self::start_full_on(backend, seed, config, recorder, fault).await
@@ -209,7 +225,7 @@ impl TestServer {
         seed: impl FnOnce(&mut KanbanContext),
         config: crate::layers::LayerConfig,
         recorder: Option<RequestLog>,
-        fault: Option<FaultSwitch>,
+        fault: Option<(FaultSwitch, FaultMode)>,
     ) -> Self {
         let mut ctx = KanbanContext::open(backend, AppConfig::default())
             .await
@@ -237,15 +253,24 @@ impl TestServer {
             None => router,
         };
         let router = match fault {
-            Some(switch) => router.layer(middleware::from_fn(
+            Some((switch, mode)) => router.layer(middleware::from_fn(
                 move |req: Request<Body>, next: Next| {
                     let switch = switch.clone();
                     async move {
-                        let armed = switch.lock().unwrap().clone();
-                        if let Some((method, path)) = armed {
-                            if req.method().as_str() == method && req.uri().path() == path {
-                                return StatusCode::SERVICE_UNAVAILABLE.into_response();
+                        let hit = {
+                            let mut armed = switch.lock().unwrap();
+                            let hit = matches!(
+                                armed.as_ref(),
+                                Some((method, path))
+                                    if req.method().as_str() == *method && req.uri().path() == path.as_str()
+                            );
+                            if hit && mode == FaultMode::Once {
+                                *armed = None;
                             }
+                            hit
+                        };
+                        if hit {
+                            return StatusCode::SERVICE_UNAVAILABLE.into_response();
                         }
                         next.run(req).await
                     }
