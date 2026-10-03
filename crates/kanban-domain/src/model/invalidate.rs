@@ -18,13 +18,14 @@ impl Model {
     /// entries.
     ///
     /// A `cards` id narrows to just its own `cards_by_column` scopes when
-    /// `ids.card_columns` names every one of `ids.cards` (the batch knows
-    /// every card's affected columns); otherwise it falls back to dropping
-    /// the WHOLE `cards_by_column` tier, since a card with no known column
-    /// could be staling any scope. The four `archived_*` tiers a card id
-    /// marks follow the same narrow/fallback split, except they also drop on
-    /// `ids.archival_changed` even when narrow, since an archive/restore
-    /// changes those tiers regardless of which columns are known.
+    /// `ids.card_columns` names every one of `ids.cards`: the named columns
+    /// drop, and so does the column `scoped_card_index` says currently holds
+    /// each card, so a producer that names only the destination of a move
+    /// cannot leave the source scope serving a stale copy. A producer must
+    /// still name every column it put a card INTO; the model can recover
+    /// where a card was, never where it went. Otherwise the whole
+    /// `cards_by_column` tier drops. The four `archived_*` tiers drop on
+    /// every `cards` invalidation, narrow or not.
     ///
     /// `scoped_card_index` is a reverse index over `cards_by_column`; every
     /// clear of that tier here clears the matching index entries too, so
@@ -34,9 +35,9 @@ impl Model {
     /// their id sets) are dropped by the arm of the entity kind they mark: a
     /// `cards` id drops the card markers, a `boards` id or a `prefixes` bump
     /// drops the board markers. `EntityIds` cannot name a marker directly, so
-    /// this is conservative in the same way a card id already drops the whole
-    /// `cards_by_column`/`archived_cards_by_board` scoped tiers. Both
-    /// `apply_resolved` and `load_from_snapshot` repopulate the dropped tier.
+    /// this is conservative in the same way a card id always drops the whole
+    /// `archived_cards_by_board` scoped tier. Both `apply_resolved` and
+    /// `load_from_snapshot` repopulate the dropped tier.
     pub fn invalidate(&mut self, invalidation: Invalidation) -> ModelChanged {
         let ids = match invalidation {
             Invalidation::All => {
@@ -64,8 +65,7 @@ impl Model {
         if !ids.columns.is_empty() {
             for id in &ids.columns {
                 self.columns_by_id.remove(id);
-                self.cards_by_column.remove(id);
-                self.scoped_card_index.retain(|_, col| col != id);
+                self.drop_card_scope(*id);
             }
             self.columns_by_board.clear();
         }
@@ -77,23 +77,22 @@ impl Model {
             let exact = !ids.card_columns.is_empty()
                 && ids.cards.iter().all(|c| ids.card_columns.contains_key(c));
             if exact {
-                for col in ids.card_columns.values().flatten() {
-                    self.cards_by_column.remove(col);
-                    self.scoped_card_index.retain(|_, c| c != col);
-                }
-                for id in &ids.cards {
-                    self.scoped_card_index.remove(id);
+                let cached: Vec<Uuid> = ids
+                    .cards
+                    .iter()
+                    .filter_map(|id| self.scoped_card_index.get(id).copied())
+                    .collect();
+                for col in ids.card_columns.values().flatten().copied().chain(cached) {
+                    self.drop_card_scope(col);
                 }
             } else {
                 self.cards_by_column.clear();
                 self.scoped_card_index.clear();
             }
-            if !exact || ids.archival_changed {
-                self.archived_cards_by_board.clear();
-                self.archived_cards = None;
-                self.archived_cards_error = None;
-                self.archived_card_ids.clear();
-            }
+            self.archived_cards_by_board.clear();
+            self.archived_cards = None;
+            self.archived_cards_error = None;
+            self.archived_card_ids.clear();
         }
 
         if !ids.sprints.is_empty() {
@@ -108,6 +107,11 @@ impl Model {
         }
 
         ModelChanged::new()
+    }
+
+    fn drop_card_scope(&mut self, column_id: Uuid) {
+        self.cards_by_column.remove(&column_id);
+        self.scoped_card_index.retain(|_, col| *col != column_id);
     }
 }
 
@@ -492,8 +496,7 @@ mod tests {
     }
 
     #[test]
-    fn test_invalidating_a_moved_card_naming_only_its_destination_drops_the_cached_source_column()
-    {
+    fn test_invalidating_a_moved_card_naming_only_its_destination_drops_the_cached_source_column() {
         let board = Board::new("B", None::<String>);
         let col_a = Column::new(board.id, "A", 0);
         let col_b = Column::new(board.id, "B", 1);
