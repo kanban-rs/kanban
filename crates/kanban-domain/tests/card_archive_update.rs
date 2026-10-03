@@ -143,8 +143,7 @@ fn test_update_card_resubmitting_its_existing_cross_board_sprint_succeeds() {
 }
 
 #[test]
-fn test_update_card_with_a_column_on_another_board_checks_the_sprint_against_the_cards_stored_board(
-) {
+fn test_update_card_moving_a_card_to_another_boards_column_returns_validation_before_any_write() {
     let tc = TestContext::new();
     let board_a = kanban_domain::Board::new("A", Some("AAA"));
     let board_b = kanban_domain::Board::new("B", Some("BBB"));
@@ -152,31 +151,87 @@ fn test_update_card_with_a_column_on_another_board_checks_the_sprint_against_the
     let col_b_id = col_b.id;
     let card = kanban_domain::Card::new(board_a.id, Uuid::new_v4(), "Card", 0);
     let card_id = card.id;
-    let sprint_b = kanban_domain::Sprint::new(board_b.id, 1, None, Some("Sprint"));
-    let sprint_id = sprint_b.id;
-    tc.store.upsert_board(board_a).unwrap();
+    let orig_column_id = card.column_id;
+    tc.store.upsert_board(board_a.clone()).unwrap();
     tc.store.upsert_board(board_b).unwrap();
     tc.store.upsert_column(col_b).unwrap();
     tc.store.upsert_card(card).unwrap();
-    tc.store.upsert_sprint(sprint_b).unwrap();
 
     let context = tc.as_command_context();
-    // Raw UpdateCard with a column on board B but the card is still stored on
-    // board A: the sprint check must compare against the card's stored
-    // board_id, not the (unsynced) target column's board.
     let cmd = UpdateCard {
         card_id,
         updates: CardUpdate {
             column_id: Some(col_b_id),
-            sprint_id: FieldUpdate::Set(sprint_id),
             ..CardUpdate::default()
         },
     };
     let result = cmd.execute(&context);
-    assert!(result.unwrap_err().is_sprint_board_mismatch());
+    assert!(result.unwrap_err().is_validation());
 
     let stored = tc.store.get_card(card_id).unwrap().unwrap();
+    assert_eq!(stored.column_id, orig_column_id);
+    assert_eq!(stored.board_id, board_a.id);
     assert_eq!(stored.sprint_id, None);
+}
+
+#[test]
+fn test_update_card_resubmitting_the_current_column_of_a_card_on_another_boards_column_succeeds() {
+    let tc = TestContext::new();
+    let board_a = kanban_domain::Board::new("A", Some("AAA"));
+    let board_b = kanban_domain::Board::new("B", Some("BBB"));
+    let col_b = kanban_domain::Column::new(board_b.id, "Col", 0);
+    let col_b_id = col_b.id;
+    let mut card = kanban_domain::Card::new(board_a.id, Uuid::new_v4(), "Card", 0);
+    card.column_id = col_b_id;
+    let card_id = card.id;
+    tc.store.upsert_board(board_a.clone()).unwrap();
+    tc.store.upsert_board(board_b).unwrap();
+    tc.store.upsert_column(col_b).unwrap();
+    tc.store.upsert_card(card).unwrap();
+
+    let context = tc.as_command_context();
+    let cmd = UpdateCard {
+        card_id,
+        updates: CardUpdate {
+            column_id: Some(col_b_id),
+            title: Some("Renamed".into()),
+            ..CardUpdate::default()
+        },
+    };
+    cmd.execute(&context).unwrap();
+
+    let stored = tc.store.get_card(card_id).unwrap().unwrap();
+    assert_eq!(stored.title, "Renamed");
+    assert_eq!(stored.column_id, col_b_id);
+    assert_eq!(stored.board_id, board_a.id);
+}
+
+#[test]
+fn test_update_card_changing_to_another_column_on_its_own_board_still_succeeds() {
+    let tc = TestContext::new();
+    let board_a = kanban_domain::Board::new("A", Some("AAA"));
+    let col_a1 = kanban_domain::Column::new(board_a.id, "Col 1", 0);
+    let col_a2 = kanban_domain::Column::new(board_a.id, "Col 2", 1);
+    let col_a2_id = col_a2.id;
+    let card = kanban_domain::Card::new(board_a.id, col_a1.id, "Card", 0);
+    let card_id = card.id;
+    tc.store.upsert_board(board_a).unwrap();
+    tc.store.upsert_column(col_a1).unwrap();
+    tc.store.upsert_column(col_a2).unwrap();
+    tc.store.upsert_card(card).unwrap();
+
+    let context = tc.as_command_context();
+    let cmd = UpdateCard {
+        card_id,
+        updates: CardUpdate {
+            column_id: Some(col_a2_id),
+            ..CardUpdate::default()
+        },
+    };
+    cmd.execute(&context).unwrap();
+
+    let stored = tc.store.get_card(card_id).unwrap().unwrap();
+    assert_eq!(stored.column_id, col_a2_id);
 }
 
 #[test]

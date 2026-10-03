@@ -280,7 +280,37 @@ pub async fn test_update_moving_a_card_cross_board_with_a_sprint_on_the_target_b
     assert_eq!(a1.sprint_id, Some(fx.sb));
 }
 
-pub async fn test_update_with_status_and_a_cross_board_column_and_sprint_is_refused(
+pub async fn test_update_with_status_and_a_cross_board_column_binds_the_destination_boards_sprint(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+    let fx = seed_two_boards(&mut ctx).await.unwrap();
+
+    ctx.update_card(
+        fx.a2,
+        CardUpdate {
+            status: Some(kanban_domain::CardStatus::Todo),
+            column_id: Some(fx.b_col),
+            sprint_id: FieldUpdate::Set(fx.sb),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+    let a2 = ctx.get_card(fx.a2).unwrap().unwrap();
+    assert_eq!(a2.board_id, fx.board_b);
+    assert_eq!(a2.column_id, fx.b_col);
+    assert_eq!(a2.position, 1);
+    assert_eq!(a2.sprint_id, Some(fx.sb));
+}
+
+pub async fn test_update_with_status_and_a_cross_board_column_resubmitting_the_old_sprint_is_refused(
     factory: &BackendFactory,
 ) {
     let dir = TempDir::new().unwrap();
@@ -293,11 +323,11 @@ pub async fn test_update_with_status_and_a_cross_board_column_and_sprint_is_refu
     let before = graph_state(&ctx, fx.a1).unwrap();
     assert!(ctx
         .update_card(
-            fx.a2,
+            fx.a1,
             CardUpdate {
-                status: Some(kanban_domain::CardStatus::Todo),
+                status: Some(kanban_domain::CardStatus::InProgress),
                 column_id: Some(fx.b_col),
-                sprint_id: FieldUpdate::Set(fx.sb),
+                sprint_id: FieldUpdate::Set(fx.sa),
                 ..Default::default()
             },
         )

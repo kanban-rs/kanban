@@ -992,3 +992,138 @@ async fn test_move_route_to_another_boards_column_returns_the_card_with_its_spri
     let state = make_sqlite_state(&dir.path().join("s.sqlite")).await;
     scenario_move_route_to_another_boards_column_clears_the_sprint(state).await;
 }
+
+async fn scenario_patch_with_status_and_a_cross_board_column_moves_the_card(state: AppState) {
+    let (card_id, board_b_id, col_b_id) = {
+        let mut ctx = state.ctx.lock().await;
+        let board_a_id = ctx
+            .create_board("A".to_string(), Some("AAA".to_string()))
+            .unwrap()
+            .id;
+        let col_a_id = ctx
+            .create_column(board_a_id, "Col".to_string(), None)
+            .unwrap()
+            .id;
+        let sprint_a_id = ctx.create_sprint(board_a_id, None, None).unwrap().id;
+        let card_id = ctx
+            .create_card(
+                board_a_id,
+                col_a_id,
+                "Task".to_string(),
+                CreateCardOptions {
+                    sprint_id: Some(sprint_a_id),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .id;
+
+        let board_b_id = ctx
+            .create_board("B".to_string(), Some("BBB".to_string()))
+            .unwrap()
+            .id;
+        let col_b_id = ctx
+            .create_column(board_b_id, "Col".to_string(), None)
+            .unwrap()
+            .id;
+        ctx.create_card(board_b_id, col_b_id, "B1".to_string(), Default::default())
+            .unwrap();
+        (card_id, board_b_id, col_b_id)
+    };
+
+    let response = send(
+        &state,
+        "PATCH",
+        &format!("/v1/cards/{card_id}"),
+        Some(&json!({"status": "in_progress", "column_id": col_b_id.to_string()})),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_of(response).await;
+    assert_eq!(body["board_id"], board_b_id.to_string());
+    assert_eq!(body["column_id"], col_b_id.to_string());
+    assert_eq!(body["position"], 1);
+    assert_eq!(body["status"], "in_progress");
+    assert!(body["sprint_id"].is_null());
+
+    let response = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{board_b_id}/cards/{card_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_patch_card_with_status_and_a_cross_board_column_moves_it_to_the_destination_board_on_json(
+) {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    scenario_patch_with_status_and_a_cross_board_column_moves_the_card(state).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_patch_card_with_status_and_a_cross_board_column_moves_it_to_the_destination_board_on_sqlite(
+) {
+    let dir = tempdir().unwrap();
+    let state = make_sqlite_state(&dir.path().join("s.sqlite")).await;
+    scenario_patch_with_status_and_a_cross_board_column_moves_the_card(state).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_patch_card_with_status_and_column_into_a_full_column_returns_409() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let (_board_id, dest_col, card_id) = {
+        let mut ctx = state.ctx.lock().await;
+        let board_id = ctx
+            .create_board("Board".to_string(), Some("KAN".to_string()))
+            .unwrap()
+            .id;
+        let source = ctx
+            .create_column(board_id, "Source".to_string(), None)
+            .unwrap();
+        let dest = ctx
+            .create_column(board_id, "Full".to_string(), None)
+            .unwrap();
+        ctx.update_column(
+            dest.id,
+            kanban_domain::ColumnUpdate {
+                wip_limit: kanban_domain::FieldUpdate::Set(1),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        ctx.create_card(
+            board_id,
+            dest.id,
+            "Blocking Task".to_string(),
+            Default::default(),
+        )
+        .unwrap();
+        let card = ctx
+            .create_card(
+                board_id,
+                source.id,
+                "To Move".to_string(),
+                Default::default(),
+            )
+            .unwrap();
+        (board_id, dest.id, card.id)
+    };
+
+    let response = send(
+        &state,
+        "PATCH",
+        &format!("/v1/cards/{card_id}"),
+        Some(&json!({"status": "in_progress", "column_id": dest_col.to_string()})),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    assert_eq!(json_of(response).await["code"], "WIP_LIMIT_EXCEEDED");
+}
