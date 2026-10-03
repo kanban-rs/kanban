@@ -1,4 +1,5 @@
 use super::requests::UpdateCardRequest;
+use crate::v1::{ApiError, ErrorCode};
 use crate::InvalidationDto;
 use kanban_domain::Invalidation;
 use serde::{Deserialize, Serialize};
@@ -148,5 +149,42 @@ mod tests {
         let response: BatchOperationResponse = serde_json::from_value(value).unwrap();
 
         assert_eq!(response.invalidation, InvalidationDto::All);
+    }
+
+    #[test]
+    fn test_batch_failure_from_api_error_serializes_its_code() {
+        let id = Uuid::new_v4();
+        let api_err = ApiError::new(ErrorCode::NotFound, "Card x not found");
+
+        let failure = BatchFailure::from_api_error(id, &api_err);
+        let value = serde_json::to_value(&failure).unwrap();
+
+        assert_eq!(value["code"], "NOT_FOUND");
+        assert_eq!(value["error"], "Card x not found");
+    }
+
+    #[test]
+    fn test_batch_failure_without_a_code_deserializes_and_falls_back_to_validation_failed() {
+        let id = Uuid::new_v4();
+        let value = serde_json::json!({ "id": id, "error": "boom" });
+
+        let failure: BatchFailure = serde_json::from_value(value).unwrap();
+
+        assert_eq!(failure.code, None);
+        assert_eq!(
+            failure.to_api_error(),
+            ApiError::new(ErrorCode::ValidationFailed, "boom")
+        );
+    }
+
+    #[test]
+    fn test_batch_failure_with_an_unknown_code_deserializes_with_no_code() {
+        let id = Uuid::new_v4();
+        let value = serde_json::json!({ "id": id, "error": "boom", "code": "SOME_FUTURE_CODE" });
+
+        let failure: BatchFailure = serde_json::from_value(value).unwrap();
+
+        assert_eq!(failure.code, None);
+        assert_eq!(failure.to_api_error().code, ErrorCode::ValidationFailed);
     }
 }
