@@ -194,6 +194,37 @@ async fn test_update_card_with_explicit_column_id_and_status_respects_both() -> 
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_card_with_status_and_column_keeps_the_explicit_status_over_the_destination_default(
+) -> KanbanResult<()> {
+    let mut ctx = make_ctx().await;
+    let fx = build_fixture(&mut ctx, false).await;
+    ctx.update_column(
+        fx.progress_id,
+        ColumnUpdate {
+            default_status: Some(Some(CardStatus::InProgress)),
+            ..Default::default()
+        },
+    )?;
+
+    let updated = ctx.update_card(
+        fx.card_id,
+        CardUpdate {
+            status: Some(CardStatus::Todo),
+            column_id: Some(fx.progress_id),
+            ..Default::default()
+        },
+    )?;
+
+    assert_eq!(updated.column_id, fx.progress_id);
+    assert_eq!(
+        updated.status,
+        CardStatus::Todo,
+        "the explicit status must win over the destination column's default"
+    );
+    Ok(())
+}
+
 // --- KAN-434: column-only update_card must auto-sync status, mirroring update_cards ---
 
 #[tokio::test(flavor = "multi_thread")]

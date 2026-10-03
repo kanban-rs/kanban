@@ -18,6 +18,13 @@ impl KanbanContext {
     ) -> KanbanResult<(usize, Invalidation)> {
         use kanban_domain::query::sprint::get_sprint_uncompleted_cards;
 
+        if let Some(rw) = self.backend.remote_sprint_writes() {
+            return rw.carry_over_sprint_cards(from_sprint_id, to_sprint_id);
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("carry_over_sprint_cards"));
+        }
+
         let from_sprint = self
             .get_sprint_impl(from_sprint_id)?
             .ok_or_else(|| KanbanError::not_found("Sprint", from_sprint_id))?;
@@ -32,6 +39,10 @@ impl KanbanContext {
         let to_sprint = self
             .get_sprint_impl(to_sprint_id)?
             .ok_or_else(|| KanbanError::not_found("Sprint", to_sprint_id))?;
+        kanban_domain::sprint_membership::require_sprint_on_board(
+            &to_sprint,
+            from_sprint.board_id,
+        )?;
         if to_sprint.status != kanban_domain::SprintStatus::Planning {
             return Err(KanbanError::validation(format!(
                 "Target sprint must be Planning, got {:?}",
@@ -43,6 +54,7 @@ impl KanbanContext {
         let all_cards = self.list_live_cards_impl()?;
         let ids: Vec<Uuid> = get_sprint_uncompleted_cards(from_sprint_id, &all_cards)
             .iter()
+            .filter(|c| c.board_id == to_sprint.board_id)
             .map(|c| c.id)
             .collect();
         self.assign_cards_to_sprint_impl(ids, to_sprint_id)
@@ -67,6 +79,21 @@ impl KanbanContext {
         auto_consume_name: bool,
     ) -> KanbanResult<(Sprint, Invalidation)> {
         use kanban_domain::commands::CreateSprint;
+
+        if let Some(rw) = self.backend.remote_sprint_writes() {
+            #[allow(clippy::unnecessary_map_or)]
+            let consumes_pool =
+                auto_consume_name && name.as_deref().map_or(true, |n| n.trim().is_empty());
+            if consumes_pool {
+                return Err(KanbanError::unsupported(
+                    "create_sprint.auto_consume_name over HTTP",
+                ));
+            }
+            return rw.create_sprint(board_id, id, name.as_deref(), prefix.as_deref());
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("create_sprint"));
+        }
 
         // FK: the owning board must exist before we mint anything.
         if self.backend.get_board(board_id)?.is_none() {
@@ -181,6 +208,12 @@ impl KanbanContext {
         updates: SprintUpdate,
     ) -> KanbanResult<(Sprint, Invalidation)> {
         use kanban_domain::commands::UpdateSprint;
+        if let Some(rw) = self.backend.remote_sprint_writes() {
+            return rw.update_sprint(id, &updates);
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("update_sprint"));
+        }
         let cmd = Command::Sprint(SprintCommand::Update(UpdateSprint {
             sprint_id: id,
             updates,
@@ -198,6 +231,12 @@ impl KanbanContext {
         duration_days: Option<i32>,
     ) -> KanbanResult<(Sprint, Invalidation)> {
         use kanban_domain::commands::ActivateSprint;
+        if let Some(rw) = self.backend.remote_sprint_writes() {
+            return rw.activate_sprint(id, duration_days);
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("activate_sprint"));
+        }
         let duration = duration_days.unwrap_or(14) as u32;
         let cmd = Command::Sprint(SprintCommand::Activate(ActivateSprint {
             sprint_id: id,
@@ -212,6 +251,12 @@ impl KanbanContext {
 
     pub fn complete_sprint_impl(&mut self, id: Uuid) -> KanbanResult<(Sprint, Invalidation)> {
         use kanban_domain::commands::CompleteSprint;
+        if let Some(rw) = self.backend.remote_sprint_writes() {
+            return rw.complete_sprint(id);
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("complete_sprint"));
+        }
         let cmd = Command::Sprint(SprintCommand::Complete(CompleteSprint { sprint_id: id }));
         let invalidation = self.execute(vec![cmd])?;
         let sprint = self
@@ -222,6 +267,12 @@ impl KanbanContext {
 
     pub fn cancel_sprint_impl(&mut self, id: Uuid) -> KanbanResult<(Sprint, Invalidation)> {
         use kanban_domain::commands::CancelSprint;
+        if let Some(rw) = self.backend.remote_sprint_writes() {
+            return rw.cancel_sprint(id);
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("cancel_sprint"));
+        }
         let cmd = Command::Sprint(SprintCommand::Cancel(CancelSprint { sprint_id: id }));
         let invalidation = self.execute(vec![cmd])?;
         let sprint = self
@@ -232,6 +283,12 @@ impl KanbanContext {
 
     pub fn delete_sprint_impl(&mut self, id: Uuid) -> KanbanResult<Invalidation> {
         use kanban_domain::commands::DeleteSprint;
+        if let Some(rw) = self.backend.remote_sprint_writes() {
+            return rw.delete_sprint(id);
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("delete_sprint"));
+        }
         let cmd = Command::Sprint(SprintCommand::Delete(DeleteSprint {
             sprint_id: id,
             timestamp: chrono::Utc::now(),

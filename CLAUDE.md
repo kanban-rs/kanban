@@ -78,6 +78,7 @@ graph LR
     HTTP --> API
     MEM --> BE
     BE --> PER
+    BE --> API
     JSON --> PER
     JSON --> BE
     JSON --> MEM

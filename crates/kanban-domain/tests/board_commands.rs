@@ -3,6 +3,7 @@ use common::TestContext;
 use uuid::Uuid;
 
 use kanban_domain::commands::board_commands::*;
+use kanban_domain::commands::Command;
 use kanban_domain::DataStore;
 use kanban_domain::*;
 
@@ -582,6 +583,103 @@ fn test_restore_then_undo_re_archives_board() {
         "re-archived by the inverse: hidden from the live list"
     );
     assert_eq!(tc.store.list_archived_boards().unwrap().len(), 1);
+}
+
+#[test]
+fn test_archive_boards_on_an_already_archived_board_preserves_archived_at() {
+    let tc = TestContext::new();
+    let (board_id, _, _) = seed_board_with_subtree(&tc);
+    let ctx = tc.as_command_context();
+
+    ArchiveBoards {
+        ids: vec![board_id],
+    }
+    .execute(&ctx)
+    .unwrap();
+
+    let sentinel: chrono::DateTime<chrono::Utc> = "2000-01-01T00:00:00Z".parse().unwrap();
+    tc.store
+        .insert_archived_board(kanban_domain::Archived::at(board_id, sentinel))
+        .unwrap();
+
+    ArchiveBoards {
+        ids: vec![board_id],
+    }
+    .execute(&ctx)
+    .unwrap();
+
+    let archived = tc.store.get_archived_board(board_id).unwrap().unwrap();
+    assert_eq!(
+        archived.metadata.archived_at, sentinel,
+        "re-archiving an already-archived board must not refresh archived_at"
+    );
+    assert_eq!(tc.store.list_archived_boards().unwrap().len(), 1);
+}
+
+#[test]
+fn test_archive_boards_capture_inverse_skips_an_already_archived_board() {
+    let tc = TestContext::new();
+    let (live_id, _, _) = seed_board_with_subtree(&tc);
+    let (archived_id, _, _) = seed_board_with_subtree(&tc);
+    let ctx = tc.as_command_context();
+
+    ArchiveBoards {
+        ids: vec![archived_id],
+    }
+    .execute(&ctx)
+    .unwrap();
+
+    let inverse = ArchiveBoards {
+        ids: vec![live_id, archived_id],
+    }
+    .capture_inverse(&tc.store)
+    .unwrap();
+
+    assert_eq!(inverse.len(), 1);
+    match &inverse[0] {
+        Command::Board(BoardCommand::Restore(r)) => assert_eq!(r.board_id, live_id),
+        other => panic!("expected Restore for the live board, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_archive_boards_capture_inverse_records_one_restore_per_distinct_id() {
+    let tc = TestContext::new();
+    let (board_id, _, _) = seed_board_with_subtree(&tc);
+
+    let inverse = ArchiveBoards {
+        ids: vec![board_id, board_id],
+    }
+    .capture_inverse(&tc.store)
+    .unwrap();
+
+    assert_eq!(inverse.len(), 1);
+    match &inverse[0] {
+        Command::Board(BoardCommand::Restore(r)) => assert_eq!(r.board_id, board_id),
+        other => panic!("expected a single Restore for the board, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_archive_boards_with_a_duplicated_id_inverse_restores_the_board() {
+    let tc = TestContext::new();
+    let (board_id, _, _) = seed_board_with_subtree(&tc);
+    let original = tc.store.get_board(board_id).unwrap().unwrap();
+    let ctx = tc.as_command_context();
+
+    let forward = ArchiveBoards {
+        ids: vec![board_id, board_id],
+    };
+    let inverse = forward.capture_inverse(&tc.store).unwrap();
+    forward.execute(&ctx).unwrap();
+
+    for cmd in inverse {
+        cmd.execute(&ctx).unwrap();
+    }
+
+    assert!(tc.store.get_archived_board(board_id).unwrap().is_none());
+    let back = tc.store.get_board(board_id).unwrap().unwrap();
+    assert_eq!(back, original);
 }
 
 #[test]

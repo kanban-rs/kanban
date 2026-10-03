@@ -4,8 +4,10 @@ use crate::{read_full_snapshot, KanbanContext};
 use kanban_core::AppConfig;
 use kanban_domain::archival::ArchivedEntity;
 use kanban_domain::card::CardPriority;
+use kanban_domain::commands::{ArchiveBoards, BoardCommand, Command};
 use kanban_domain::{
-    CardListFilter, CreateCardOptions, GraphOperations, KanbanOperations, Severity, UndoOperations,
+    CardListFilter, ColumnUpdate, CreateCardOptions, FieldUpdate, GraphOperations,
+    KanbanOperations, Severity, UndoOperations,
 };
 use std::collections::{HashMap, HashSet};
 use tempfile::TempDir;
@@ -1131,6 +1133,212 @@ pub async fn test_board_archive_restore_full_graph_roundtrip(factory: &BackendFa
     );
 }
 
+/// Assert the rich-seed graph and every archived marker's `archived_at` are
+/// unchanged from `before`, including the dependency graph's archived edge.
+fn assert_store_unchanged(ctx: &KanbanContext, before: &kanban_domain::Snapshot, s: &RichSeed) {
+    let snap = read_full_snapshot(ctx.data_store()).unwrap();
+
+    let mut snap_boards = snap.boards.clone();
+    let mut before_boards = before.boards.clone();
+    snap_boards.sort_by_key(|b| b.id);
+    before_boards.sort_by_key(|b| b.id);
+    assert_eq!(snap_boards, before_boards, "boards unchanged");
+
+    let mut snap_ab: Vec<_> = snap
+        .archived_boards
+        .iter()
+        .map(|ab| (ab.entity_id, ab.metadata.archived_at))
+        .collect();
+    let mut before_ab: Vec<_> = before
+        .archived_boards
+        .iter()
+        .map(|ab| (ab.entity_id, ab.metadata.archived_at))
+        .collect();
+    snap_ab.sort();
+    before_ab.sort();
+    assert_eq!(snap_ab, before_ab, "archived_boards unchanged");
+
+    let mut snap_columns = snap.columns.clone();
+    let mut before_columns = before.columns.clone();
+    snap_columns.sort_by_key(|c| c.id);
+    before_columns.sort_by_key(|c| c.id);
+    assert_eq!(snap_columns, before_columns, "columns unchanged");
+
+    let mut snap_sprints = snap.sprints.clone();
+    let mut before_sprints = before.sprints.clone();
+    snap_sprints.sort_by_key(|sp| sp.id);
+    before_sprints.sort_by_key(|sp| sp.id);
+    assert_eq!(snap_sprints, before_sprints, "sprints unchanged");
+
+    let mut snap_cards = snap.cards.clone();
+    let mut before_cards = before.cards.clone();
+    snap_cards.sort_by_key(|c| c.id);
+    before_cards.sort_by_key(|c| c.id);
+    assert_eq!(snap_cards.len(), before_cards.len(), "card count unchanged");
+    for (a, b) in snap_cards.iter().zip(before_cards.iter()) {
+        assert_card_eq(a, b);
+    }
+
+    let mut snap_ac: Vec<_> = snap
+        .archived_cards
+        .iter()
+        .map(|ac| (ac.entity_id, ac.metadata.archived_at, ac.context.board_id))
+        .collect();
+    let mut before_ac: Vec<_> = before
+        .archived_cards
+        .iter()
+        .map(|ac| (ac.entity_id, ac.metadata.archived_at, ac.context.board_id))
+        .collect();
+    snap_ac.sort();
+    before_ac.sort();
+    assert_eq!(snap_ac, before_ac, "archived_cards unchanged");
+
+    let graph = ctx.data_store().get_graph().unwrap();
+    assert_eq!(graph.len(), 1, "graph unchanged: exactly one edge total");
+    assert!(
+        graph.contains_archived(s.live, s.arch),
+        "graph unchanged: edge still present in archived form"
+    );
+    assert_eq!(graph.active_len(), 0, "graph unchanged: no active edges");
+}
+
+pub async fn test_rearchive_board_undo_leaves_the_board_and_its_subtree_archived(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let s = seed_rich(&mut ctx).unwrap();
+    ctx.archive_board(s.board).unwrap();
+
+    let sentinel: chrono::DateTime<chrono::Utc> = "2000-01-01T00:00:00Z".parse().unwrap();
+    ctx.data_store()
+        .insert_archived_board(kanban_domain::Archived::at(s.board, sentinel))
+        .unwrap();
+
+    let before = read_full_snapshot(ctx.data_store()).unwrap();
+    ctx.clear_history().unwrap();
+
+    let _ = ctx.archive_board_impl(s.board).unwrap();
+    assert_eq!(
+        ctx.board_archived_at(s.board).unwrap(),
+        Some(sentinel),
+        "re-archiving an already-archived board must not refresh archived_at"
+    );
+
+    assert!(
+        ctx.undo().unwrap().is_some(),
+        "undo of the no-op re-archive must still report success"
+    );
+
+    assert_store_unchanged(&ctx, &before, &s);
+    assert_eq!(
+        ctx.board_archived_at(s.board).unwrap(),
+        Some(sentinel),
+        "board stays archived at the sentinel time after undo"
+    );
+    assert!(
+        !ctx.list_boards().unwrap().iter().any(|b| b.id == s.board),
+        "board must stay hidden from the live list after undo"
+    );
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+    assert_store_unchanged(&ctx, &before, &s);
+    assert_eq!(ctx.board_archived_at(s.board).unwrap(), Some(sentinel));
+    assert!(!ctx.list_boards().unwrap().iter().any(|b| b.id == s.board));
+}
+
+pub async fn test_archive_boards_with_a_duplicated_id_is_undoable(factory: &BackendFactory) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let s = seed_rich(&mut ctx).unwrap();
+    let before = read_full_snapshot(ctx.data_store()).unwrap();
+    ctx.clear_history().unwrap();
+
+    let _ = ctx
+        .execute(vec![Command::Board(BoardCommand::Archive(ArchiveBoards {
+            ids: vec![s.board, s.board],
+        }))])
+        .unwrap();
+    assert!(ctx
+        .data_store()
+        .get_archived_board(s.board)
+        .unwrap()
+        .is_some());
+
+    assert!(
+        ctx.undo().unwrap().is_some(),
+        "undo must succeed: the duplicated id captures only one restore"
+    );
+
+    assert_store_unchanged(&ctx, &before, &s);
+    assert!(ctx.list_boards().unwrap().iter().any(|b| b.id == s.board));
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+    assert_store_unchanged(&ctx, &before, &s);
+    assert!(ctx.list_boards().unwrap().iter().any(|b| b.id == s.board));
+}
+
+pub async fn test_archive_boards_mixing_live_and_archived_undo_restores_only_the_live_board(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let s = seed_rich(&mut ctx).unwrap();
+    let p = ctx.create_board("Other".into(), None).unwrap();
+    ctx.create_column(p.id, "Col".into(), None).unwrap();
+
+    ctx.archive_board(s.board).unwrap();
+    let sentinel: chrono::DateTime<chrono::Utc> = "2000-01-01T00:00:00Z".parse().unwrap();
+    ctx.data_store()
+        .insert_archived_board(kanban_domain::Archived::at(s.board, sentinel))
+        .unwrap();
+
+    let before = read_full_snapshot(ctx.data_store()).unwrap();
+    ctx.clear_history().unwrap();
+
+    let _ = ctx
+        .execute(vec![Command::Board(BoardCommand::Archive(ArchiveBoards {
+            ids: vec![p.id, s.board],
+        }))])
+        .unwrap();
+
+    assert!(
+        ctx.undo().unwrap().is_some(),
+        "undo must succeed: only P's restore is in the inverse"
+    );
+
+    assert_store_unchanged(&ctx, &before, &s);
+    assert!(
+        ctx.list_boards().unwrap().iter().any(|b| b.id == p.id),
+        "P is restored to the live set"
+    );
+    assert_eq!(
+        ctx.board_archived_at(s.board).unwrap(),
+        Some(sentinel),
+        "A stays archived at its original sentinel time, untouched"
+    );
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+    assert_store_unchanged(&ctx, &before, &s);
+    assert!(ctx.list_boards().unwrap().iter().any(|b| b.id == p.id));
+    assert_eq!(ctx.board_archived_at(s.board).unwrap(), Some(sentinel));
+}
+
 /// B2 (KAN-918): `list_boards_filtered` is the ONE path for live/archived/both
 /// board heads via `BoardListFilter::archived`, mirroring `list_cards`. Seed one
 /// live + one archived board and assert each selector state returns exactly the
@@ -1636,4 +1844,211 @@ pub async fn test_list_cards_detailed_board_scoped_stamps_archived_at(factory: &
     let archived_pair = pairs.iter().find(|(c, _)| c.id == archived.id).unwrap();
     assert_eq!(live_pair.1, None);
     assert!(archived_pair.1.is_some());
+}
+
+pub async fn test_archive_batch_undo_leaves_a_pre_archived_card_archived(factory: &BackendFactory) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let s = seed_rich(&mut ctx).unwrap();
+    let before = read_full_snapshot(ctx.data_store()).unwrap();
+    let marker_before = ctx.data_store().get_archived_card(s.arch).unwrap().unwrap();
+    let archived_at_before = marker_before.metadata.archived_at;
+    let board_id_before = marker_before.context.board_id;
+
+    ctx.clear_history().unwrap();
+
+    let (count, _) = ctx.archive_cards_impl(vec![s.live, s.arch]).unwrap();
+    assert_eq!(count, 1, "only the live card gets a new marker");
+    assert!(ctx.undo().unwrap().is_some(), "undo returned Some");
+
+    let assert_graph_restored = |ctx: &KanbanContext| {
+        let marker = ctx
+            .data_store()
+            .get_archived_card(s.arch)
+            .unwrap()
+            .expect("pre-archived card must still be archived after undo");
+        assert_eq!(
+            marker.metadata.archived_at, archived_at_before,
+            "archived_at must not be refreshed by the spurious restore"
+        );
+        assert_eq!(marker.context.board_id, board_id_before);
+
+        let arch_card = ctx.data_store().get_card(s.arch).unwrap().unwrap();
+        let before_arch_card = before.cards.iter().find(|c| c.id == s.arch).unwrap();
+        assert_card_eq(&arch_card, before_arch_card);
+
+        assert!(
+            !ctx.data_store()
+                .list_archived_cards()
+                .unwrap()
+                .iter()
+                .any(|m| m.entity_id == s.live),
+            "live card must not still carry an archive marker"
+        );
+        assert!(
+            ctx.data_store()
+                .list_all_cards()
+                .unwrap()
+                .iter()
+                .any(|c| c.id == s.live),
+            "live card must be back in the live list"
+        );
+        let live_card = ctx.data_store().get_card(s.live).unwrap().unwrap();
+        let before_live_card = before.cards.iter().find(|c| c.id == s.live).unwrap();
+        assert_eq!(live_card.column_id, before_live_card.column_id);
+        assert_eq!(live_card.position, before_live_card.position);
+        assert_eq!(live_card.sprint_id, before_live_card.sprint_id);
+        assert_eq!(live_card.sprint_logs, before_live_card.sprint_logs);
+
+        let snap = read_full_snapshot(ctx.data_store()).unwrap();
+        let mut snap_columns = snap.columns.clone();
+        let mut before_columns = before.columns.clone();
+        snap_columns.sort_by_key(|c| c.id);
+        before_columns.sort_by_key(|c| c.id);
+        assert_eq!(snap_columns, before_columns);
+
+        let mut snap_sprints = snap.sprints.clone();
+        let mut before_sprints = before.sprints.clone();
+        snap_sprints.sort_by_key(|s| s.id);
+        before_sprints.sort_by_key(|s| s.id);
+        assert_eq!(snap_sprints, before_sprints);
+
+        let mut snap_boards = snap.boards.clone();
+        let mut before_boards = before.boards.clone();
+        snap_boards.sort_by_key(|b| b.id);
+        before_boards.sort_by_key(|b| b.id);
+        assert_eq!(snap_boards, before_boards);
+
+        assert_eq!(snap.archived_cards.len(), 1);
+
+        let graph = ctx.data_store().get_graph().unwrap();
+        assert_eq!(graph.len(), 1, "exactly one edge total (archived)");
+        assert!(
+            graph.contains_archived(s.live, s.arch),
+            "edge must still exist in archived form"
+        );
+        assert!(
+            !graph.contains(s.live, s.arch),
+            "edge must not be active while X is still archived"
+        );
+        assert_eq!(graph.active_len(), 0);
+    };
+
+    assert_graph_restored(&ctx);
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+    assert_graph_restored(&ctx);
+}
+
+pub async fn test_archive_batch_with_a_duplicated_id_is_undoable(factory: &BackendFactory) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx.create_board("Board".into(), None).unwrap();
+    let col = ctx.create_column(board.id, "Col".into(), None).unwrap();
+    let live = ctx
+        .create_card(
+            board.id,
+            col.id,
+            "Live".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    let original_column = live.column_id;
+    let original_position = live.position;
+
+    let (count, _) = ctx.archive_cards_impl(vec![live.id, live.id]).unwrap();
+    assert_eq!(count, 1);
+    assert!(ctx.undo().unwrap().is_some(), "undo returned Some");
+
+    assert!(
+        ctx.data_store()
+            .get_archived_card(live.id)
+            .unwrap()
+            .is_none(),
+        "no leftover marker after undo"
+    );
+    let restored = ctx.data_store().get_card(live.id).unwrap().unwrap();
+    assert_eq!(restored.column_id, original_column);
+    assert_eq!(restored.position, original_position);
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+    assert!(ctx
+        .data_store()
+        .get_archived_card(live.id)
+        .unwrap()
+        .is_none());
+    assert!(ctx
+        .data_store()
+        .list_all_cards()
+        .unwrap()
+        .iter()
+        .any(|c| c.id == live.id));
+}
+
+pub async fn test_archive_batch_undo_with_a_pre_archived_card_succeeds_at_a_full_wip_column(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+
+    let board = ctx.create_board("Board".into(), None).unwrap();
+    let col = ctx.create_column(board.id, "Col".into(), None).unwrap();
+    let live = ctx
+        .create_card(
+            board.id,
+            col.id,
+            "Live".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    let arch = ctx
+        .create_card(
+            board.id,
+            col.id,
+            "Arch".into(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    ctx.archive_card(arch.id).unwrap();
+
+    ctx.update_column(
+        col.id,
+        ColumnUpdate {
+            name: None,
+            position: None,
+            wip_limit: FieldUpdate::Set(1),
+            default_status: None,
+        },
+    )
+    .unwrap();
+
+    ctx.clear_history().unwrap();
+
+    let (count, _) = ctx.archive_cards_impl(vec![live.id, arch.id]).unwrap();
+    assert_eq!(count, 1);
+    assert!(
+        ctx.undo().unwrap().is_some(),
+        "undo must succeed: only the live card's own restore is in the inverse"
+    );
+
+    let restored = ctx.data_store().get_card(live.id).unwrap().unwrap();
+    assert_eq!(restored.column_id, col.id);
+    assert!(ctx
+        .data_store()
+        .get_archived_card(arch.id)
+        .unwrap()
+        .is_some());
 }

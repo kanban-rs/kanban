@@ -412,12 +412,15 @@ impl ArchiveBoards {
         for id in &self.ids {
             // Reference-marker model: the board head STAYS live in `boards`; we
             // only record an archival marker (which hides it from live queries).
-            // Fetch to guard existence (get_board is unfiltered, so an already
-            // archived board also resolves — re-archiving is idempotent).
             let board = context
                 .store
                 .get_board(*id)?
                 .ok_or_else(|| KanbanError::not_found("Board", *id))?;
+            // `insert_archived_board` upserts, so re-inserting would reset
+            // `archived_at`.
+            if context.store.get_archived_board(board.id)?.is_some() {
+                continue;
+            }
             context
                 .store
                 .insert_archived_board(crate::Archived::now(board.id))?;
@@ -429,16 +432,19 @@ impl ArchiveBoards {
         format!("Archive {} board(s)", self.ids.len())
     }
 
-    /// Inverse: one `RestoreBoard` per id. `capture_inverse` runs BEFORE
-    /// execute (the boards are still live), so `get_board` guards existence;
-    /// the inverse `RestoreBoard` runs during undo AFTER the forward archive,
-    /// when the board sits in the archived collection. No payload needed — the
-    /// wrapped `Board` carries its own position.
+    /// Inverse: one `RestoreBoard` per distinct id that is live at capture time.
+    /// An already-archived id is left untouched by `execute`, so undo must not
+    /// restore it; a repeated id gets one restore, since a second `RestoreBoard`
+    /// finds no marker and fails the whole undo.
     pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         let mut commands: Vec<Command> = Vec::new();
+        let mut seen: HashSet<Uuid> = HashSet::new();
         for id in &self.ids {
             if store.get_board(*id)?.is_none() {
                 return Err(KanbanError::not_found("Board", *id));
+            }
+            if !seen.insert(*id) || store.get_archived_board(*id)?.is_some() {
+                continue;
             }
             commands.push(Command::Board(BoardCommand::Restore(RestoreBoard {
                 board_id: *id,
@@ -955,6 +961,7 @@ impl ImportEntities {
                 sprints: self.sprints.iter().map(|s| s.id).collect(),
                 graph: false,
                 prefixes: false,
+                ..Default::default()
             }
             .with_prefixes(),
         )

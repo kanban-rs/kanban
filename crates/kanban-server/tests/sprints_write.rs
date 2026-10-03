@@ -78,6 +78,99 @@ async fn test_post_sprint_creates_and_returns_201() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_create_sprint_route_returns_the_mutation_invalidation() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let board_id = seed_board(&state).await;
+
+    let response = send(
+        &state,
+        "POST",
+        &format!("/v1/boards/{board_id}/sprints"),
+        Some(&json!({"name": "Alpha", "prefix": "SPR"})),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let body = json_of(response).await;
+    assert!(
+        body.get("invalidation").is_some(),
+        "response must carry an invalidation: {body}"
+    );
+
+    let bare: kanban_service::api::SprintResponse = serde_json::from_value(body).unwrap();
+    assert_eq!(bare.name, Some("Alpha".to_string()));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_sprint_route_mints_sprint_number_and_name_index_server_side() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let board_id = seed_board(&state).await;
+
+    let first = send(
+        &state,
+        "POST",
+        &format!("/v1/boards/{board_id}/sprints"),
+        Some(&json!({"name": "A", "prefix": "SPR"})),
+    )
+    .await;
+    assert_eq!(first.status(), StatusCode::CREATED);
+    let first_json = json_of(first).await;
+    assert_eq!(first_json["sprint_number"], 1);
+
+    let second = send(
+        &state,
+        "POST",
+        &format!("/v1/boards/{board_id}/sprints"),
+        Some(&json!({"prefix": "SPR"})),
+    )
+    .await;
+    assert_eq!(second.status(), StatusCode::CREATED);
+    let second_json = json_of(second).await;
+    assert_eq!(second_json["sprint_number"], 2);
+
+    let board_response = send(&state, "GET", &format!("/v1/boards/{board_id}"), None).await;
+    let board_json = json_of(board_response).await;
+    let sprint_names = board_json["sprint_names"]
+        .as_array()
+        .expect("board must expose sprint_names");
+    assert!(sprint_names.iter().any(|v| v == "A"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_patch_flat_sprint_route_returns_the_mutation_invalidation_and_applies_dates() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let (_board_id, sprint_id) = seed_board_and_sprint(&state, "Alpha").await;
+
+    let response = send(
+        &state,
+        "PATCH",
+        &format!("/v1/sprints/{sprint_id}"),
+        Some(&json!({
+            "start_date": "2026-01-01T00:00:00Z",
+            "end_date": "2026-01-15T00:00:00Z",
+        })),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_of(response).await;
+    assert_eq!(body["start_date"], "2026-01-01T00:00:00Z");
+    assert_eq!(body["end_date"], "2026-01-15T00:00:00Z");
+    let invalidated_sprints = body["invalidation"]["entities"]["sprints"]
+        .as_array()
+        .expect("entities invalidation must name sprints");
+    assert!(invalidated_sprints
+        .iter()
+        .any(|v| v == &sprint_id.to_string()));
+
+    let bare: kanban_service::api::SprintResponse = serde_json::from_value(body).unwrap();
+    assert_eq!(bare.id, sprint_id);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_post_sprint_unknown_board_returns_404() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));

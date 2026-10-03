@@ -368,7 +368,7 @@ async fn test_restore_live_board_returns_404_on_sqlite() {
     restore_live_board_returns_404_case(state).await;
 }
 
-async fn rearchive_board_succeeds_and_refreshes_archived_at_case(state: AppState) {
+async fn rearchive_board_succeeds_and_preserves_archived_at_case(state: AppState) {
     let board_id: Uuid;
     {
         let mut ctx = state.ctx.lock().await;
@@ -378,7 +378,7 @@ async fn rearchive_board_succeeds_and_refreshes_archived_at_case(state: AppState
             .id;
     }
 
-    let first = json_of(
+    let _first = json_of(
         send(
             &state,
             "POST",
@@ -388,6 +388,15 @@ async fn rearchive_board_succeeds_and_refreshes_archived_at_case(state: AppState
         .await,
     )
     .await;
+
+    let sentinel: chrono::DateTime<chrono::Utc> = "2000-01-01T00:00:00Z".parse().unwrap();
+    {
+        let ctx = state.ctx.lock().await;
+        ctx.data_store()
+            .insert_archived_board(kanban_domain::Archived::at(board_id, sentinel))
+            .unwrap();
+    }
+
     let second = json_of(
         send(
             &state,
@@ -399,29 +408,33 @@ async fn rearchive_board_succeeds_and_refreshes_archived_at_case(state: AppState
     )
     .await;
 
-    let first_at: chrono::DateTime<chrono::Utc> =
-        first["archived_at"].as_str().unwrap().parse().unwrap();
     let second_at: chrono::DateTime<chrono::Utc> =
         second["archived_at"].as_str().unwrap().parse().unwrap();
-    assert!(second_at >= first_at);
+    assert_eq!(
+        second_at, sentinel,
+        "re-archiving an already-archived board must preserve archived_at"
+    );
 
     let list_json = json_of(send(&state, "GET", "/v1/archived-boards", None).await).await;
     let items = list_json["items"].as_array().unwrap();
     assert_eq!(items.len(), 1);
+    let listed_at: chrono::DateTime<chrono::Utc> =
+        items[0]["archived_at"].as_str().unwrap().parse().unwrap();
+    assert_eq!(listed_at, sentinel);
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_rearchive_board_succeeds_and_refreshes_archived_at() {
+async fn test_rearchive_board_succeeds_and_preserves_archived_at() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
-    rearchive_board_succeeds_and_refreshes_archived_at_case(state).await;
+    rearchive_board_succeeds_and_preserves_archived_at_case(state).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_rearchive_board_succeeds_and_refreshes_archived_at_on_sqlite() {
+async fn test_rearchive_board_succeeds_and_preserves_archived_at_on_sqlite() {
     let dir = tempdir().unwrap();
     let state = make_sqlite_state(&dir.path().join("b.sqlite")).await;
-    rearchive_board_succeeds_and_refreshes_archived_at_case(state).await;
+    rearchive_board_succeeds_and_preserves_archived_at_case(state).await;
 }
 
 async fn list_archived_boards_route_reflects_archive_and_restore_case(state: AppState) {

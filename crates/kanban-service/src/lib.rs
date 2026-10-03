@@ -40,12 +40,12 @@ pub use invalidation_plan::InvalidationPlan;
 pub use kanban_backend::KanbanBackend;
 pub use kanban_backend::TransactionFn;
 pub use kanban_backend::{
-    RemoteBatchWrites, RemoteBoardWrites, RemoteCardWrites, RemoteGraphWrites, RemoteSprintWrites,
-    RemoteWrites,
+    RemoteBatchOutcome, RemoteBatchWrites, RemoteBoardWrites, RemoteCardWrites, RemoteGraphWrites,
+    RemoteSprintWrites, RemoteWrites,
 };
 pub use path::validate_path;
 pub use resolve::resolve;
-pub use sprint_name::{resolve_sprint_name, resolve_sprint_names};
+pub use sprint_name::{resolve_committed_sprint_name, resolve_sprint_name, resolve_sprint_names};
 pub use store_manager::StoreManager;
 
 #[cfg(feature = "test-helpers")]

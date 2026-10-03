@@ -1,13 +1,5 @@
-//! `update_cards`' plain column-move branch (column_id set, status left None)
-//! mutates `column_id`/`position` via a single `UpdateCard` command instead of
-//! chaining a `MoveCard` like `move_card`/`move_cards` do. `UpdateCard::execute`
-//! doesn't enforce the destination column's WIP limit and doesn't sync
-//! `card.board_id` to the target column's board -- both of which
-//! `MoveCard::execute` does. This is reachable through the TUI's real bulk
-//! multi-select move (`move_selected_cards` in card_handlers.rs), not just
-//! theoretical API misuse.
-//!
-//! Run against both `JsonDataStore` and `SqliteBackend` (see `move_cards.rs`).
+//! `update_cards` routes any column change, with or without `status`, through
+//! `MoveCard`. Run against both `JsonDataStore` and `SqliteBackend`.
 
 use kanban_domain::{CardUpdate, FieldUpdate};
 use kanban_persistence_json::{JsonDataStore, JsonFileStore};

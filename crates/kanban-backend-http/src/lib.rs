@@ -7,6 +7,7 @@ mod events;
 mod http;
 mod http_mutation;
 mod remote_writes;
+mod version_check;
 
 pub use backend_factory::HttpBackendFactory;
 
@@ -53,7 +54,12 @@ impl kanban_backend::KanbanBackend for HttpBackend {
                 resp.status()
             )));
         }
-        Ok(())
+        let health = Self::read_health(resp, &url).await?;
+        version_check::check_server_version(
+            self.base_url(),
+            health.version.as_deref(),
+            kanban_core::KANBAN_VERSION,
+        )
     }
 
     fn remote_writes(&self) -> Option<&dyn kanban_backend::RemoteWrites> {
@@ -65,6 +71,18 @@ impl kanban_backend::KanbanBackend for HttpBackend {
     }
 
     fn remote_card_writes(&self) -> Option<&dyn kanban_backend::RemoteCardWrites> {
+        Some(self)
+    }
+
+    fn remote_graph_writes(&self) -> Option<&dyn kanban_backend::RemoteGraphWrites> {
+        Some(self)
+    }
+
+    fn remote_sprint_writes(&self) -> Option<&dyn kanban_backend::RemoteSprintWrites> {
+        Some(self)
+    }
+
+    fn remote_batch_writes(&self) -> Option<&dyn kanban_backend::RemoteBatchWrites> {
         Some(self)
     }
 
@@ -138,6 +156,20 @@ impl HttpBackend {
 
     pub(crate) fn client(&self) -> &reqwest::Client {
         &self.client
+    }
+
+    async fn read_health(
+        resp: reqwest::Response,
+        url: &str,
+    ) -> kanban_domain::KanbanResult<kanban_api::HealthResponse> {
+        let body = resp.text().await.map_err(|e| {
+            kanban_domain::KanbanError::Transport(format!("health probe of '{url}' failed: {e}"))
+        })?;
+        serde_json::from_str(&body).map_err(|e| {
+            kanban_domain::KanbanError::Transport(format!(
+                "health probe of '{url}' did not return a kanban-server health body: {e}"
+            ))
+        })
     }
 
     pub fn subscribe(&self) -> tokio::sync::mpsc::Receiver<kanban_api::ChangeEventFrame> {

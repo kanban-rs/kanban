@@ -1,7 +1,7 @@
 use super::super::{Command, CommandContext};
 use super::CardCommand;
 use crate::data_store::DataStore;
-use crate::{CardUpdate, CreateCardOptions, DomainError, KanbanError, KanbanResult, NewCard};
+use crate::{CardUpdate, CreateCardOptions, KanbanError, KanbanResult, NewCard};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -19,7 +19,19 @@ impl UpdateCard {
         // Validate a re-targeted column FK before mutating, mirroring MoveCard
         // (KAN-248). Without this an update could orphan card.column_id.
         if let Some(new_column_id) = self.updates.column_id {
-            context.require_column(new_column_id)?;
+            let column = context.require_column(new_column_id)?;
+            if new_column_id != card.column_id && column.board_id != card.board_id {
+                return Err(KanbanError::validation(format!(
+                    "card {} cannot be updated into column {} on another board; move it instead",
+                    self.card_id, new_column_id
+                )));
+            }
+        }
+        if let crate::FieldUpdate::Set(sprint_id) = self.updates.sprint_id {
+            if card.sprint_id != Some(sprint_id) {
+                let sprint = context.get_sprint(sprint_id)?;
+                crate::sprint_membership::require_sprint_on_board(&sprint, card.board_id)?;
+            }
         }
         card.update(self.updates.clone(), Utc::now());
         context.store.upsert_card(card)?;
@@ -31,7 +43,14 @@ impl UpdateCard {
     }
 
     pub fn touched_entities(&self) -> Option<crate::EntityIds> {
-        Some(crate::EntityIds::cards([self.card_id]))
+        let mut ids = crate::EntityIds::cards([self.card_id]);
+        if let Some(column_id) = self.updates.column_id {
+            ids.card_columns
+                .entry(self.card_id)
+                .or_default()
+                .insert(column_id);
+        }
+        Some(ids)
     }
 
     /// Inverse: read the card's current state and synthesise an
@@ -73,19 +92,24 @@ impl UpdateCard {
                     None => FieldUpdate::Clear,
                 },
             },
-            sprint_id: match upd.sprint_id {
-                FieldUpdate::NoChange => FieldUpdate::NoChange,
-                _ => match card.sprint_id {
-                    Some(v) => FieldUpdate::Set(v),
-                    None => FieldUpdate::Clear,
-                },
-            },
+            sprint_id: FieldUpdate::NoChange,
         };
 
-        Ok(vec![Command::Card(CardCommand::Update(UpdateCard {
+        let mut commands = vec![Command::Card(CardCommand::Update(UpdateCard {
             card_id: self.card_id,
             updates: inverse,
-        }))])
+        }))];
+        if !matches!(upd.sprint_id, FieldUpdate::NoChange) {
+            commands.push(Command::Card(CardCommand::RestoreSprintAttachment(
+                super::RestoreCardSprintAttachment {
+                    card_id: self.card_id,
+                    sprint_id: card.sprint_id,
+                    sprint_logs: card.sprint_logs.clone(),
+                    updated_at: card.updated_at,
+                },
+            )));
+        }
+        Ok(commands)
     }
 }
 
@@ -148,13 +172,7 @@ impl CreateCard {
 
         if let Some(sprint_id) = self.options.sprint_id {
             let sprint = context.get_sprint(sprint_id)?;
-            if sprint.board_id != self.board_id {
-                return Err(KanbanError::Domain(DomainError::SprintBoardMismatch {
-                    sprint_id,
-                    sprint_board: sprint.board_id,
-                    card_board: self.board_id,
-                }));
-            }
+            crate::sprint_membership::require_sprint_on_board(&sprint, self.board_id)?;
             let sprint_number = sprint.sprint_number;
             let sprint_name = sprint.get_name(&board).map(|s| s.to_string());
             let sprint_status = format!("{:?}", sprint.status);
@@ -187,12 +205,17 @@ impl CreateCard {
     }
 
     pub fn touched_entities(&self) -> Option<crate::EntityIds> {
-        Some(crate::EntityIds {
+        let mut ids = crate::EntityIds {
             boards: [self.board_id].into(),
             cards: [self.id].into(),
             prefixes: true,
             ..Default::default()
-        })
+        };
+        ids.card_columns
+            .entry(self.id)
+            .or_default()
+            .insert(self.column_id);
+        Some(ids)
     }
 
     /// Inverse: delete the new card. `DeleteCard` is polymorphic over
@@ -217,12 +240,41 @@ pub struct RestoreCard {
 }
 
 impl RestoreCard {
-    /// Inverse: archive the card again. The card id is in the forward
-    /// command. ArchiveCards captures original column/position from the
-    /// live card at capture time — by the time this runs the card has
-    /// been restored to (self.column_id, self.position), so the
-    /// re-archive will use those values as the new "original" location.
-    pub fn capture_inverse(&self, _store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
+    /// Inverse: archive the card again. When the restore moved a sprint-bound
+    /// card to another board, the archive is preceded by a
+    /// `RestoreCardPlacement` back to its original column, board and position
+    /// and a `RestoreSprintAttachment`. Runs before `execute`, so `store` still
+    /// holds the pre-restore state. The placement is restored even when the
+    /// original column has since been deleted or is over its WIP limit.
+    pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
+        let original = match store.get_card(self.card_id)? {
+            Some(c) => c,
+            None => return Err(KanbanError::not_found("Card", self.card_id)),
+        };
+        let changes_board = store
+            .get_column(self.column_id)?
+            .is_some_and(|target| target.board_id != original.board_id);
+        if changes_board && original.sprint_id.is_some() {
+            return Ok(vec![
+                Command::Card(CardCommand::RestorePlacement(super::RestoreCardPlacement {
+                    card_id: self.card_id,
+                    column_id: original.column_id,
+                    board_id: original.board_id,
+                    position: original.position,
+                })),
+                Command::Card(CardCommand::RestoreSprintAttachment(
+                    super::RestoreCardSprintAttachment {
+                        card_id: self.card_id,
+                        sprint_id: original.sprint_id,
+                        sprint_logs: original.sprint_logs.clone(),
+                        updated_at: original.updated_at,
+                    },
+                )),
+                Command::Card(CardCommand::Archive(ArchiveCards {
+                    ids: vec![self.card_id],
+                })),
+            ]);
+        }
         Ok(vec![Command::Card(CardCommand::Archive(ArchiveCards {
             ids: vec![self.card_id],
         }))])
@@ -242,12 +294,18 @@ impl RestoreCard {
             .store
             .get_card(self.card_id)?
             .ok_or_else(|| KanbanError::not_found("Card", self.card_id))?;
+        let target_board = context.require_column(self.column_id)?.board_id;
+        crate::sprint_membership::detach_sprint_if_board_changes(
+            context.store,
+            &mut card,
+            target_board,
+        )?;
         card.column_id = self.column_id;
         // Keep board_id in sync with wherever the card actually lands -- the
         // normal capture_inverse-driven restore always targets the card's own
         // current column (a no-op here), but nothing else validates that
         // `column_id` belongs to the card's original board (KAN-963).
-        card.board_id = context.require_column(self.column_id)?.board_id;
+        card.board_id = target_board;
         card.position = self.position;
         card.updated_at = self.timestamp;
 
@@ -354,11 +412,19 @@ impl ArchiveCards {
     /// archive runs.
     pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         let mut commands: Vec<Command> = Vec::new();
+        let mut seen: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
         for id in &self.ids {
+            if !seen.insert(*id) {
+                continue;
+            }
             let card = match store.get_card(*id)? {
                 Some(c) => c,
                 None => continue, // skipped (matches ArchiveCards::execute's filter)
             };
+            // Already archived: execute's idempotency guard leaves it untouched, so undo must too.
+            if store.get_archived_card(*id)?.is_some() {
+                continue;
+            }
             commands.push(Command::Card(CardCommand::Restore(RestoreCard {
                 card_id: card.id,
                 column_id: card.column_id,

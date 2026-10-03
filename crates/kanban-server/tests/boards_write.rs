@@ -266,6 +266,61 @@ async fn test_patch_board_unknown_id_returns_404() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_patch_board_unknown_id_with_a_concrete_if_match_tag_returns_404() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let random_id = Uuid::new_v4();
+
+    let response = send_with_headers(
+        &state,
+        "PATCH",
+        &format!("/v1/boards/{random_id}"),
+        Some(&json!({"name": "Attempted Patch"})),
+        &[("if-match", STALE_IF_MATCH)],
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(json_of(response).await["code"], "NOT_FOUND");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_patch_board_unknown_id_with_if_match_star_returns_404() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let random_id = Uuid::new_v4();
+
+    let response = send_with_headers(
+        &state,
+        "PATCH",
+        &format!("/v1/boards/{random_id}"),
+        Some(&json!({"name": "Attempted Patch"})),
+        &[("if-match", "*")],
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_delete_board_unknown_id_with_if_match_star_returns_404() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    let random_id = Uuid::new_v4();
+
+    let response = send_with_headers(
+        &state,
+        "DELETE",
+        &format!("/v1/boards/{random_id}"),
+        None,
+        &[("if-match", "*")],
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_patch_board_unknown_id_returns_404_and_broadcasts_nothing() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));

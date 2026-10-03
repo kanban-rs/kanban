@@ -1,7 +1,15 @@
 use super::KanbanContext;
 use kanban_domain::commands::{CardCommand, Command};
-use kanban_domain::{CardStatus, CardUpdate, Invalidation, KanbanError, KanbanResult};
+use kanban_domain::{CardStatus, CardUpdate, FieldUpdate, Invalidation, KanbanError, KanbanResult};
+use std::collections::HashMap;
 use uuid::Uuid;
+
+fn next_batch_position(offsets: &mut HashMap<Uuid, i32>, column_id: Uuid, base: i32) -> i32 {
+    let offset = offsets.entry(column_id).or_insert(0);
+    let pos = base + *offset;
+    *offset += 1;
+    pos
+}
 
 impl KanbanContext {
     /// KAN-394: given a status that's about to be applied to a card, compute the
@@ -159,6 +167,13 @@ impl KanbanContext {
 
     pub fn archive_cards_impl(&mut self, ids: Vec<Uuid>) -> KanbanResult<(usize, Invalidation)> {
         use kanban_domain::commands::ArchiveCards;
+        if let Some(rw) = self.backend.remote_batch_writes() {
+            let (outcome, invalidation) = rw.archive_cards(&ids)?;
+            return Ok((super::remote_batch_count(outcome)?, invalidation));
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("archive_cards"));
+        }
         let before = self.backend.list_archived_cards()?.len();
         let invalidation =
             self.execute(vec![Command::Card(CardCommand::Archive(ArchiveCards {
@@ -173,6 +188,13 @@ impl KanbanContext {
         ids: Vec<Uuid>,
         column_id: Uuid,
     ) -> KanbanResult<(usize, Invalidation)> {
+        if let Some(rw) = self.backend.remote_batch_writes() {
+            let (outcome, invalidation) = rw.move_cards(&ids, column_id)?;
+            return Ok((super::remote_batch_count(outcome)?, invalidation));
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("move_cards"));
+        }
         let ids = kanban_domain::card_lifecycle::dedup_preserving_order(&ids);
         let before = self.backend.list_cards_by_column(column_id)?.len();
 
@@ -190,7 +212,14 @@ impl KanbanContext {
     ) -> KanbanResult<(usize, Invalidation)> {
         use kanban_domain::commands::{MoveCard, UpdateCard};
         use kanban_domain::ArchivedFilter;
-        use std::collections::HashMap;
+
+        if let Some(rw) = self.backend.remote_batch_writes() {
+            let (outcome, invalidation) = rw.update_cards(&updates)?;
+            return Ok((super::remote_batch_count(outcome)?, invalidation));
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("update_cards"));
+        }
 
         let count = updates.len();
         let mut batch: Vec<Command> = Vec::with_capacity(count * 3);
@@ -217,13 +246,11 @@ impl KanbanContext {
                     if let Some((col, base_pos)) =
                         self.compute_target_column_for_status(card_id, new_status)?
                     {
-                        let offset = position_offsets.entry(col).or_insert(0);
-                        let pos = base_pos + *offset;
-                        *offset += 1;
+                        let pos = next_batch_position(&mut position_offsets, col, base_pos);
                         chained.mov = Some((col, pos));
                     }
                 }
-                (None, Some(new_col)) => {
+                (_, Some(new_col)) => {
                     // A genuine column change must go through MoveCard, the same
                     // as move_card/move_cards — that's what enforces the target
                     // column's WIP limit and syncs card.board_id to the target
@@ -243,20 +270,25 @@ impl KanbanContext {
                                     new_col,
                                     ArchivedFilter::Include,
                                 )? as i32;
-                                let offset = position_offsets.entry(new_col).or_insert(0);
-                                let pos = base_pos + *offset;
-                                *offset += 1;
-                                pos
+                                next_batch_position(&mut position_offsets, new_col, base_pos)
                             }
                         };
                         card_updates.column_id = None;
                         chained.mov = Some((new_col, position));
                     }
-                    chained.status = self.compute_target_status_for_move(card_id, new_col)?;
+                    chained.status = match card_updates.status.take() {
+                        Some(explicit) => Some(explicit),
+                        None => self.compute_target_status_for_move(card_id, new_col)?,
+                    };
                 }
-                _ => {}
+                (None, None) => {}
             }
 
+            let deferred_sprint = if chained.mov.is_some() {
+                std::mem::take(&mut card_updates.sprint_id)
+            } else {
+                FieldUpdate::NoChange
+            };
             batch.push(Command::Card(CardCommand::Update(UpdateCard {
                 card_id,
                 updates: card_updates,
@@ -267,6 +299,15 @@ impl KanbanContext {
                     card_id,
                     new_column_id: col,
                     new_position: pos,
+                })));
+            }
+            if !matches!(deferred_sprint, FieldUpdate::NoChange) {
+                batch.push(Command::Card(CardCommand::Update(UpdateCard {
+                    card_id,
+                    updates: CardUpdate {
+                        sprint_id: deferred_sprint,
+                        ..Default::default()
+                    },
                 })));
             }
             if let Some(status) = chained.status {
@@ -290,6 +331,13 @@ impl KanbanContext {
         sprint_id: Uuid,
     ) -> KanbanResult<(usize, Invalidation)> {
         use kanban_domain::commands::AssignCardsToSprint;
+        if let Some(rw) = self.backend.remote_batch_writes() {
+            let (outcome, invalidation) = rw.assign_cards_to_sprint(&ids, sprint_id)?;
+            return Ok((super::remote_batch_count(outcome)?, invalidation));
+        }
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("assign_cards_to_sprint"));
+        }
         let before = self.backend.list_cards_by_sprint(sprint_id)?.len();
         let invalidation = self.execute(vec![Command::Card(CardCommand::AssignToSprint(
             AssignCardsToSprint { ids, sprint_id },

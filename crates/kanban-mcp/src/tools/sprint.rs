@@ -3,7 +3,7 @@ use crate::helpers::model_read::{
 };
 use crate::helpers::{
     board_head, core_err_to_mcp, kanban_err_to_mcp, locked_read, locked_write, parse_datetime,
-    project_sprint, to_call_tool_result, to_call_tool_result_json,
+    project_committed_sprint, to_call_tool_result, to_call_tool_result_json,
 };
 use crate::requests::sprint::{
     ActivateSprintRequest, CancelSprintRequest, CarryOverSprintCardsRequest, CompleteSprintRequest,
@@ -137,8 +137,7 @@ impl KanbanMcpServer {
                     )
                 })
                 .map_err(kanban_err_to_mcp)?;
-            let name = resolve_sprint_name(ctx, &sprint).map_err(kanban_err_to_mcp)?;
-            Ok(SprintResponse::new(&sprint, name))
+            Ok(project_committed_sprint(ctx, &sprint))
         })
         .await?;
         to_call_tool_result(&response)
@@ -236,7 +235,7 @@ impl KanbanMcpServer {
             let (sprint, _inv) = ctx
                 .mutate(|c| c.update_sprint_impl(id, updates))
                 .map_err(kanban_err_to_mcp)?;
-            project_sprint(ctx, sprint)
+            Ok(project_committed_sprint(ctx, &sprint))
         })
         .await?;
         to_call_tool_result(&response)
@@ -254,7 +253,7 @@ impl KanbanMcpServer {
             let (sprint, _inv) = ctx
                 .mutate(|c| c.activate_sprint_impl(id, req.duration_days))
                 .map_err(kanban_err_to_mcp)?;
-            project_sprint(ctx, sprint)
+            Ok(project_committed_sprint(ctx, &sprint))
         })
         .await?;
         to_call_tool_result(&response)
@@ -272,7 +271,7 @@ impl KanbanMcpServer {
             let (sprint, _inv) = ctx
                 .mutate(|c| c.complete_sprint_impl(id))
                 .map_err(kanban_err_to_mcp)?;
-            project_sprint(ctx, sprint)
+            Ok(project_committed_sprint(ctx, &sprint))
         })
         .await?;
         to_call_tool_result(&response)
@@ -290,7 +289,7 @@ impl KanbanMcpServer {
             let (sprint, _inv) = ctx
                 .mutate(|c| c.cancel_sprint_impl(id))
                 .map_err(kanban_err_to_mcp)?;
-            project_sprint(ctx, sprint)
+            Ok(project_committed_sprint(ctx, &sprint))
         })
         .await?;
         to_call_tool_result(&response)

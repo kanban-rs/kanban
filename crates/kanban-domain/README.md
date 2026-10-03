@@ -335,6 +335,10 @@ pub enum KanbanError {
     ConflictDetected { path: String, source: Option<Box<dyn Error + Send + Sync>> },
     Database(String),
     Internal(String),
+    Transport(String),
+    Unsupported { operation: &'static str },
+    UnsupportedFutureVersion { file_version: u32, binary_max: u32 },
+    UnsupportedServerVersion { url: String, server_version: Option<String>, client_version: String },
 }
 ```
 
@@ -383,6 +387,7 @@ KanbanError::is_conflict_detected(&self) -> bool
 - **Completion column**: the rightmost column is used when toggling a card to Done (falls back to the rightmost column)
 - **WIP limits**: advisory only — enforcement is the UI's responsibility
 - **Sprint assignability**: only `Planning` and `Active` sprints can be assigned to cards
+- **Sprint board membership**: binding a card to a sprint on another board is refused (`SprintBoardMismatch`). Moving or restoring a card onto another board drops a binding to a sprint that is not on the destination board; undoing the move restores it.
 
 ---
 
