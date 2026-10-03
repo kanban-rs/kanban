@@ -9,6 +9,49 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_start_with_fault_answers_only_the_armed_request_with_503() {
+    let (server, fault) = TestServer::start_with_fault(|_| {}).await;
+
+    let unarmed = server
+        .client()
+        .get(format!("{}/v1/boards", server.base_url()))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unarmed.status(), reqwest::StatusCode::OK);
+
+    *fault.lock().unwrap() = Some(("GET", "/v1/boards".to_string()));
+
+    let armed = server
+        .client()
+        .get(format!("{}/v1/boards", server.base_url()))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(armed.status(), reqwest::StatusCode::SERVICE_UNAVAILABLE);
+
+    let health_while_armed = server
+        .client()
+        .get(format!("{}/health", server.base_url()))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(health_while_armed.status(), reqwest::StatusCode::OK);
+
+    *fault.lock().unwrap() = None;
+
+    let disarmed = server
+        .client()
+        .get(format!("{}/v1/boards", server.base_url()))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(disarmed.status(), reqwest::StatusCode::OK);
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_health_endpoint_returns_ok_over_real_socket() {
     let server = TestServer::start().await;
 
