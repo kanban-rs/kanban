@@ -1,7 +1,7 @@
 use kanban_backend_http::HttpBackend;
 use kanban_domain::{
     ArchivedBoard, ArchivedCard, Board, BoardUpdate, Card, CardPriority, CardStatus, CardUpdate,
-    Column, ColumnUpdate, CreateCardOptions, FieldUpdate, GraphOperations, Invalidation,
+    Column, ColumnUpdate, CreateCardOptions, EntityIds, FieldUpdate, GraphOperations, Invalidation,
     KanbanOperations, KanbanResult, NewBoard, NewCard, NewColumn, Prefix, RelatesKind, Severity,
     SortField, SortOrder, Sprint, SprintUpdate, TaskListView,
 };
@@ -1737,4 +1737,175 @@ async fn test_sprint_lifecycle_over_http_issues_one_flat_write_and_at_most_one_b
 
     drop(ctx);
     server.shutdown().await;
+}
+
+const UNKNOWN_CARD: Uuid = Uuid::from_u128(0xdead_beef);
+
+fn detailed_batch_ops(ctx: &mut KanbanContext, s: &Seeded) -> Outcomes {
+    vec![
+        (
+            "move_cards_detailed dup and unknown",
+            Outcome::batch(ctx.move_cards_detailed(vec![s.card_a, s.card_a, UNKNOWN_CARD], s.done)),
+        ),
+        (
+            "move_cards_detailed cross-board",
+            Outcome::batch(ctx.move_cards_detailed(vec![s.card_e], s.todo)),
+        ),
+        (
+            "assign_cards_to_sprint_detailed archived, already-in, unknown",
+            Outcome::batch(ctx.assign_cards_to_sprint_detailed(
+                vec![s.card_a, s.card_b, s.card_c, UNKNOWN_CARD],
+                s.sprint_id,
+            )),
+        ),
+        (
+            "archive_cards_detailed all failed",
+            Outcome::batch(ctx.archive_cards_detailed(vec![s.card_b, UNKNOWN_CARD])),
+        ),
+        (
+            "archive_cards_detailed live and archived",
+            Outcome::batch(ctx.archive_cards_detailed(vec![s.card_a, s.card_b])),
+        ),
+        (
+            "archive_cards live and archived",
+            Outcome::counted(ctx.archive_cards_impl(vec![s.card_d, s.card_b])),
+        ),
+    ]
+}
+
+fn batch_shape(o: &Outcome) -> (usize, usize) {
+    match o {
+        Outcome::Batch {
+            succeeded, failed, ..
+        } => (succeeded.len(), failed.len()),
+        other => panic!("expected a batch outcome, got {other:?}"),
+    }
+}
+
+async fn detailed_batch_parity(kind: Backend) {
+    let runs = op_parity(kind, seed_graph, detailed_batch_ops).await;
+    let shapes: Vec<_> = runs.remote[..5]
+        .iter()
+        .map(|(_, o)| batch_shape(o))
+        .collect();
+    assert_eq!(shapes, vec![(1, 1), (1, 0), (2, 2), (0, 2), (1, 1)]);
+    assert!(matches!(
+        &runs.remote[3].1,
+        Outcome::Batch { invalidation: Invalidation::Entities(ids), .. } if *ids == EntityIds::default()
+    ));
+    assert_eq!(runs.remote[5].1, Outcome::Counted(1, Invalidation::All));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_remote_detailed_batch_ops_return_the_same_outcome_as_local_json() {
+    detailed_batch_parity(Backend::Json).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_remote_detailed_batch_ops_return_the_same_outcome_as_local_sqlite() {
+    detailed_batch_parity(Backend::Sqlite).await;
+}
+
+async fn already_in_column_move_count_divergence(kind: Backend) {
+    let runs = run_both(kind, seed_graph, |ctx, s| {
+        vec![(
+            "move_cards",
+            Outcome::counted(ctx.move_cards_impl(vec![s.card_a], s.todo)),
+        )]
+    })
+    .await;
+    assert_snapshot_eq(&runs.remote_snap, &runs.control_snap);
+    let (Outcome::Counted(remote_n, remote_inv), Outcome::Counted(local_n, local_inv)) =
+        (&runs.remote[0].1, &runs.local[0].1)
+    else {
+        panic!(
+            "expected two counts, got {:?} and {:?}",
+            runs.remote[0].1, runs.local[0].1
+        );
+    };
+    assert_eq!(
+        (*remote_n, *local_n),
+        (1, 0),
+        "already-in-column move counts 1 over HTTP, 0 locally"
+    );
+    assert_eq!(remote_inv, local_inv, "invalidation must still match");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_move_cards_already_in_the_target_column_counts_one_over_http_and_zero_locally_json() {
+    already_in_column_move_count_divergence(Backend::Json).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_move_cards_already_in_the_target_column_counts_one_over_http_and_zero_locally_sqlite()
+{
+    already_in_column_move_count_divergence(Backend::Sqlite).await;
+}
+
+async fn already_in_sprint_assign_count_divergence(kind: Backend) {
+    let runs = run_both(kind, seed_graph, |ctx, s| {
+        vec![(
+            "assign_cards_to_sprint",
+            Outcome::counted(ctx.assign_cards_to_sprint_impl(vec![s.card_c], s.sprint_id)),
+        )]
+    })
+    .await;
+    assert_snapshot_eq(&runs.remote_snap, &runs.control_snap);
+    let (Outcome::Counted(remote_n, remote_inv), Outcome::Counted(local_n, local_inv)) =
+        (&runs.remote[0].1, &runs.local[0].1)
+    else {
+        panic!(
+            "expected two counts, got {:?} and {:?}",
+            runs.remote[0].1, runs.local[0].1
+        );
+    };
+    assert_eq!(
+        (*remote_n, *local_n),
+        (1, 0),
+        "already-in-the-sprint assign counts 1 over HTTP, 0 locally"
+    );
+    assert_eq!(remote_inv, local_inv, "invalidation must still match");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_assign_cards_already_in_the_sprint_counts_one_over_http_and_zero_locally_json() {
+    already_in_sprint_assign_count_divergence(Backend::Json).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_assign_cards_already_in_the_sprint_counts_one_over_http_and_zero_locally_sqlite() {
+    already_in_sprint_assign_count_divergence(Backend::Sqlite).await;
+}
+
+async fn archived_only_archive_count_divergence(kind: Backend) {
+    let runs = run_both(kind, seed_graph, |ctx, s| {
+        vec![(
+            "archive_cards",
+            Outcome::counted(ctx.archive_cards_impl(vec![s.card_b])),
+        )]
+    })
+    .await;
+    assert_snapshot_eq(&runs.remote_snap, &runs.control_snap);
+    assert!(
+        matches!(&runs.remote[0].1, Outcome::Rejected(_)),
+        "an all-archived batch must be rejected over HTTP, got {:?}",
+        runs.remote[0].1
+    );
+    assert_eq!(
+        runs.local[0].1,
+        Outcome::Counted(0, Invalidation::All),
+        "an all-archived batch counts 0 locally"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_archive_cards_of_only_archived_cards_is_rejected_over_http_and_counts_zero_locally_json(
+) {
+    archived_only_archive_count_divergence(Backend::Json).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_archive_cards_of_only_archived_cards_is_rejected_over_http_and_counts_zero_locally_sqlite(
+) {
+    archived_only_archive_count_divergence(Backend::Sqlite).await;
 }
