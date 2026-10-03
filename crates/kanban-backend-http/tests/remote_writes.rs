@@ -1,9 +1,9 @@
 use kanban_backend::RemoteGraphWrites;
 use kanban_backend_http::HttpBackend;
 use kanban_domain::{
-    CardPriority, CardStatus, CardUpdate, Column, ColumnUpdate, FieldUpdate, GraphOperations,
-    Invalidation, KanbanOperations, NewBoard, NewCard, NewColumn, RelatesKind, Severity,
-    SprintUpdate,
+    CardPriority, CardStatus, CardUpdate, Column, ColumnUpdate, EntityIds, FieldUpdate,
+    GraphOperations, Invalidation, KanbanOperations, KanbanResult, NewBoard, NewCard, NewColumn,
+    RelatesKind, Severity, SprintStatus, SprintUpdate,
 };
 use kanban_server::test_helpers::TestServer;
 use kanban_service::{AppConfig, KanbanContext};
@@ -1016,4 +1016,175 @@ async fn test_delete_sprint_over_http_returns_the_server_invalidation() {
     assert!(ctx.get_sprint(sprint.id).unwrap().is_none());
 
     server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_create_sprint_over_http_when_the_board_reread_fails_returns_the_committed_sprint_unnamed(
+) -> KanbanResult<()> {
+    let (server, fault) = TestServer::start_with_fault(|_| {}).await;
+    let mut ctx = ctx_over(&server).await;
+    let (board, _) = ctx.create_board_from_spec(None, a_new_board())?;
+
+    *fault.lock().unwrap() = Some(("GET", format!("/v1/boards/{}", board.id)));
+
+    let (sprint, invalidation) =
+        ctx.create_sprint_from_spec(board.id, None, Some("Alpha".into()), None, false)?;
+
+    assert_eq!(sprint.name_index, None);
+    assert!(
+        matches!(invalidation, Invalidation::All),
+        "expected Invalidation::All, got {invalidation:?}"
+    );
+
+    *fault.lock().unwrap() = None;
+
+    let sprints = ctx.data_store().list_sprints_by_board(board.id)?;
+    assert_eq!(sprints.len(), 1);
+    assert_eq!(sprints[0].id, sprint.id);
+    let board = ctx.get_board(board.id)?.unwrap();
+    assert_eq!(sprints[0].get_name(&board), Some("Alpha"));
+
+    server.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_update_sprint_over_http_when_the_board_reread_fails_returns_the_committed_update(
+) -> KanbanResult<()> {
+    let (server, fault) = TestServer::start_with_fault(|_| {}).await;
+    let mut ctx = ctx_over(&server).await;
+    let (board, _) = ctx.create_board_from_spec(None, a_new_board())?;
+    let (sprint, _) =
+        ctx.create_sprint_from_spec(board.id, None, Some("Alpha".into()), None, false)?;
+
+    *fault.lock().unwrap() = Some(("GET", format!("/v1/boards/{}", board.id)));
+
+    let (updated, invalidation) = ctx.update_sprint_impl(
+        sprint.id,
+        SprintUpdate {
+            start_date: FieldUpdate::Set(fixed_start()),
+            ..Default::default()
+        },
+    )?;
+
+    assert_eq!(updated.start_date, Some(fixed_start()));
+    match invalidation {
+        Invalidation::Entities(ids) => assert_eq!(ids, EntityIds::sprints([sprint.id])),
+        Invalidation::All => panic!("expected a scoped invalidation"),
+    }
+
+    *fault.lock().unwrap() = None;
+
+    let sprints = ctx.data_store().list_sprints_by_board(board.id)?;
+    assert_eq!(sprints[0].start_date, Some(fixed_start()));
+
+    server.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_activate_sprint_over_http_when_the_board_reread_fails_returns_the_active_sprint(
+) -> KanbanResult<()> {
+    let (server, fault) = TestServer::start_with_fault(|_| {}).await;
+    let mut ctx = ctx_over(&server).await;
+    let (board, _) = ctx.create_board_from_spec(None, a_new_board())?;
+    let (sprint, _) =
+        ctx.create_sprint_from_spec(board.id, None, Some("Alpha".into()), None, false)?;
+
+    *fault.lock().unwrap() = Some(("GET", format!("/v1/boards/{}", board.id)));
+
+    let (activated, invalidation) = ctx.activate_sprint_impl(sprint.id, None)?;
+
+    assert_eq!(activated.status, SprintStatus::Active);
+    match invalidation {
+        Invalidation::Entities(ids) => assert_eq!(ids, EntityIds::sprints([sprint.id])),
+        Invalidation::All => panic!("expected a scoped invalidation"),
+    }
+
+    *fault.lock().unwrap() = None;
+
+    let sprints = ctx.data_store().list_sprints_by_board(board.id)?;
+    assert_eq!(sprints[0].status, SprintStatus::Active);
+
+    server.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_complete_sprint_over_http_when_the_board_reread_fails_returns_the_completed_sprint(
+) -> KanbanResult<()> {
+    let (server, fault) = TestServer::start_with_fault(|_| {}).await;
+    let mut ctx = ctx_over(&server).await;
+    let (board, _) = ctx.create_board_from_spec(None, a_new_board())?;
+    let (sprint, _) =
+        ctx.create_sprint_from_spec(board.id, None, Some("Alpha".into()), None, false)?;
+    let _ = ctx.activate_sprint_impl(sprint.id, None)?;
+
+    *fault.lock().unwrap() = Some(("GET", format!("/v1/boards/{}", board.id)));
+
+    let (completed, invalidation) = ctx.complete_sprint_impl(sprint.id)?;
+
+    assert_eq!(completed.status, SprintStatus::Completed);
+    match invalidation {
+        Invalidation::Entities(ids) => assert_eq!(ids, EntityIds::sprints([sprint.id])),
+        Invalidation::All => panic!("expected a scoped invalidation"),
+    }
+
+    *fault.lock().unwrap() = None;
+
+    let sprints = ctx.data_store().list_sprints_by_board(board.id)?;
+    assert_eq!(sprints[0].status, SprintStatus::Completed);
+
+    server.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_cancel_sprint_over_http_when_the_board_reread_fails_returns_the_cancelled_sprint(
+) -> KanbanResult<()> {
+    let (server, fault) = TestServer::start_with_fault(|_| {}).await;
+    let mut ctx = ctx_over(&server).await;
+    let (board, _) = ctx.create_board_from_spec(None, a_new_board())?;
+    let (sprint, _) =
+        ctx.create_sprint_from_spec(board.id, None, Some("Alpha".into()), None, false)?;
+    let _ = ctx.activate_sprint_impl(sprint.id, None)?;
+
+    *fault.lock().unwrap() = Some(("GET", format!("/v1/boards/{}", board.id)));
+
+    let (cancelled, invalidation) = ctx.cancel_sprint_impl(sprint.id)?;
+
+    assert_eq!(cancelled.status, SprintStatus::Cancelled);
+    match invalidation {
+        Invalidation::Entities(ids) => assert_eq!(ids, EntityIds::sprints([sprint.id])),
+        Invalidation::All => panic!("expected a scoped invalidation"),
+    }
+
+    *fault.lock().unwrap() = None;
+
+    let sprints = ctx.data_store().list_sprints_by_board(board.id)?;
+    assert_eq!(sprints[0].status, SprintStatus::Cancelled);
+
+    server.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_sprint_over_http_when_the_board_read_fails_still_returns_an_error(
+) -> KanbanResult<()> {
+    let (server, fault) = TestServer::start_with_fault(|_| {}).await;
+    let mut ctx = ctx_over(&server).await;
+    let (board, _) = ctx.create_board_from_spec(None, a_new_board())?;
+    let (sprint, _) =
+        ctx.create_sprint_from_spec(board.id, None, Some("Alpha".into()), None, false)?;
+
+    *fault.lock().unwrap() = Some(("GET", format!("/v1/boards/{}", board.id)));
+
+    let err = ctx
+        .data_store()
+        .get_sprint(sprint.id)
+        .expect_err("a read must still fail loudly when the board re-read fails");
+    assert!(!err.to_string().is_empty());
+
+    server.shutdown().await;
+    Ok(())
 }

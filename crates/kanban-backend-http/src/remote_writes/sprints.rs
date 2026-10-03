@@ -1,4 +1,4 @@
-//! `RemoteWrites` sprint methods for `HttpBackend`.
+//! `RemoteSprintWrites` methods for `HttpBackend`.
 
 use crate::conversions::sprint_from_response;
 use crate::conversions_out::{
@@ -28,6 +28,21 @@ impl HttpBackend {
         Ok(sprint_from_response(resp, &sprint_names))
     }
 
+    pub(crate) async fn committed_sprint(&self, resp: &SprintResponse) -> Sprint {
+        match self.sprint_with_pool(resp).await {
+            Ok(sprint) => sprint,
+            Err(e) => {
+                tracing::warn!(
+                    board_id = %resp.board_id,
+                    sprint_id = %resp.id,
+                    error = %e,
+                    "sprint write committed but the board re-read failed; sprint will render unnamed"
+                );
+                sprint_from_response(resp, &[])
+            }
+        }
+    }
+
     pub(crate) fn rw_create_sprint(
         &self,
         board_id: Uuid,
@@ -44,7 +59,7 @@ impl HttpBackend {
                     Some(&req),
                 )
                 .await?;
-            let sprint = self.sprint_with_pool(&resp.entity).await?;
+            let sprint = self.committed_sprint(&resp.entity).await;
             Ok((sprint, Invalidation::from(&resp.invalidation)))
         })
     }
@@ -59,7 +74,7 @@ impl HttpBackend {
             let resp: MutationResponse<SprintResponse> = self
                 .send_json_mutation(Method::PATCH, &format!("/v1/sprints/{id}"), Some(&req))
                 .await?;
-            let sprint = self.sprint_with_pool(&resp.entity).await?;
+            let sprint = self.committed_sprint(&resp.entity).await;
             Ok((sprint, Invalidation::from(&resp.invalidation)))
         })
     }
@@ -87,7 +102,7 @@ impl HttpBackend {
                     Some(&req),
                 )
                 .await?;
-            let sprint = self.sprint_with_pool(&resp.entity).await?;
+            let sprint = self.committed_sprint(&resp.entity).await;
             Ok((sprint, Invalidation::from(&resp.invalidation)))
         })
     }
@@ -101,7 +116,7 @@ impl HttpBackend {
                     None,
                 )
                 .await?;
-            let sprint = self.sprint_with_pool(&resp.entity).await?;
+            let sprint = self.committed_sprint(&resp.entity).await;
             Ok((sprint, Invalidation::from(&resp.invalidation)))
         })
     }
@@ -115,7 +130,7 @@ impl HttpBackend {
                     None,
                 )
                 .await?;
-            let sprint = self.sprint_with_pool(&resp.entity).await?;
+            let sprint = self.committed_sprint(&resp.entity).await;
             Ok((sprint, Invalidation::from(&resp.invalidation)))
         })
     }
