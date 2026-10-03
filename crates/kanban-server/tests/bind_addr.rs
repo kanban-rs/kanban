@@ -94,6 +94,118 @@ fn get_free_ports(n: usize) -> Vec<u16> {
         .collect()
 }
 
+fn try_spawn_and_wait_for_port(mut cmd: StdCommand) -> Result<(Child, u16), String> {
+    cmd.stdout(Stdio::piped()).stderr(Stdio::null());
+    let mut child = cmd.spawn().map_err(|e| format!("failed to spawn: {e}"))?;
+    let stdout = child.stdout.take().expect("stdout must be piped");
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(stdout);
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match reader.read_line(&mut line) {
+                Ok(0) => break,
+                Ok(_) => {
+                    if let Some(idx) = line.find("addr=") {
+                        let rest = &line[idx + "addr=".len()..];
+                        if let Some(end) = rest.find([' ', '\n']) {
+                            let addr_str = &rest[..end];
+                            if let Some(colon_idx) = addr_str.rfind(':') {
+                                if let Ok(port) = addr_str[colon_idx + 1..].parse::<u16>() {
+                                    let _ = tx.send(port);
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    match rx.recv_timeout(Duration::from_secs(5)) {
+        Ok(port) => Ok((child, port)),
+        Err(e) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            Err(format!(
+                "server did not report its bound port within 5s: {e:?}"
+            ))
+        }
+    }
+}
+
+fn with_retries<T>(
+    _attempts: u32,
+    mut f: impl FnMut(u32) -> Result<T, String>,
+) -> Result<T, String> {
+    f(1)
+}
+
+fn failing_child_that_writes_stderr(marker: &str) -> StdCommand {
+    #[cfg(windows)]
+    {
+        let mut c = StdCommand::new("cmd");
+        c.args(["/C", &format!("echo {marker} 1>&2 & exit 1")]);
+        c
+    }
+    #[cfg(not(windows))]
+    {
+        let mut c = StdCommand::new("sh");
+        c.args(["-c", &format!("echo {marker} 1>&2; exit 1")]);
+        c
+    }
+}
+
+#[test]
+fn test_try_spawn_and_wait_for_port_includes_child_stderr_on_failure() {
+    let result = try_spawn_and_wait_for_port(failing_child_that_writes_stderr("kan1700-marker"));
+    let msg = result.expect_err(
+        "spawning a command that writes to stderr and never reports a port should fail",
+    );
+    assert!(
+        msg.contains("kan1700-marker"),
+        "error message should include child stderr: {msg}"
+    );
+    assert!(
+        msg.contains("Disconnected"),
+        "error message should show the Debug-formatted RecvTimeoutError: {msg}"
+    );
+}
+
+#[test]
+fn test_with_retries_returns_first_success_without_further_attempts() {
+    let mut calls = 0u32;
+    let result = with_retries(3, |_attempt| {
+        calls += 1;
+        if calls == 1 {
+            Err("not yet".to_string())
+        } else {
+            Ok(7)
+        }
+    });
+    assert_eq!(result, Ok(7));
+    assert_eq!(calls, 2);
+}
+
+#[test]
+fn test_with_retries_gives_up_after_the_attempt_limit() {
+    let mut calls = 0u32;
+    let result: Result<i32, String> = with_retries(3, |_attempt| {
+        calls += 1;
+        Err("nope".to_string())
+    });
+    let err = result.expect_err("a closure that always fails should exhaust all attempts");
+    assert!(
+        err.contains("nope"),
+        "error message should include the last failure: {err}"
+    );
+    assert_eq!(calls, 3);
+}
+
 #[test]
 fn test_kanban_addr_env_binds_requested_port() {
     let dir = tempdir().unwrap();
