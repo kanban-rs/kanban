@@ -427,6 +427,27 @@ async fn test_tool_activate_sprint_over_http_when_the_board_reread_fails_once_re
     let activated: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(activated["status"], "active");
     assert_eq!(activated["name"], "Alpha");
+    assert!(
+        fault.lock().unwrap().is_none(),
+        "the shot should have fired"
+    );
+
+    let list: serde_json::Value = server
+        .client()
+        .get(format!(
+            "{}/v1/boards/{board_id}/sprints",
+            server.base_url()
+        ))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let items = list["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["id"], sprint_id.to_string());
+    assert_eq!(items[0]["status"], "active");
 
     server.shutdown().await;
 }
