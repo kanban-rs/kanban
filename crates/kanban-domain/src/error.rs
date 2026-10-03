@@ -552,6 +552,18 @@ mod tests {
     }
 
     #[test]
+    fn test_sprint_board_mismatch_display_does_not_assume_a_create() {
+        let err = KanbanError::Domain(DomainError::SprintBoardMismatch {
+            sprint_id: Uuid::new_v4(),
+            sprint_board: Uuid::new_v4(),
+            card_board: Uuid::new_v4(),
+        });
+        let msg = err.to_string();
+        assert!(msg.contains("but the card is on board"), "msg: {msg}");
+        assert!(!msg.contains("being created"), "msg: {msg}");
+    }
+
+    #[test]
     fn test_is_sprint_board_mismatch_predicate() {
         let err = KanbanError::Domain(DomainError::SprintBoardMismatch {
             sprint_id: Uuid::new_v4(),
