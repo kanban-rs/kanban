@@ -327,7 +327,7 @@ async fn test_cli_relation_add_closing_a_cycle_against_http_locator_shows_the_lo
         .unwrap();
     let children = graph["children"].as_array().unwrap();
     assert!(
-        !children.iter().any(|c| c["id"] == a.to_string()),
+        !children.iter().any(|c| c.as_str() == Some(a_s.as_str())),
         "rejected edge must not have been partially applied: {graph:?}"
     );
 
