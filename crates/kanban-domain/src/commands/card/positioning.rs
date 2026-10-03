@@ -36,7 +36,12 @@ impl MoveCard {
     }
 
     pub fn touched_entities(&self) -> Option<crate::EntityIds> {
-        Some(crate::EntityIds::cards([self.card_id]))
+        let mut ids = crate::EntityIds::cards([self.card_id]);
+        ids.card_columns
+            .entry(self.card_id)
+            .or_default()
+            .insert(self.new_column_id);
+        Some(ids)
     }
 
     /// Inverse: another MoveCard pointing back to the card's current
