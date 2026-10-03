@@ -1256,4 +1256,97 @@ mod tests {
         assert!(m.board_archived_cards_state(b1.id).is_not_loaded());
         assert!(m.board_archived_cards_state(b2.id).is_loaded());
     }
+
+    #[test]
+    fn test_exact_invalidation_drops_every_loaded_scope_still_holding_the_card() {
+        let board = Board::new("B", None::<String>);
+        let col_a = Column::new(board.id, "A", 0);
+        let col_b = Column::new(board.id, "B", 1);
+        let col_d = Column::new(board.id, "D", 2);
+        let stale_k = Card::new(board.id, col_a.id, "k", 0);
+        let mut fresh_k = stale_k.clone();
+        fresh_k.column_id = col_b.id;
+        let other = Card::new(board.id, col_d.id, "other", 0);
+
+        let mut m = Model::default();
+        m.set_cards_of_column(col_a.id, LoadState::Loaded(vec![stale_k.clone()]));
+        m.set_cards_of_column(col_b.id, LoadState::Loaded(vec![fresh_k.clone()]));
+        m.set_cards_of_column(col_d.id, LoadState::Loaded(vec![other.clone()]));
+        assert_eq!(m.scoped_card_index.get(&stale_k.id), Some(&col_b.id));
+        assert_eq!(
+            m.column_cards_state(col_a.id).loaded().map(|cards| cards.len()),
+            Some(1)
+        );
+
+        let ids = EntityIds {
+            cards: [stale_k.id].into(),
+            card_columns: [(stale_k.id, [col_b.id].into())].into(),
+            ..Default::default()
+        };
+        let _ = m.invalidate(Invalidation::Entities(ids));
+
+        assert!(m.column_cards_state(col_a.id).is_not_loaded());
+        assert!(m.column_cards_state(col_b.id).is_not_loaded());
+        assert!(m.card_by_id_state(stale_k.id).is_not_loaded());
+        assert_eq!(m.scoped_card_index.get(&stale_k.id), None);
+        assert!(m.column_cards_state(col_d.id).is_loaded());
+        assert_eq!(m.scoped_card_index.get(&other.id), Some(&col_d.id));
+    }
+
+    #[test]
+    fn test_exact_invalidation_of_a_move_drops_a_stale_duplicate_scope_the_producer_did_not_name()
+    {
+        let board = Board::new("B", None::<String>);
+        let col_a = Column::new(board.id, "A", 0);
+        let col_b = Column::new(board.id, "B", 1);
+        let col_c = Column::new(board.id, "C", 2);
+        let stale_k = Card::new(board.id, col_a.id, "k", 0);
+        let mut fresh_k = stale_k.clone();
+        fresh_k.column_id = col_b.id;
+
+        let mut m = Model::default();
+        m.set_cards_of_column(col_a.id, LoadState::Loaded(vec![stale_k.clone()]));
+        m.set_cards_of_column(col_b.id, LoadState::Loaded(vec![fresh_k.clone()]));
+        m.set_cards_of_column(col_c.id, LoadState::Loaded(vec![]));
+
+        let ids = EntityIds {
+            cards: [stale_k.id].into(),
+            card_columns: [(stale_k.id, [col_b.id, col_c.id].into())].into(),
+            ..Default::default()
+        };
+        let _ = m.invalidate(Invalidation::Entities(ids));
+
+        assert!(m.column_cards_state(col_a.id).is_not_loaded());
+        assert!(m.column_cards_state(col_b.id).is_not_loaded());
+        assert!(m.column_cards_state(col_c.id).is_not_loaded());
+        assert_eq!(m.scoped_card_index.get(&stale_k.id), None);
+    }
+
+    #[test]
+    fn test_exact_invalidation_still_drops_a_failed_scope_the_index_points_at() {
+        let board = Board::new("B", None::<String>);
+        let col_a = Column::new(board.id, "A", 0);
+        let col_b = Column::new(board.id, "B", 1);
+        let k = Card::new(board.id, col_a.id, "k", 0);
+
+        let mut m = Model::default();
+        m.set_cards_of_column(col_a.id, LoadState::Loaded(vec![k.clone()]));
+        let _ = m.mark_failed(
+            EntityIds::cards([k.id]),
+            Arc::new(KanbanError::unsupported("boom")),
+        );
+        m.set_cards_of_column(col_b.id, LoadState::Loaded(vec![]));
+        assert!(matches!(m.column_cards_state(col_a.id), LoadState::Failed(_)));
+
+        let ids = EntityIds {
+            cards: [k.id].into(),
+            card_columns: [(k.id, [col_b.id].into())].into(),
+            ..Default::default()
+        };
+        let _ = m.invalidate(Invalidation::Entities(ids));
+
+        assert!(m.column_cards_state(col_a.id).is_not_loaded());
+        assert!(m.column_cards_state(col_b.id).is_not_loaded());
+        assert_eq!(m.scoped_card_index.get(&k.id), None);
+    }
 }
