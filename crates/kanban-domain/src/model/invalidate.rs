@@ -77,13 +77,17 @@ impl Model {
             let exact = !ids.card_columns.is_empty()
                 && ids.cards.iter().all(|c| ids.card_columns.contains_key(c));
             if exact {
-                let cached: Vec<Uuid> = ids
+                let mut holding: Vec<Uuid> = ids
                     .cards
                     .iter()
                     .filter_map(|id| self.scoped_card_index.get(id).copied())
                     .collect();
-                for col in ids.card_columns.values().flatten().copied().chain(cached) {
+                holding.extend(self.loaded_scopes_holding(&ids.cards));
+                for col in ids.card_columns.values().flatten().copied().chain(holding) {
                     self.drop_card_scope(col);
+                }
+                for id in &ids.cards {
+                    self.scoped_card_index.remove(id);
                 }
             } else {
                 self.cards_by_column.clear();
@@ -112,6 +116,18 @@ impl Model {
     fn drop_card_scope(&mut self, column_id: Uuid) {
         self.cards_by_column.remove(&column_id);
         self.scoped_card_index.retain(|_, col| *col != column_id);
+    }
+
+    fn loaded_scopes_holding(&self, card_ids: &HashSet<Uuid>) -> Vec<Uuid> {
+        self.cards_by_column
+            .iter()
+            .filter(|(_, state)| {
+                state
+                    .loaded()
+                    .is_some_and(|cards| cards.iter().any(|c| card_ids.contains(&c.id)))
+            })
+            .map(|(column_id, _)| *column_id)
+            .collect()
     }
 }
 
