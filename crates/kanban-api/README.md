@@ -33,7 +33,7 @@ pub use v1::{
 
 - `*Response` types are the read-side DTOs returned by `kanban-server`'s REST endpoints.
 - `Create*Request` / `Replace*Request` / `Update*Request` are the write-side DTOs for `POST` / `PUT` / `PATCH` respectively — `Update*Request` follows JSON Merge Patch (RFC 7386) semantics via `Patch<T>`.
-- `ApiError` / `ErrorCode` are the shared error envelope every non-2xx response uses.
+- `ApiError` / `ErrorCode` are the shared error envelope every non-2xx response uses. On the client, `From<ApiError> for KanbanError` rebuilds the four dependency-graph codes (`CYCLE_DETECTED`, `SELF_REFERENCE`, `EDGE_NOT_FOUND`, `DUPLICATE_EDGE`) back into the typed `DependencyError` variant they came from; every other client-error code still becomes `DomainError::Validation("CODE: msg")`, since `ApiError` scrubs the structure needed to rebuild anything richer.
 - `ChangeEventFrame` is the payload broadcast on `kanban-server`'s internal change-event channel; `entity_type`/`entity_id`/`kind` (`EntityType`, `ChangeKind`) name the single entity a mutation touched and how, retained for existing consumers; `invalidation` (`InvalidationDto`, wrapping `EntityIdsDto`) names the mutation's full blast radius, with `None` meaning the emitter could not describe the change and a consumer must treat it as invalidating everything.
 - `MutationResponse<T>` flattens a `T` entity DTO with an `invalidation` field, so create/update routes return the entity's usual fields alongside the mutation's blast radius while remaining parseable as the bare entity. `DeleteResponse` carries only `invalidation`, for routes that return no entity body.
 - `CLIENT_ID_HEADER` is the wire name of the client-identity request header, shared so the server's extractor and HTTP clients cannot drift.

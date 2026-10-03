@@ -82,13 +82,14 @@ impl From<&KanbanError> for ApiError {
 
 impl From<ApiError> for KanbanError {
     /// `ApiError` deliberately scrubs structure, so `DomainError::NotFound { entity, id }`
-    /// and its siblings cannot be rebuilt from a wire error. The code is preserved
-    /// verbatim in the message text instead of being guessed at.
+    /// and its siblings cannot be rebuilt from a wire error; their code is preserved
+    /// verbatim in the message text instead. The field-less `DependencyError`
+    /// variants carry no structure, so their codes are rebuilt into the exact variant.
     ///
-    /// Exhaustive over `ErrorCode` (no `_`): a new code must be classified into
-    /// one of the two buckets before this compiles, even though `ErrorCode` is
-    /// `#[non_exhaustive]` outside this crate.
+    /// Exhaustive over `ErrorCode` (no `_`): a new code must be classified before
+    /// this compiles, even though `ErrorCode` is `#[non_exhaustive]` outside this crate.
     fn from(e: ApiError) -> Self {
+        let dependency = |d: DependencyError| KanbanError::Domain(DomainError::Dependency(d));
         match e.code {
             ErrorCode::IoError
             | ErrorCode::SerializationError
@@ -97,6 +98,10 @@ impl From<ApiError> for KanbanError {
             | ErrorCode::UpstreamUnavailable => {
                 KanbanError::Internal(format!("{}: {}", e.code, e.message))
             }
+            ErrorCode::CycleDetected => dependency(DependencyError::CycleDetected),
+            ErrorCode::SelfReference => dependency(DependencyError::SelfReference),
+            ErrorCode::EdgeNotFound => dependency(DependencyError::EdgeNotFound),
+            ErrorCode::DuplicateEdge => dependency(DependencyError::DuplicateEdge),
             ErrorCode::NotFound
             | ErrorCode::NotFoundByName
             | ErrorCode::Ambiguous
@@ -105,10 +110,6 @@ impl From<ApiError> for KanbanError {
             | ErrorCode::ValidationFailed
             | ErrorCode::BatchResolutionFailed
             | ErrorCode::DependencyError
-            | ErrorCode::CycleDetected
-            | ErrorCode::SelfReference
-            | ErrorCode::EdgeNotFound
-            | ErrorCode::DuplicateEdge
             | ErrorCode::ConflictDetected
             | ErrorCode::PreconditionFailed
             | ErrorCode::AlreadyExists
@@ -342,5 +343,56 @@ mod tests {
         assert!(ApiError::from(&validation)
             .message
             .contains("title must not be empty"));
+    }
+
+    type IsDependencyVariant = fn(&KanbanError) -> bool;
+
+    #[test]
+    fn test_api_error_with_a_dependency_code_rebuilds_the_typed_dependency_variant() {
+        let cases: [(ErrorCode, IsDependencyVariant); 4] = [
+            (ErrorCode::CycleDetected, KanbanError::is_cycle_detected),
+            (ErrorCode::SelfReference, KanbanError::is_self_reference),
+            (ErrorCode::EdgeNotFound, KanbanError::is_edge_not_found),
+            (ErrorCode::DuplicateEdge, KanbanError::is_duplicate_edge),
+        ];
+        for (code, is_variant) in cases {
+            let err = KanbanError::from(ApiError::new(code, "irrelevant"));
+            assert!(is_variant(&err), "{code} rebuilt as {err:?}");
+        }
+    }
+
+    #[test]
+    fn test_dependency_error_round_trips_through_the_wire_to_the_same_variant() {
+        let cases: [(fn() -> DependencyError, IsDependencyVariant); 4] = [
+            (
+                || DependencyError::CycleDetected,
+                KanbanError::is_cycle_detected,
+            ),
+            (
+                || DependencyError::SelfReference,
+                KanbanError::is_self_reference,
+            ),
+            (
+                || DependencyError::EdgeNotFound,
+                KanbanError::is_edge_not_found,
+            ),
+            (
+                || DependencyError::DuplicateEdge,
+                KanbanError::is_duplicate_edge,
+            ),
+        ];
+        for (make, is_variant) in cases {
+            let original = KanbanError::Domain(DomainError::Dependency(make()));
+            let back = KanbanError::from(ApiError::from(&original));
+            assert!(is_variant(&back), "round trip of {original} gave {back:?}");
+            assert_eq!(back.to_string(), original.to_string());
+        }
+    }
+
+    #[test]
+    fn test_generic_dependency_error_code_still_maps_to_validation() {
+        let err = KanbanError::from(ApiError::new(ErrorCode::DependencyError, "generic"));
+        assert!(err.is_validation(), "got: {err:?}");
+        assert!(err.to_string().contains("DEPENDENCY_ERROR"), "got: {err}");
     }
 }

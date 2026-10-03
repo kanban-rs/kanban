@@ -940,13 +940,103 @@ async fn test_detach_children_over_http_with_one_missing_edge_removes_nothing() 
     let err = backend
         .detach_children(parent.id, &[child.id, not_a_child.id])
         .expect_err("detaching a missing edge alongside a real one should fail atomically");
-    assert!(err.to_string().contains("NOT_FOUND"), "got: {err}");
+    assert!(err.is_edge_not_found(), "got: {err}");
 
     let graph = ctx.data_store().get_graph().unwrap();
     assert!(
         graph.contains(parent.id, child.id),
         "the real edge must survive an all-or-nothing failed batch"
     );
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_attach_children_over_http_closing_a_cycle_returns_cycle_detected() {
+    let server = TestServer::start().await;
+    let mut ctx = ctx_over(&server).await;
+    let (board, _) = ctx.create_board_from_spec(None, a_new_board()).unwrap();
+    let (column, _) = ctx
+        .create_column_from_spec(None, a_new_column(board.id))
+        .unwrap();
+    let (a, _) = ctx
+        .create_card_from_spec(None, a_new_card(column.id))
+        .unwrap();
+    let a = a.id;
+    let (b, _) = ctx
+        .create_card_from_spec(None, a_new_card(column.id))
+        .unwrap();
+    let b = b.id;
+
+    let _ = ctx.attach_children_impl(a, vec![b]).unwrap();
+    let err = ctx.attach_children_impl(b, vec![a]).unwrap_err();
+    assert!(err.is_cycle_detected(), "got: {err}");
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_block_self_over_http_returns_self_reference() {
+    let server = TestServer::start().await;
+    let mut ctx = ctx_over(&server).await;
+    let (board, _) = ctx.create_board_from_spec(None, a_new_board()).unwrap();
+    let (column, _) = ctx
+        .create_column_from_spec(None, a_new_column(board.id))
+        .unwrap();
+    let (a, _) = ctx
+        .create_card_from_spec(None, a_new_card(column.id))
+        .unwrap();
+    let a = a.id;
+
+    let err = ctx.block_impl(a, a, Severity::Medium).unwrap_err();
+    assert!(err.is_self_reference(), "got: {err}");
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_block_twice_over_http_returns_duplicate_edge() {
+    let server = TestServer::start().await;
+    let mut ctx = ctx_over(&server).await;
+    let (board, _) = ctx.create_board_from_spec(None, a_new_board()).unwrap();
+    let (column, _) = ctx
+        .create_column_from_spec(None, a_new_column(board.id))
+        .unwrap();
+    let (a, _) = ctx
+        .create_card_from_spec(None, a_new_card(column.id))
+        .unwrap();
+    let a = a.id;
+    let (b, _) = ctx
+        .create_card_from_spec(None, a_new_card(column.id))
+        .unwrap();
+    let b = b.id;
+
+    let _ = ctx.block_impl(a, b, Severity::Medium).unwrap();
+    let err = ctx.block_impl(a, b, Severity::Medium).unwrap_err();
+    assert!(err.is_duplicate_edge(), "got: {err}");
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_unblock_missing_edge_over_http_returns_edge_not_found() {
+    let server = TestServer::start().await;
+    let mut ctx = ctx_over(&server).await;
+    let (board, _) = ctx.create_board_from_spec(None, a_new_board()).unwrap();
+    let (column, _) = ctx
+        .create_column_from_spec(None, a_new_column(board.id))
+        .unwrap();
+    let (a, _) = ctx
+        .create_card_from_spec(None, a_new_card(column.id))
+        .unwrap();
+    let a = a.id;
+    let (b, _) = ctx
+        .create_card_from_spec(None, a_new_card(column.id))
+        .unwrap();
+    let b = b.id;
+
+    let err = ctx.unblock_impl(a, b).unwrap_err();
+    assert!(err.is_edge_not_found(), "got: {err}");
 
     server.shutdown().await;
 }
