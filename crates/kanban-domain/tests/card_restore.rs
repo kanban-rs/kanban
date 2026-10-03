@@ -479,9 +479,6 @@ fn test_restore_card_capture_inverse_for_cross_board_bound_card_restores_exact_p
         timestamp: Utc::now(),
     };
 
-    // capture_inverse runs before execute in the undo engine (see
-    // kanban-service's `execute_with_extra`), so the pre-restore state is
-    // still live when the inverse is captured.
     let inverse = cmd.capture_inverse(&tc.store).unwrap();
     cmd.execute(&context).unwrap();
 
@@ -503,10 +500,12 @@ fn test_restore_card_capture_inverse_for_cross_board_bound_card_restores_exact_p
     assert_eq!(restored.sprint_id, Some(sa));
     assert_eq!(restored.sprint_logs, original_sprint_logs);
     assert_eq!(restored.updated_at, original_updated_at);
-    assert!(
-        tc.store.get_archived_card(card_id).unwrap().is_some(),
-        "undo must leave the card archived again"
-    );
+    let marker = tc
+        .store
+        .get_archived_card(card_id)
+        .unwrap()
+        .expect("undo must leave the card archived again");
+    assert_eq!(marker.context.board_id, board_a_id);
 }
 
 #[test]

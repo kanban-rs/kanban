@@ -1,10 +1,11 @@
 use super::super::BackendFactory;
+use super::assert_card_eq;
 use crate::KanbanContext;
 use kanban_core::AppConfig;
 use kanban_domain::dependencies::edge_meta::Severity;
 use kanban_domain::{
-    Card, CardUpdate, CreateCardOptions, FieldUpdate, GraphOperations, KanbanOperations,
-    KanbanResult, UndoOperations,
+    Card, CardUpdate, ColumnUpdate, CreateCardOptions, FieldUpdate, GraphOperations,
+    KanbanOperations, KanbanResult, UndoOperations,
 };
 use tempfile::TempDir;
 use uuid::Uuid;
@@ -606,6 +607,88 @@ pub async fn test_undo_restoring_a_bound_card_into_another_boards_column_restore
     let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
     let after = graph_state(&ctx, fx.a2).unwrap();
     assert_graph_unchanged(&before, &after);
+    assert!(
+        ctx.data_store().get_archived_card(fx.a1).unwrap().is_some(),
+        "undo must leave the card archived again after reload"
+    );
+}
+
+pub async fn test_undo_restoring_a_bound_card_into_another_boards_column_succeeds_despite_original_columns_wip_limit(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+    let fx = seed_two_boards(&mut ctx).await.unwrap();
+    let original_a1 = ctx.get_card(fx.a1).unwrap().unwrap();
+
+    ctx.archive_card(fx.a1).unwrap();
+    ctx.update_column(
+        fx.a_col,
+        ColumnUpdate {
+            wip_limit: FieldUpdate::Set(1),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    ctx.restore_card(fx.a1, Some(fx.b_col)).unwrap();
+    let a1 = ctx.get_card(fx.a1).unwrap().unwrap();
+    assert_eq!(a1.board_id, fx.board_b);
+    assert_eq!(a1.sprint_id, None);
+
+    ctx.undo().unwrap();
+    let a1 = ctx.get_card(fx.a1).unwrap().unwrap();
+    assert_card_eq(&original_a1, &a1);
+    assert!(
+        ctx.data_store().get_archived_card(fx.a1).unwrap().is_some(),
+        "undo must leave the card archived again"
+    );
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+    let a1 = ctx.get_card(fx.a1).unwrap().unwrap();
+    assert_card_eq(&original_a1, &a1);
+    assert!(
+        ctx.data_store().get_archived_card(fx.a1).unwrap().is_some(),
+        "undo must leave the card archived again after reload"
+    );
+}
+
+pub async fn test_undo_restoring_a_bound_card_into_another_boards_column_succeeds_despite_a_deleted_original_column(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+    let fx = seed_two_boards(&mut ctx).await.unwrap();
+    let original_a1 = ctx.get_card(fx.a1).unwrap().unwrap();
+
+    ctx.archive_card(fx.a1).unwrap();
+    ctx.archive_card(fx.a2).unwrap();
+    ctx.delete_column(fx.a_col).unwrap();
+
+    ctx.restore_card(fx.a1, Some(fx.b_col)).unwrap();
+    let a1 = ctx.get_card(fx.a1).unwrap().unwrap();
+    assert_eq!(a1.board_id, fx.board_b);
+    assert_eq!(a1.sprint_id, None);
+
+    ctx.undo().unwrap();
+    let a1 = ctx.get_card(fx.a1).unwrap().unwrap();
+    assert_card_eq(&original_a1, &a1);
+    assert!(
+        ctx.data_store().get_archived_card(fx.a1).unwrap().is_some(),
+        "undo must leave the card archived again"
+    );
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+    let a1 = ctx.get_card(fx.a1).unwrap().unwrap();
+    assert_card_eq(&original_a1, &a1);
     assert!(
         ctx.data_store().get_archived_card(fx.a1).unwrap().is_some(),
         "undo must leave the card archived again after reload"
