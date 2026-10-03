@@ -191,6 +191,16 @@ mod tests {
     }
 
     #[test]
+    fn test_entity_ids_with_only_archival_changed_is_still_empty() {
+        let ids = EntityIds {
+            archival_changed: true,
+            ..Default::default()
+        };
+
+        assert!(ids.is_empty());
+    }
+
+    #[test]
     fn test_create_card_touched_entities_includes_the_counter_bumping_board() {
         let id = Uuid::new_v4();
         let board_id = Uuid::new_v4();
