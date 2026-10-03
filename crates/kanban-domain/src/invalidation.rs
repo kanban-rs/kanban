@@ -15,11 +15,16 @@ pub struct EntityIds {
     pub prefixes: bool,
     /// For each card id this batch named, the columns whose `cards_by_column`
     /// scope it invalidated. A card absent from this map means "column
-    /// unknown", forcing the conservative whole-tier drop.
+    /// unknown", forcing the conservative whole-tier drop. A producer must
+    /// name every column a card moved INTO; the column it was cached in is
+    /// recovered from the model's own index.
     pub card_columns: HashMap<Uuid, HashSet<Uuid>>,
-    /// Reserved: set by a future archive/restore command conversion. No
-    /// producer sets it in this slice, so consumers must treat `false` as
-    /// unknown.
+    /// Reserved. Not read by `Model::invalidate`, which drops every
+    /// archived-card tier on any `cards` invalidation: a `false` here cannot
+    /// tell "no archival change" apart from "this command did not say", and
+    /// `merge` would let a silent archive command hide behind another
+    /// command's `card_columns` for the same card. Make "unchanged"
+    /// positively assertable before anything narrows on this field.
     pub archival_changed: bool,
 }
 
@@ -184,6 +189,16 @@ mod tests {
         let column = Uuid::new_v4();
         let ids = EntityIds {
             card_columns: std::collections::HashMap::from([(card, HashSet::from([column]))]),
+            ..Default::default()
+        };
+
+        assert!(ids.is_empty());
+    }
+
+    #[test]
+    fn test_entity_ids_with_only_archival_changed_is_still_empty() {
+        let ids = EntityIds {
+            archival_changed: true,
             ..Default::default()
         };
 
