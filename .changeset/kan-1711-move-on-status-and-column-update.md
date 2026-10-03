@@ -1,0 +1,5 @@
+---
+bump: minor
+---
+
+service: a card update that sets both `status` and `column_id` (`PATCH /v1/cards/{id}`, `PATCH /v1/boards/{board_id}/cards/{id}`, `POST /v1/cards/batch/update`) now moves the card like a column-only update: it appends to the destination column, follows it onto the destination board, drops a sprint not on that board, and enforces the destination's WIP limit (409 `WIP_LIMIT_EXCEEDED` where it used to succeed); the explicit status is kept. Previously the card kept its old board, position and sprint. domain: `UpdateCard` refuses to move a card onto another board's column (422 `VALIDATION_FAILED`), which also refuses a batch update that moves one card to another board and back. A card already left inconsistent is repaired by `POST /v1/cards/{id}/move` to its current column.

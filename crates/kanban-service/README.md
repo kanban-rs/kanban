@@ -207,7 +207,7 @@ itself has no pagination parameters.
 |--------|-------------|
 | `archive_cards(ids)` | Archive multiple cards; returns count |
 | `move_cards(ids, column_id)` | Move multiple cards; returns count |
-| `update_cards(updates)` | Per-card updates as one undo unit; auto-syncs the status ↔ completion-column invariant when only one side of a pair is set |
+| `update_cards(updates)` | Per-card updates as one undo unit; a `column_id` change always moves the card through `MoveCard`; when only one of `status`/`column_id` is set the other is auto-synced, when both are set the explicit status is kept |
 | `assign_cards_to_sprint(ids, sprint_id)` | Bulk sprint assignment; returns count |
 | `archive_cards_detailed(ids)` | Archive with per-card success/failure report |
 | `move_cards_detailed(ids, column_id)` | Move with per-card success/failure report |
