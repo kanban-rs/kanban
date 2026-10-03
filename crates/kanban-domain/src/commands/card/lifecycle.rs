@@ -1,7 +1,7 @@
 use super::super::{Command, CommandContext};
 use super::CardCommand;
 use crate::data_store::DataStore;
-use crate::{CardUpdate, CreateCardOptions, DomainError, KanbanError, KanbanResult, NewCard};
+use crate::{CardUpdate, CreateCardOptions, KanbanError, KanbanResult, NewCard};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -159,13 +159,7 @@ impl CreateCard {
 
         if let Some(sprint_id) = self.options.sprint_id {
             let sprint = context.get_sprint(sprint_id)?;
-            if sprint.board_id != self.board_id {
-                return Err(KanbanError::Domain(DomainError::SprintBoardMismatch {
-                    sprint_id,
-                    sprint_board: sprint.board_id,
-                    card_board: self.board_id,
-                }));
-            }
+            crate::sprint_membership::require_sprint_on_board(&sprint, self.board_id)?;
             let sprint_number = sprint.sprint_number;
             let sprint_name = sprint.get_name(&board).map(|s| s.to_string());
             let sprint_status = format!("{:?}", sprint.status);
