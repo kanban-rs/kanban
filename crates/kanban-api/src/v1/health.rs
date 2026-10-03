@@ -1,7 +1,32 @@
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+/// Body of `GET /health`. Shared by `kanban-server` and `HttpBackend`'s
+/// open probe so the field names cannot drift.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HealthResponse {
+    pub status: String,
+    pub instance_id: Uuid,
+    /// The server's `KANBAN_VERSION`. Absent from servers that predate the
+    /// version handshake, which decode as `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+}
+
+impl HealthResponse {
+    pub fn ok(instance_id: Uuid, version: &str) -> Self {
+        Self {
+            status: "ok".to_string(),
+            instance_id,
+            version: Some(version.to_string()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::HealthResponse;
-    use uuid::Uuid;
+    use super::*;
 
     #[test]
     fn test_health_response_without_a_version_field_decodes_as_none() {

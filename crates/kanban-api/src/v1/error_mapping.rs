@@ -42,7 +42,8 @@ impl From<&KanbanError> for ApiError {
             KanbanError::Transport(_) => ErrorCode::UpstreamUnavailable,
             // A backend gap is a server fault, not a client error.
             KanbanError::Unsupported { .. } => ErrorCode::InternalError,
-            KanbanError::UnsupportedFutureVersion { .. } => ErrorCode::UnsupportedVersion,
+            KanbanError::UnsupportedFutureVersion { .. }
+            | KanbanError::UnsupportedServerVersion { .. } => ErrorCode::UnsupportedVersion,
         };
         // Public-message policy — exhaustive over `ErrorCode` so a new code must
         // declare whether it may expose the underlying error detail.
