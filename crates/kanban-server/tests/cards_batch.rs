@@ -97,6 +97,84 @@ async fn test_batch_archive_route_reports_per_id_success_and_failure_sqlite() {
     .await;
 }
 
+async fn scenario_batch_archive_counts_an_already_archived_card_as_succeeded(state: AppState) {
+    let (board_id, _col_id, c1, c2) = seed_two_cards(&state).await;
+
+    let archive_response = send(&state, "POST", &format!("/v1/cards/{}/archive", c1), None).await;
+    assert_eq!(archive_response.status(), StatusCode::OK);
+
+    let archived_before_resp = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{}/archived-cards", board_id),
+        None,
+    )
+    .await;
+    let archived_before = json_of(archived_before_resp).await;
+    let c1_archived_at_before = archived_before["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["entity_id"] == c1.to_string())
+        .expect("c1 must be archived")
+        .get("archived_at")
+        .cloned()
+        .expect("archived_at must be present");
+
+    let response = send(
+        &state,
+        "POST",
+        "/v1/cards/batch/archive",
+        Some(&json!({ "ids": [c1, c2] })),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_of(response).await;
+    let succeeded: Vec<String> = body["succeeded"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(succeeded, vec![c1.to_string(), c2.to_string()]);
+    assert!(body["failed"].as_array().unwrap().is_empty());
+
+    let archived_after_resp = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{}/archived-cards", board_id),
+        None,
+    )
+    .await;
+    let archived_after = json_of(archived_after_resp).await;
+    let items = archived_after["items"].as_array().unwrap();
+    let c1_entry = items
+        .iter()
+        .find(|c| c["entity_id"] == c1.to_string())
+        .expect("c1 must still be archived");
+    assert_eq!(c1_entry["archived_at"], c1_archived_at_before);
+    assert!(items.iter().any(|c| c["entity_id"] == c2.to_string()));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_batch_archive_route_counts_an_already_archived_card_as_succeeded_json() {
+    let dir = tempdir().unwrap();
+    scenario_batch_archive_counts_an_already_archived_card_as_succeeded(make_state(
+        &dir.path().join("s.json"),
+    ))
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_batch_archive_route_counts_an_already_archived_card_as_succeeded_sqlite() {
+    let dir = tempdir().unwrap();
+    scenario_batch_archive_counts_an_already_archived_card_as_succeeded(
+        make_sqlite_state(&dir.path().join("s.sqlite")).await,
+    )
+    .await;
+}
+
 async fn scenario_batch_archive_path_not_captured_by_flat_card_id_route(state: AppState) {
     let (_board_id, _col_id, c1, c2) = seed_two_cards(&state).await;
 

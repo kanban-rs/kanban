@@ -28,11 +28,13 @@ derive the count from that outcome instead of the local before/after diff, so
 the count can differ from a local run. Three cases are pinned by the
 divergence tests in `tests/write_parity.rs`: a card already on the target
 sprint (`assign_cards_to_sprint`) or already in the target column
-(`move_cards`) counts as succeeded over HTTP and 0 locally, and a batch made
-only of already-archived cards is an error over HTTP (every id fails the
-server's live-card check, and an all-failed outcome becomes an error) where
-locally it counts 0. The store state and the `Invalidation` match in those
-three. The list is not exhaustive: a batch with duplicate ids, or a
+(`move_cards`) counts as succeeded over HTTP and 0 locally, and an
+already-archived card in an archive batch (`archive_cards`) counts as
+succeeded over HTTP and 0 locally. The store state matches in all three; the
+`Invalidation` matches too, except for a batch made only of already-archived
+cards, where the server reports an empty `Invalidation::Entities` (nothing
+changed) and a local run reports `Invalidation::All`. The list is not
+exhaustive: a batch with duplicate ids, or a
 `move_cards` batch mixing known and unknown ids, also diverges. The six graph
 edge mutations (`attach_children`,
 `detach_children`, `block`, `unblock`, `relate`, `dissociate`) are diverted the

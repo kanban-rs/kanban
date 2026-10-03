@@ -1195,7 +1195,7 @@ async fn test_update_cards_with_remote_writes_but_no_batch_writes_declines_with_
 }
 
 #[tokio::test]
-async fn test_archive_cards_detailed_transport_error_fails_every_id_with_an_empty_invalidation() {
+async fn test_archive_cards_detailed_transport_error_fails_every_id_and_invalidates_all() {
     let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
     let a = Uuid::new_v4();
     let b = Uuid::new_v4();
@@ -1217,7 +1217,63 @@ async fn test_archive_cards_detailed_transport_error_fails_every_id_with_an_empt
         "got: {:?}",
         result.failed
     );
-    assert_eq!(inv, Invalidation::Entities(EntityIds::default()));
+    assert_eq!(inv, Invalidation::All);
+    assert!(rw.calls().is_empty());
+}
+
+#[tokio::test]
+async fn test_move_cards_detailed_transport_error_fails_every_id_and_invalidates_all() {
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let a = Uuid::new_v4();
+    let b = Uuid::new_v4();
+    let column_id = Uuid::new_v4();
+    let batch_rw = Arc::new(RecordingBatchWrites::new_transport_error(
+        "connection refused",
+    ));
+    let mut ctx = open_ctx_with_batch_writes(rw.clone(), batch_rw.clone()).await;
+
+    let (result, inv) = ctx.move_cards_detailed(vec![a, b], column_id);
+
+    assert!(result.succeeded.is_empty(), "got: {:?}", result.succeeded);
+    let failed_ids: Vec<Uuid> = result.failed.iter().map(|f| f.id).collect();
+    assert_eq!(failed_ids, vec![a, b]);
+    assert!(
+        result
+            .failed
+            .iter()
+            .all(|f| f.error.contains("connection refused")),
+        "got: {:?}",
+        result.failed
+    );
+    assert_eq!(inv, Invalidation::All);
+    assert!(rw.calls().is_empty());
+}
+
+#[tokio::test]
+async fn test_assign_cards_to_sprint_detailed_transport_error_fails_every_id_and_invalidates_all() {
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let a = Uuid::new_v4();
+    let b = Uuid::new_v4();
+    let sprint_id = Uuid::new_v4();
+    let batch_rw = Arc::new(RecordingBatchWrites::new_transport_error(
+        "connection refused",
+    ));
+    let mut ctx = open_ctx_with_batch_writes(rw.clone(), batch_rw.clone()).await;
+
+    let (result, inv) = ctx.assign_cards_to_sprint_detailed(vec![a, b], sprint_id);
+
+    assert!(result.succeeded.is_empty(), "got: {:?}", result.succeeded);
+    let failed_ids: Vec<Uuid> = result.failed.iter().map(|f| f.id).collect();
+    assert_eq!(failed_ids, vec![a, b]);
+    assert!(
+        result
+            .failed
+            .iter()
+            .all(|f| f.error.contains("connection refused")),
+        "got: {:?}",
+        result.failed
+    );
+    assert_eq!(inv, Invalidation::All);
     assert!(rw.calls().is_empty());
 }
 
