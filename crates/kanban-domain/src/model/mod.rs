@@ -46,9 +46,12 @@ pub struct Model {
     sprints_by_board: HashMap<Uuid, LoadState<Vec<Sprint>>>,
     archived_cards_by_board: HashMap<Uuid, LoadState<Vec<ArchivedCard>>>,
     /// Reverse index from card id to the column whose `cards_by_column`
-    /// entry currently holds it. Maintained only by `set_cards_of_column`;
-    /// without it, resolving a card by id through the scoped tier would scan
-    /// every column's bucket on every rendered row.
+    /// entry most recently loaded it. Maintained only by
+    /// `set_cards_of_column`; without it, resolving a card by id through the
+    /// scoped tier would scan every column's bucket on every rendered row.
+    /// It holds one column per card, so while a stale and a fresh scope both
+    /// hold a moved card it names only the later write; `Model::invalidate`
+    /// scans the tier itself to find every scope holding a card.
     scoped_card_index: HashMap<Uuid, Uuid>,
 }
 

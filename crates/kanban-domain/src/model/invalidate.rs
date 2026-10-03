@@ -19,13 +19,14 @@ impl Model {
     ///
     /// A `cards` id narrows to just its own `cards_by_column` scopes when
     /// `ids.card_columns` names every one of `ids.cards`: the named columns
-    /// drop, and so does the column `scoped_card_index` says currently holds
-    /// each card, so a producer that names only the destination of a move
-    /// cannot leave the source scope serving a stale copy. A producer must
-    /// still name every column it put a card INTO; the model can recover
-    /// where a card was, never where it went. Otherwise the whole
-    /// `cards_by_column` tier drops. The four `archived_*` tiers drop on
-    /// every `cards` invalidation, narrow or not.
+    /// drop, and so does every cached scope that holds a named card (each
+    /// `Loaded` scope whose rows contain it, plus the scope
+    /// `scoped_card_index` points at, which may be `Failed`). A stale copy in
+    /// a move's source scope therefore drops whether or not the producer
+    /// names it. A producer must still name every column it put a card INTO,
+    /// because a scope loaded before the move does not hold the card yet.
+    /// Otherwise the whole `cards_by_column` tier drops. The four
+    /// `archived_*` tiers drop on every `cards` invalidation, narrow or not.
     ///
     /// `scoped_card_index` is a reverse index over `cards_by_column`; every
     /// clear of that tier here clears the matching index entries too, so
@@ -1290,7 +1291,9 @@ mod tests {
         m.set_cards_of_column(col_d.id, LoadState::Loaded(vec![other.clone()]));
         assert_eq!(m.scoped_card_index.get(&stale_k.id), Some(&col_b.id));
         assert_eq!(
-            m.column_cards_state(col_a.id).loaded().map(|cards| cards.len()),
+            m.column_cards_state(col_a.id)
+                .loaded()
+                .map(|cards| cards.len()),
             Some(1)
         );
 
@@ -1310,8 +1313,7 @@ mod tests {
     }
 
     #[test]
-    fn test_exact_invalidation_of_a_move_drops_a_stale_duplicate_scope_the_producer_did_not_name()
-    {
+    fn test_exact_invalidation_of_a_move_drops_a_stale_duplicate_scope_the_producer_did_not_name() {
         let board = Board::new("B", None::<String>);
         let col_a = Column::new(board.id, "A", 0);
         let col_b = Column::new(board.id, "B", 1);
@@ -1352,7 +1354,10 @@ mod tests {
             Arc::new(KanbanError::unsupported("boom")),
         );
         m.set_cards_of_column(col_b.id, LoadState::Loaded(vec![]));
-        assert!(matches!(m.column_cards_state(col_a.id), LoadState::Failed(_)));
+        assert!(matches!(
+            m.column_cards_state(col_a.id),
+            LoadState::Failed(_)
+        ));
 
         let ids = EntityIds {
             cards: [k.id].into(),
