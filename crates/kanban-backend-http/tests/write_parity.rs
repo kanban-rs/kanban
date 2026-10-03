@@ -1,14 +1,14 @@
 use kanban_backend_http::HttpBackend;
 use kanban_domain::{
     ArchivedBoard, ArchivedCard, Board, BoardUpdate, Card, CardPriority, CardStatus, CardUpdate,
-    Column, ColumnUpdate, CreateCardOptions, FieldUpdate, GraphOperations, KanbanOperations,
-    NewBoard, NewCard, NewColumn, Prefix, RelatesKind, Severity, SortField, SortOrder, Sprint,
-    SprintUpdate, TaskListView,
+    Column, ColumnUpdate, CreateCardOptions, EntityIds, FieldUpdate, GraphOperations, Invalidation,
+    KanbanOperations, KanbanResult, NewBoard, NewCard, NewColumn, Prefix, RelatesKind, Severity,
+    SortField, SortOrder, Sprint, SprintUpdate, TaskListView,
 };
 use kanban_persistence_json::{JsonDataStore, JsonFileStore};
 use kanban_persistence_sqlite::SqliteBackend;
 use kanban_server::test_helpers::TestServer;
-use kanban_service::{AppConfig, KanbanContext};
+use kanban_service::{AppConfig, BatchOperationResult, KanbanContext};
 use std::path::Path;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -209,8 +209,19 @@ fn snapshot(ctx: &KanbanContext) -> GraphSnapshot {
     }
 }
 
+fn epoch() -> chrono::DateTime<chrono::Utc> {
+    chrono::DateTime::from_timestamp(0, 0).unwrap()
+}
+
+fn canonicalize_sprint(sp: &mut Sprint, epoch: chrono::DateTime<chrono::Utc>) {
+    sp.created_at = epoch;
+    sp.updated_at = epoch;
+    sp.start_date = sp.start_date.map(|_| epoch);
+    sp.end_date = sp.end_date.map(|_| epoch);
+}
+
 fn canonicalize(s: &mut GraphSnapshot) {
-    let epoch = chrono::DateTime::from_timestamp(0, 0).unwrap();
+    let epoch = epoch();
 
     for b in s.boards.iter_mut() {
         b.created_at = epoch;
@@ -224,10 +235,7 @@ fn canonicalize(s: &mut GraphSnapshot) {
         canonicalize_card(c, epoch);
     }
     for sp in s.sprints.iter_mut() {
-        sp.created_at = epoch;
-        sp.updated_at = epoch;
-        sp.start_date = sp.start_date.map(|_| epoch);
-        sp.end_date = sp.end_date.map(|_| epoch);
+        canonicalize_sprint(sp, epoch);
     }
     for a in s.archived_cards.iter_mut() {
         a.metadata.archived_at = epoch;
@@ -989,7 +997,11 @@ struct Seeded {
     card_a: Uuid,
     card_b: Uuid,
     card_c: Uuid,
+    card_d: Uuid,
     sprint_id: Uuid,
+    other_board_id: Uuid,
+    backlog: Uuid,
+    card_e: Uuid,
 }
 
 fn seed_graph(ctx: &mut KanbanContext) -> Seeded {
@@ -1048,6 +1060,36 @@ fn seed_graph(ctx: &mut KanbanContext) -> Seeded {
     ctx.archive_card(card_b).unwrap();
     ctx.attach_children(card_a, vec![card_c]).unwrap();
 
+    let card_d = ctx
+        .create_card(
+            board_id,
+            todo,
+            "Card D".to_string(),
+            CreateCardOptions::default(),
+        )
+        .unwrap()
+        .id;
+    let other_board_id = ctx
+        .create_board("Other".to_string(), Some("OTH".to_string()))
+        .unwrap()
+        .id;
+    let backlog = ctx
+        .create_column(other_board_id, "Backlog".to_string(), None)
+        .unwrap()
+        .id;
+    let card_e = ctx
+        .create_card(
+            other_board_id,
+            backlog,
+            "Card E".to_string(),
+            CreateCardOptions::default(),
+        )
+        .unwrap()
+        .id;
+    ctx.block(card_d, card_a, Severity::Medium).unwrap();
+    ctx.relate(card_d, card_e, RelatesKind::MentionedIn)
+        .unwrap();
+
     Seeded {
         board_id,
         todo,
@@ -1055,15 +1097,86 @@ fn seed_graph(ctx: &mut KanbanContext) -> Seeded {
         card_a,
         card_b,
         card_c,
+        card_d,
         sprint_id,
+        other_board_id,
+        backlog,
+        card_e,
     }
 }
 
-async fn op_parity<S>(
+#[derive(Debug, PartialEq)]
+enum Outcome {
+    Invalidated(Invalidation),
+    Counted(usize, Invalidation),
+    Card(Card, Invalidation),
+    Sprint(Sprint, Invalidation),
+    Batch {
+        succeeded: Vec<Uuid>,
+        failed: Vec<(Uuid, String)>,
+        invalidation: Invalidation,
+    },
+    Rejected(String),
+}
+
+type Outcomes = Vec<(&'static str, Outcome)>;
+
+impl Outcome {
+    fn unit(r: KanbanResult<((), Invalidation)>) -> Self {
+        r.map_or_else(
+            |e| Self::Rejected(e.to_string()),
+            |((), inv)| Self::Invalidated(inv),
+        )
+    }
+    fn invalidated(r: KanbanResult<Invalidation>) -> Self {
+        r.map_or_else(|e| Self::Rejected(e.to_string()), Self::Invalidated)
+    }
+    fn counted(r: KanbanResult<(usize, Invalidation)>) -> Self {
+        r.map_or_else(
+            |e| Self::Rejected(e.to_string()),
+            |(n, inv)| Self::Counted(n, inv),
+        )
+    }
+    fn card(r: KanbanResult<(Card, Invalidation)>) -> Self {
+        r.map_or_else(
+            |e| Self::Rejected(e.to_string()),
+            |(mut card, inv)| {
+                canonicalize_card(&mut card, epoch());
+                card.sprint_logs.clear();
+                Self::Card(card, inv)
+            },
+        )
+    }
+    fn sprint(r: KanbanResult<(Sprint, Invalidation)>) -> Self {
+        r.map_or_else(
+            |e| Self::Rejected(e.to_string()),
+            |(mut sprint, inv)| {
+                canonicalize_sprint(&mut sprint, epoch());
+                Self::Sprint(sprint, inv)
+            },
+        )
+    }
+    fn batch((result, invalidation): (BatchOperationResult, Invalidation)) -> Self {
+        Self::Batch {
+            succeeded: result.succeeded,
+            failed: result.failed.into_iter().map(|f| (f.id, f.error)).collect(),
+            invalidation,
+        }
+    }
+}
+
+struct BothRuns {
+    remote: Outcomes,
+    local: Outcomes,
+    remote_snap: GraphSnapshot,
+    control_snap: GraphSnapshot,
+}
+
+async fn run_both<S>(
     kind: Backend,
     seed: impl FnOnce(&mut KanbanContext) -> S,
-    op: impl Fn(&mut KanbanContext, &S),
-) {
+    op: impl Fn(&mut KanbanContext, &S) -> Outcomes,
+) -> BothRuns {
     let dir = tempfile::tempdir().unwrap();
     let remote_path = dir.path().join("remote.store");
     let control_path = dir.path().join("control.store");
@@ -1076,15 +1189,15 @@ async fn op_parity<S>(
     copy_store(kind, &remote_path, &control_path);
 
     let server = start_server(kind, &remote_path).await;
-    let mut remote = ctx_over(&server).await;
-    op(&mut remote, &seeded);
-    drop(remote);
+    let mut remote_ctx = ctx_over(&server).await;
+    let remote = op(&mut remote_ctx, &seeded);
+    drop(remote_ctx);
     server.shutdown().await;
 
-    let mut local = open_local(kind, &control_path).await;
-    op(&mut local, &seeded);
-    local.save().await.unwrap();
-    drop(local);
+    let mut local_ctx = open_local(kind, &control_path).await;
+    let local = op(&mut local_ctx, &seeded);
+    local_ctx.save().await.unwrap();
+    drop(local_ctx);
 
     let remote_reopened = open_local(kind, &remote_path).await;
     let local_reopened = open_local(kind, &control_path).await;
@@ -1100,14 +1213,69 @@ async fn op_parity<S>(
     canonicalize(&mut remote_snap);
     canonicalize(&mut control_snap);
 
-    assert_snapshot_eq(&remote_snap, &control_snap);
+    BothRuns {
+        remote,
+        local,
+        remote_snap,
+        control_snap,
+    }
+}
+
+async fn op_parity<S>(
+    kind: Backend,
+    seed: impl FnOnce(&mut KanbanContext) -> S,
+    op: impl Fn(&mut KanbanContext, &S) -> Outcomes,
+) -> BothRuns {
+    let runs = run_both(kind, seed, op).await;
+    assert_snapshot_eq(&runs.remote_snap, &runs.control_snap);
+    assert_no_rejections("remote", &runs.remote);
+    assert_no_rejections("local", &runs.local);
+    assert_outcomes_eq(&runs.remote, &runs.local);
+    runs
+}
+
+fn assert_no_rejections(side: &str, outcomes: &Outcomes) {
+    for (label, outcome) in outcomes {
+        assert!(
+            !matches!(outcome, Outcome::Rejected(_)),
+            "{side} op `{label}` was rejected: {outcome:?}"
+        );
+    }
+}
+
+fn assert_outcomes_eq(remote: &Outcomes, local: &Outcomes) {
+    let labels = |o: &Outcomes| o.iter().map(|(l, _)| *l).collect::<Vec<_>>();
+    assert_eq!(labels(remote), labels(local), "op outcome labels");
+    for ((label, r), (_, l)) in remote.iter().zip(local) {
+        assert_eq!(r, l, "op outcome `{label}` differs between HTTP and local");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[should_panic(expected = "differs between HTTP and local")]
+async fn test_op_parity_panics_when_remote_and_local_outcomes_differ() {
+    let counter = std::cell::Cell::new(0usize);
+    op_parity(Backend::Json, seed_graph, |_ctx, _s| {
+        let n = counter.get();
+        counter.set(n + 1);
+        vec![("probe", Outcome::Counted(n, Invalidation::All))]
+    })
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_op_parity_harness_matches_local_for_an_already_diverted_card_archive_json() {
     op_parity(Backend::Json, seed_graph, |ctx, s| {
-        let _ = ctx.archive_card_impl(s.card_a).unwrap();
-        let _ = ctx.restore_card_impl(s.card_a, None).unwrap();
+        vec![
+            (
+                "archive_card",
+                Outcome::unit(ctx.archive_card_impl(s.card_a)),
+            ),
+            (
+                "restore_card",
+                Outcome::card(ctx.restore_card_impl(s.card_a, None)),
+            ),
+        ]
     })
     .await;
 }
@@ -1115,8 +1283,16 @@ async fn test_op_parity_harness_matches_local_for_an_already_diverted_card_archi
 #[tokio::test(flavor = "multi_thread")]
 async fn test_op_parity_harness_matches_local_for_an_already_diverted_card_archive_sqlite() {
     op_parity(Backend::Sqlite, seed_graph, |ctx, s| {
-        let _ = ctx.archive_card_impl(s.card_a).unwrap();
-        let _ = ctx.restore_card_impl(s.card_a, None).unwrap();
+        vec![
+            (
+                "archive_card",
+                Outcome::unit(ctx.archive_card_impl(s.card_a)),
+            ),
+            (
+                "restore_card",
+                Outcome::card(ctx.restore_card_impl(s.card_a, None)),
+            ),
+        ]
     })
     .await;
 }
@@ -1157,17 +1333,36 @@ async fn test_attach_no_children_over_http_returns_the_same_invalidation_as_loca
 
 async fn remote_graph_ops(kind: Backend) {
     op_parity(kind, seed_graph, |ctx, s: &Seeded| {
-        let _ = ctx.attach_children_impl(s.card_a, vec![s.card_b]).unwrap();
-        let _ = ctx.block_impl(s.card_c, s.card_a, Severity::High).unwrap();
-        let _ = ctx
-            .relate_impl(s.card_b, s.card_c, RelatesKind::Duplicates)
-            .unwrap();
-        let _ = ctx
-            .relate_impl(s.card_a, s.card_c, RelatesKind::General)
-            .unwrap();
-        let _ = ctx.unblock_impl(s.card_c, s.card_a).unwrap();
-        let _ = ctx.dissociate_impl(s.card_a, s.card_c).unwrap();
-        let _ = ctx.detach_children_impl(s.card_a, vec![s.card_c]).unwrap();
+        vec![
+            (
+                "attach_children",
+                Outcome::invalidated(ctx.attach_children_impl(s.card_a, vec![s.card_b])),
+            ),
+            (
+                "block",
+                Outcome::invalidated(ctx.block_impl(s.card_c, s.card_a, Severity::High)),
+            ),
+            (
+                "relate_duplicates",
+                Outcome::invalidated(ctx.relate_impl(s.card_b, s.card_c, RelatesKind::Duplicates)),
+            ),
+            (
+                "relate_general",
+                Outcome::invalidated(ctx.relate_impl(s.card_a, s.card_c, RelatesKind::General)),
+            ),
+            (
+                "unblock",
+                Outcome::invalidated(ctx.unblock_impl(s.card_c, s.card_a)),
+            ),
+            (
+                "dissociate",
+                Outcome::invalidated(ctx.dissociate_impl(s.card_a, s.card_c)),
+            ),
+            (
+                "detach_children",
+                Outcome::invalidated(ctx.detach_children_impl(s.card_a, vec![s.card_c])),
+            ),
+        ]
     })
     .await;
 }
@@ -1195,11 +1390,16 @@ async fn test_seed_graph_leaves_a_non_trivial_graph() {
     assert_ne!(seeded.card_a, Uuid::nil(), "card_a");
     assert_ne!(seeded.card_b, Uuid::nil(), "card_b");
     assert_ne!(seeded.card_c, Uuid::nil(), "card_c");
+    assert_ne!(seeded.card_d, Uuid::nil(), "card_d");
     assert_ne!(seeded.sprint_id, Uuid::nil(), "sprint_id");
+    assert_ne!(seeded.other_board_id, Uuid::nil(), "other_board_id");
+    assert_ne!(seeded.backlog, Uuid::nil(), "backlog");
+    assert_ne!(seeded.card_e, Uuid::nil(), "card_e");
 
     let ds = ctx.data_store();
-    assert_eq!(ds.list_all_columns().unwrap().len(), 2, "columns");
-    assert_eq!(ds.list_all_cards().unwrap().len(), 2, "live cards");
+    assert_eq!(ds.list_boards().unwrap().len(), 2, "boards");
+    assert_eq!(ds.list_all_columns().unwrap().len(), 3, "columns");
+    assert_eq!(ds.list_all_cards().unwrap().len(), 4, "live cards");
     assert_eq!(ds.list_all_sprints().unwrap().len(), 1, "sprints");
     assert_eq!(ds.list_archived_cards().unwrap().len(), 1, "archived_cards");
     assert!(
@@ -1209,16 +1409,30 @@ async fn test_seed_graph_leaves_a_non_trivial_graph() {
 
     let graph = ds.get_graph().unwrap();
     assert_eq!(graph.spawns_edges().len(), 1, "spawns edges");
+    assert_eq!(graph.blocks_edges().len(), 1, "blocks edges");
+    assert_eq!(graph.relates_edges().len(), 1, "relates edges");
 }
 
 async fn card_move_and_sprint_parity(kind: Backend) {
     op_parity(kind, seed_graph, |ctx, s| {
-        let _ = ctx.move_card_impl(s.card_a, s.done, None).unwrap();
-        let _ = ctx.move_card_impl(s.card_a, s.todo, Some(0)).unwrap();
-        let _ = ctx.unassign_card_from_sprint_impl(s.card_c).unwrap();
-        let _ = ctx
-            .assign_card_to_sprint_impl(s.card_a, s.sprint_id)
-            .unwrap();
+        vec![
+            (
+                "move_card_to_done",
+                Outcome::card(ctx.move_card_impl(s.card_a, s.done, None)),
+            ),
+            (
+                "move_card_to_todo",
+                Outcome::card(ctx.move_card_impl(s.card_a, s.todo, Some(0))),
+            ),
+            (
+                "unassign_card_from_sprint",
+                Outcome::card(ctx.unassign_card_from_sprint_impl(s.card_c)),
+            ),
+            (
+                "assign_card_to_sprint",
+                Outcome::card(ctx.assign_card_to_sprint_impl(s.card_a, s.sprint_id)),
+            ),
+        ]
     })
     .await;
 }
@@ -1235,20 +1449,30 @@ async fn test_remote_move_and_sprint_binding_leave_graph_equal_to_local_sqlite()
 
 async fn batch_ops_parity(kind: Backend) {
     op_parity(kind, seed_graph, |ctx, s| {
-        let _ = ctx.move_cards_impl(vec![s.card_a], s.done).unwrap();
-        let _ = ctx
-            .assign_cards_to_sprint_impl(vec![s.card_a], s.sprint_id)
-            .unwrap();
-        let _ = ctx
-            .update_cards_impl(vec![(
-                s.card_a,
-                CardUpdate {
-                    title: Some("A2".into()),
-                    ..Default::default()
-                },
-            )])
-            .unwrap();
-        let _ = ctx.archive_cards_impl(vec![s.card_a]).unwrap();
+        vec![
+            (
+                "move_cards",
+                Outcome::counted(ctx.move_cards_impl(vec![s.card_a], s.done)),
+            ),
+            (
+                "assign_cards_to_sprint",
+                Outcome::counted(ctx.assign_cards_to_sprint_impl(vec![s.card_a], s.sprint_id)),
+            ),
+            (
+                "update_cards",
+                Outcome::counted(ctx.update_cards_impl(vec![(
+                    s.card_a,
+                    CardUpdate {
+                        title: Some("A2".into()),
+                        ..Default::default()
+                    },
+                )])),
+            ),
+            (
+                "archive_cards",
+                Outcome::counted(ctx.archive_cards_impl(vec![s.card_a])),
+            ),
+        ]
     })
     .await;
 }
@@ -1360,24 +1584,44 @@ async fn test_unassign_card_from_sprint_over_http_issues_exactly_one_request() {
 const S1: Uuid = Uuid::from_u128(0x5171);
 const S2: Uuid = Uuid::from_u128(0x5172);
 
-fn sprint_crud_ops(ctx: &mut KanbanContext, s: &Seeded) {
-    let _ = ctx
-        .create_sprint_from_spec(s.board_id, Some(S1), Some("Named".into()), None, false)
-        .unwrap();
-    let _ = ctx
-        .create_sprint_from_spec(s.board_id, Some(S2), None, Some("ALT".into()), false)
-        .unwrap();
-    let _ = ctx
-        .update_sprint_impl(
-            S1,
-            SprintUpdate {
-                name: Some("Renamed".into()),
-                start_date: FieldUpdate::Set(fixed_due()),
-                ..Default::default()
-            },
-        )
-        .unwrap();
-    let _ = ctx.delete_sprint_impl(s.sprint_id).unwrap();
+fn sprint_crud_ops(ctx: &mut KanbanContext, s: &Seeded) -> Outcomes {
+    vec![
+        (
+            "create_sprint_named",
+            Outcome::sprint(ctx.create_sprint_from_spec(
+                s.board_id,
+                Some(S1),
+                Some("Named".into()),
+                None,
+                false,
+            )),
+        ),
+        (
+            "create_sprint_alt_prefix",
+            Outcome::sprint(ctx.create_sprint_from_spec(
+                s.board_id,
+                Some(S2),
+                None,
+                Some("ALT".into()),
+                false,
+            )),
+        ),
+        (
+            "update_sprint",
+            Outcome::sprint(ctx.update_sprint_impl(
+                S1,
+                SprintUpdate {
+                    name: Some("Renamed".into()),
+                    start_date: FieldUpdate::Set(fixed_due()),
+                    ..Default::default()
+                },
+            )),
+        ),
+        (
+            "delete_sprint",
+            Outcome::invalidated(ctx.delete_sprint_impl(s.sprint_id)),
+        ),
+    ]
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1406,17 +1650,22 @@ fn seed_lifecycle_graph(ctx: &mut KanbanContext) -> LifecycleSeeded {
     }
 }
 
-fn sprint_lifecycle_ops(ctx: &mut KanbanContext, s: &LifecycleSeeded) {
-    let _ = ctx.activate_sprint_impl(s.base.sprint_id, Some(7)).unwrap();
-    let _ = ctx.complete_sprint_impl(s.base.sprint_id).unwrap();
-    let (moved, _) = ctx
-        .carry_over_sprint_cards_impl(s.base.sprint_id, s.second_sprint)
-        .unwrap();
-    assert_eq!(
-        moved, 2,
-        "card_a and card_c are uncompleted in the first sprint"
+fn sprint_lifecycle_ops(ctx: &mut KanbanContext, s: &LifecycleSeeded) -> Outcomes {
+    let activate = Outcome::sprint(ctx.activate_sprint_impl(s.base.sprint_id, Some(7)));
+    let complete = Outcome::sprint(ctx.complete_sprint_impl(s.base.sprint_id));
+    let carry_over =
+        Outcome::counted(ctx.carry_over_sprint_cards_impl(s.base.sprint_id, s.second_sprint));
+    assert!(
+        matches!(carry_over, Outcome::Counted(2, _)),
+        "card_a and card_c are uncompleted in the first sprint: {carry_over:?}"
     );
-    let _ = ctx.cancel_sprint_impl(s.second_sprint).unwrap();
+    let cancel = Outcome::sprint(ctx.cancel_sprint_impl(s.second_sprint));
+    vec![
+        ("activate_sprint", activate),
+        ("complete_sprint", complete),
+        ("carry_over_sprint_cards", carry_over),
+        ("cancel_sprint", cancel),
+    ]
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1488,4 +1737,175 @@ async fn test_sprint_lifecycle_over_http_issues_one_flat_write_and_at_most_one_b
 
     drop(ctx);
     server.shutdown().await;
+}
+
+const UNKNOWN_CARD: Uuid = Uuid::from_u128(0xdead_beef);
+
+fn detailed_batch_ops(ctx: &mut KanbanContext, s: &Seeded) -> Outcomes {
+    vec![
+        (
+            "move_cards_detailed dup and unknown",
+            Outcome::batch(ctx.move_cards_detailed(vec![s.card_a, s.card_a, UNKNOWN_CARD], s.done)),
+        ),
+        (
+            "move_cards_detailed cross-board",
+            Outcome::batch(ctx.move_cards_detailed(vec![s.card_e], s.todo)),
+        ),
+        (
+            "assign_cards_to_sprint_detailed archived, already-in, unknown",
+            Outcome::batch(ctx.assign_cards_to_sprint_detailed(
+                vec![s.card_a, s.card_b, s.card_c, UNKNOWN_CARD],
+                s.sprint_id,
+            )),
+        ),
+        (
+            "archive_cards_detailed all failed",
+            Outcome::batch(ctx.archive_cards_detailed(vec![s.card_b, UNKNOWN_CARD])),
+        ),
+        (
+            "archive_cards_detailed live and archived",
+            Outcome::batch(ctx.archive_cards_detailed(vec![s.card_a, s.card_b])),
+        ),
+        (
+            "archive_cards live and archived",
+            Outcome::counted(ctx.archive_cards_impl(vec![s.card_d, s.card_b])),
+        ),
+    ]
+}
+
+fn batch_shape(o: &Outcome) -> (usize, usize) {
+    match o {
+        Outcome::Batch {
+            succeeded, failed, ..
+        } => (succeeded.len(), failed.len()),
+        other => panic!("expected a batch outcome, got {other:?}"),
+    }
+}
+
+async fn detailed_batch_parity(kind: Backend) {
+    let runs = op_parity(kind, seed_graph, detailed_batch_ops).await;
+    let shapes: Vec<_> = runs.remote[..5]
+        .iter()
+        .map(|(_, o)| batch_shape(o))
+        .collect();
+    assert_eq!(shapes, vec![(1, 1), (1, 0), (2, 2), (0, 2), (1, 1)]);
+    assert!(matches!(
+        &runs.remote[3].1,
+        Outcome::Batch { invalidation: Invalidation::Entities(ids), .. } if *ids == EntityIds::default()
+    ));
+    assert_eq!(runs.remote[5].1, Outcome::Counted(1, Invalidation::All));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_remote_detailed_batch_ops_return_the_same_outcome_as_local_json() {
+    detailed_batch_parity(Backend::Json).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_remote_detailed_batch_ops_return_the_same_outcome_as_local_sqlite() {
+    detailed_batch_parity(Backend::Sqlite).await;
+}
+
+async fn already_in_column_move_count_divergence(kind: Backend) {
+    let runs = run_both(kind, seed_graph, |ctx, s| {
+        vec![(
+            "move_cards",
+            Outcome::counted(ctx.move_cards_impl(vec![s.card_a], s.todo)),
+        )]
+    })
+    .await;
+    assert_snapshot_eq(&runs.remote_snap, &runs.control_snap);
+    let (Outcome::Counted(remote_n, remote_inv), Outcome::Counted(local_n, local_inv)) =
+        (&runs.remote[0].1, &runs.local[0].1)
+    else {
+        panic!(
+            "expected two counts, got {:?} and {:?}",
+            runs.remote[0].1, runs.local[0].1
+        );
+    };
+    assert_eq!(
+        (*remote_n, *local_n),
+        (1, 0),
+        "already-in-column move counts 1 over HTTP, 0 locally"
+    );
+    assert_eq!(remote_inv, local_inv, "invalidation must still match");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_move_cards_already_in_the_target_column_counts_one_over_http_and_zero_locally_json() {
+    already_in_column_move_count_divergence(Backend::Json).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_move_cards_already_in_the_target_column_counts_one_over_http_and_zero_locally_sqlite()
+{
+    already_in_column_move_count_divergence(Backend::Sqlite).await;
+}
+
+async fn already_in_sprint_assign_count_divergence(kind: Backend) {
+    let runs = run_both(kind, seed_graph, |ctx, s| {
+        vec![(
+            "assign_cards_to_sprint",
+            Outcome::counted(ctx.assign_cards_to_sprint_impl(vec![s.card_c], s.sprint_id)),
+        )]
+    })
+    .await;
+    assert_snapshot_eq(&runs.remote_snap, &runs.control_snap);
+    let (Outcome::Counted(remote_n, remote_inv), Outcome::Counted(local_n, local_inv)) =
+        (&runs.remote[0].1, &runs.local[0].1)
+    else {
+        panic!(
+            "expected two counts, got {:?} and {:?}",
+            runs.remote[0].1, runs.local[0].1
+        );
+    };
+    assert_eq!(
+        (*remote_n, *local_n),
+        (1, 0),
+        "already-in-the-sprint assign counts 1 over HTTP, 0 locally"
+    );
+    assert_eq!(remote_inv, local_inv, "invalidation must still match");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_assign_cards_already_in_the_sprint_counts_one_over_http_and_zero_locally_json() {
+    already_in_sprint_assign_count_divergence(Backend::Json).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_assign_cards_already_in_the_sprint_counts_one_over_http_and_zero_locally_sqlite() {
+    already_in_sprint_assign_count_divergence(Backend::Sqlite).await;
+}
+
+async fn archived_only_archive_count_divergence(kind: Backend) {
+    let runs = run_both(kind, seed_graph, |ctx, s| {
+        vec![(
+            "archive_cards",
+            Outcome::counted(ctx.archive_cards_impl(vec![s.card_b])),
+        )]
+    })
+    .await;
+    assert_snapshot_eq(&runs.remote_snap, &runs.control_snap);
+    assert!(
+        matches!(&runs.remote[0].1, Outcome::Rejected(_)),
+        "an all-archived batch must be rejected over HTTP, got {:?}",
+        runs.remote[0].1
+    );
+    assert_eq!(
+        runs.local[0].1,
+        Outcome::Counted(0, Invalidation::All),
+        "an all-archived batch counts 0 locally"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_archive_cards_of_only_archived_cards_is_rejected_over_http_and_counts_zero_locally_json(
+) {
+    archived_only_archive_count_divergence(Backend::Json).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_archive_cards_of_only_archived_cards_is_rejected_over_http_and_counts_zero_locally_sqlite(
+) {
+    archived_only_archive_count_divergence(Backend::Sqlite).await;
 }
