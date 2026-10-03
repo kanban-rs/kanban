@@ -152,21 +152,27 @@ fn test_update_card_moving_a_card_to_another_boards_column_returns_validation_be
     let card = kanban_domain::Card::new(board_a.id, Uuid::new_v4(), "Card", 0);
     let card_id = card.id;
     let orig_column_id = card.column_id;
+    let sprint_b = kanban_domain::Sprint::new(board_b.id, 1, None, Some("Sprint"));
+    let sprint_id = sprint_b.id;
     tc.store.upsert_board(board_a.clone()).unwrap();
     tc.store.upsert_board(board_b).unwrap();
     tc.store.upsert_column(col_b).unwrap();
     tc.store.upsert_card(card).unwrap();
+    tc.store.upsert_sprint(sprint_b).unwrap();
 
     let context = tc.as_command_context();
     let cmd = UpdateCard {
         card_id,
         updates: CardUpdate {
             column_id: Some(col_b_id),
+            sprint_id: FieldUpdate::Set(sprint_id),
             ..CardUpdate::default()
         },
     };
     let result = cmd.execute(&context);
-    assert!(result.unwrap_err().is_validation());
+    let err = result.unwrap_err();
+    assert!(err.is_validation());
+    assert!(!err.is_sprint_board_mismatch());
 
     let stored = tc.store.get_card(card_id).unwrap().unwrap();
     assert_eq!(stored.column_id, orig_column_id);
