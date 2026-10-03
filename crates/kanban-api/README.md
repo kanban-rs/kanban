@@ -52,6 +52,7 @@ graph TD
     DOM[kanban-domain] --> CORE[kanban-core]
     API[kanban-api] --> CORE
     API --> DOM
+    BE[kanban-backend] --> API
     BEHTTP[kanban-backend-http] --> API
     SVC[kanban-service] --> API
 ```
@@ -73,4 +74,4 @@ for the full workspace dependency graph.
 
 ## Related crates
 
-Used by: [kanban-backend-http](../kanban-backend-http/README.md) (HTTP request/response bodies) and [kanban-service](../kanban-service/README.md) (re-exported as `kanban_service::api` for MCP/server consumers).
+Used by: [kanban-backend](../kanban-backend/README.md) (`ApiError` carried per failed id in `RemoteBatchOutcome.failed`), [kanban-backend-http](../kanban-backend-http/README.md) (HTTP request/response bodies) and [kanban-service](../kanban-service/README.md) (re-exported as `kanban_service::api` for MCP/server consumers).

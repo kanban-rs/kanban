@@ -143,6 +143,7 @@ including the contract test suite and `register_backend` wiring on
 graph TD
     CORE[kanban-core]
     DOM[kanban-domain]
+    API[kanban-api]
     PER[kanban-persistence]
     BE[kanban-backend]
     BEMEM[kanban-backend-memory]
@@ -157,6 +158,7 @@ graph TD
 
     BE --> CORE
     BE --> DOM
+    BE --> API
     BE --> PER
 
     BEMEM --> BE
@@ -179,6 +181,7 @@ the [root README](../../README.md) for the full workspace dependency graph
 
 | Crate | Purpose |
 |-------|---------|
+| [`kanban-api`](../kanban-api/README.md) | `ApiError` carried per failed id in `RemoteBatchOutcome.failed` |
 | [`kanban-core`](../kanban-core/README.md) | `KanbanResult`, `AppConfig`, `HealthChecker` |
 | [`kanban-domain`](../kanban-domain/README.md) | `DataStore`, `CommandStore` traits this crate's trait is built on |
 | [`kanban-persistence`](../kanban-persistence/README.md) | `PersistenceMetadata` type surfaced by the `LocalPersistence` capability |

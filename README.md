@@ -413,6 +413,7 @@ graph TD
 
     BE --> CORE
     BE --> DOM
+    BE --> API
     BE --> PER
     BEMEM --> DOM
     BEMEM --> BE

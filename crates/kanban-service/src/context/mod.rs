@@ -59,9 +59,13 @@ pub(super) fn remote_batch_count(
     outcome: kanban_backend::RemoteBatchOutcome,
 ) -> KanbanResult<usize> {
     if outcome.succeeded.is_empty() {
-        if let Some((_, error)) = outcome.failed.first() {
-            return Err(kanban_domain::KanbanError::validation(error.clone()));
-        }
+        return match outcome.failed.into_iter().next() {
+            Some((_, api_error)) => Err(kanban_domain::KanbanError::from(api_error)),
+            None => Ok(0),
+        };
+    }
+    for (id, api_error) in &outcome.failed {
+        tracing::warn!(%id, error = %api_error, "remote batch: id failed and was not applied");
     }
     Ok(outcome.succeeded.len())
 }
@@ -73,13 +77,10 @@ impl From<kanban_backend::RemoteBatchOutcome> for BatchOperationResult {
             failed: outcome
                 .failed
                 .into_iter()
-                .map(|(id, error)| BatchOperationFailure {
-                    api_error: kanban_api::ApiError::new(
-                        kanban_api::ErrorCode::ValidationFailed,
-                        error.clone(),
-                    ),
+                .map(|(id, api_error)| BatchOperationFailure {
                     id,
-                    error,
+                    error: api_error.message.clone(),
+                    api_error,
                 })
                 .collect(),
         }

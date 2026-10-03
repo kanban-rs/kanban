@@ -22,7 +22,7 @@ pub(crate) fn outcome_from_response(resp: &BatchOperationResponse) -> RemoteBatc
         failed: resp
             .failed
             .iter()
-            .map(|f| (f.id, f.error.clone()))
+            .map(|f| (f.id, f.to_api_error()))
             .collect(),
     }
 }
@@ -30,7 +30,7 @@ pub(crate) fn outcome_from_response(resp: &BatchOperationResponse) -> RemoteBatc
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kanban_api::BatchFailure;
+    use kanban_api::{ApiError, BatchFailure, ErrorCode};
     use kanban_domain::{FieldUpdate, Invalidation};
 
     #[test]
@@ -47,7 +47,34 @@ mod tests {
         let outcome = outcome_from_response(&resp);
 
         assert_eq!(outcome.succeeded, vec![a, b]);
-        assert_eq!(outcome.failed, vec![(c, "Card c not found".to_string())]);
+        assert_eq!(
+            outcome.failed,
+            vec![(
+                c,
+                ApiError::new(ErrorCode::ValidationFailed, "Card c not found")
+            )]
+        );
+    }
+
+    #[test]
+    fn test_outcome_from_response_keeps_the_wire_code() {
+        let a = Uuid::new_v4();
+        let c = Uuid::new_v4();
+        let resp = BatchOperationResponse::new(
+            vec![a],
+            vec![BatchFailure::from_api_error(
+                c,
+                &ApiError::new(ErrorCode::NotFound, "Card c not found"),
+            )],
+            &Invalidation::All,
+        );
+
+        let outcome = outcome_from_response(&resp);
+
+        assert_eq!(
+            outcome.failed,
+            vec![(c, ApiError::new(ErrorCode::NotFound, "Card c not found"))]
+        );
     }
 
     #[test]

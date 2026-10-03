@@ -35,8 +35,14 @@ succeeded over HTTP and 0 locally. The store state matches in all three; the
 cards, where the server reports an empty `Invalidation::Entities` (nothing
 changed) and a local run reports `Invalidation::All`. The list is not
 exhaustive: a batch with duplicate ids, or a
-`move_cards` batch mixing known and unknown ids, also diverges. The six graph
-edge mutations (`attach_children`,
+`move_cards` batch mixing known and unknown ids, also diverges. Each per-id
+failure carries the server's `ErrorCode`, and an all-failed `(count,
+Invalidation)` call is rebuilt through the same `From<ApiError> for
+KanbanError` as every other remote error, so a server fault surfaces as
+`KanbanError::Internal`, one of the four dependency-graph codes as its typed
+`DependencyError` variant, and any other client error as a `Validation` error
+whose message carries the code (e.g. `validation error: NOT_FOUND: Card <id>
+not found`). The six graph edge mutations (`attach_children`,
 `detach_children`, `block`, `unblock`, `relate`, `dissociate`) are diverted the
 same way via `RemoteGraphWrites` (`src/remote_writes/graph.rs`) and
 `KanbanBackend::remote_graph_writes()`: each is a single request against the

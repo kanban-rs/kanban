@@ -2,8 +2,8 @@ use kanban_backend::RemoteGraphWrites;
 use kanban_backend_http::HttpBackend;
 use kanban_domain::{
     CardPriority, CardStatus, CardUpdate, Column, ColumnUpdate, EntityIds, FieldUpdate,
-    GraphOperations, Invalidation, KanbanOperations, KanbanResult, NewBoard, NewCard, NewColumn,
-    RelatesKind, Severity, SprintStatus, SprintUpdate,
+    GraphOperations, Invalidation, KanbanError, KanbanOperations, KanbanResult, NewBoard, NewCard,
+    NewColumn, RelatesKind, Severity, SprintStatus, SprintUpdate,
 };
 use kanban_server::test_helpers::TestServer;
 use kanban_service::{AppConfig, KanbanContext};
@@ -723,6 +723,22 @@ async fn test_archive_cards_over_http_re_archiving_an_archived_card_returns_ok()
 
     assert_eq!(count, 1);
     assert_eq!(invalidation, Invalidation::Entities(EntityIds::default()));
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_archive_cards_over_http_with_only_unknown_ids_returns_the_not_found_code_in_the_error(
+) {
+    let server = TestServer::start().await;
+    let mut ctx = ctx_over(&server).await;
+
+    let err = ctx
+        .archive_cards_impl(vec![Uuid::new_v4()])
+        .expect_err("archiving only unknown ids should fail over http");
+
+    assert!(matches!(err, KanbanError::Domain(_)), "got: {err:?}");
+    assert!(err.to_string().contains("NOT_FOUND"), "got: {err}");
 
     server.shutdown().await;
 }

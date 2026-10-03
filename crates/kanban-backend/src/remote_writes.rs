@@ -68,11 +68,11 @@ pub trait RemoteCardWrites: Send + Sync {
 }
 
 /// Outcome of a batch mutation on [`RemoteBatchWrites`]: ids that succeeded,
-/// and ids that failed paired with the remote authority's message for each.
+/// and ids that failed paired with the remote authority's typed error.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RemoteBatchOutcome {
     pub succeeded: Vec<Uuid>,
-    pub failed: Vec<(Uuid, String)>,
+    pub failed: Vec<(Uuid, kanban_api::ApiError)>,
 }
 
 /// See [`RemoteBoardWrites`].
@@ -137,6 +137,7 @@ pub trait RemoteGraphWrites: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kanban_api::{ApiError, ErrorCode};
     use kanban_domain::EntityIds;
 
     struct Probe;
@@ -153,7 +154,10 @@ mod tests {
         ) -> KanbanResult<(RemoteBatchOutcome, Invalidation)> {
             let outcome = RemoteBatchOutcome {
                 succeeded: vec![ids[0]],
-                failed: vec![(ids[1], "Card b not found".to_string())],
+                failed: vec![(
+                    ids[1],
+                    ApiError::new(ErrorCode::NotFound, "Card b not found"),
+                )],
             };
             Ok((outcome, Invalidation::Entities(EntityIds::default())))
         }
@@ -184,7 +188,10 @@ mod tests {
         let (outcome, _invalidation) = probe.move_cards(&[a, b], Uuid::new_v4())?;
 
         assert_eq!(outcome.succeeded, vec![a]);
-        assert_eq!(outcome.failed, vec![(b, "Card b not found".to_string())]);
+        assert_eq!(
+            outcome.failed,
+            vec![(b, ApiError::new(ErrorCode::NotFound, "Card b not found"))]
+        );
         Ok(())
     }
 
