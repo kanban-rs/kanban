@@ -37,7 +37,14 @@ impl UpdateCard {
     }
 
     pub fn touched_entities(&self) -> Option<crate::EntityIds> {
-        Some(crate::EntityIds::cards([self.card_id]))
+        let mut ids = crate::EntityIds::cards([self.card_id]);
+        if let Some(column_id) = self.updates.column_id {
+            ids.card_columns
+                .entry(self.card_id)
+                .or_default()
+                .insert(column_id);
+        }
+        Some(ids)
     }
 
     /// Inverse: read the card's current state and synthesise an
