@@ -997,7 +997,11 @@ struct Seeded {
     card_a: Uuid,
     card_b: Uuid,
     card_c: Uuid,
+    card_d: Uuid,
     sprint_id: Uuid,
+    other_board_id: Uuid,
+    backlog: Uuid,
+    card_e: Uuid,
 }
 
 fn seed_graph(ctx: &mut KanbanContext) -> Seeded {
@@ -1056,6 +1060,36 @@ fn seed_graph(ctx: &mut KanbanContext) -> Seeded {
     ctx.archive_card(card_b).unwrap();
     ctx.attach_children(card_a, vec![card_c]).unwrap();
 
+    let card_d = ctx
+        .create_card(
+            board_id,
+            todo,
+            "Card D".to_string(),
+            CreateCardOptions::default(),
+        )
+        .unwrap()
+        .id;
+    let other_board_id = ctx
+        .create_board("Other".to_string(), Some("OTH".to_string()))
+        .unwrap()
+        .id;
+    let backlog = ctx
+        .create_column(other_board_id, "Backlog".to_string(), None)
+        .unwrap()
+        .id;
+    let card_e = ctx
+        .create_card(
+            other_board_id,
+            backlog,
+            "Card E".to_string(),
+            CreateCardOptions::default(),
+        )
+        .unwrap()
+        .id;
+    ctx.block(card_d, card_a, Severity::Medium).unwrap();
+    ctx.relate(card_d, card_e, RelatesKind::MentionedIn)
+        .unwrap();
+
     Seeded {
         board_id,
         todo,
@@ -1063,7 +1097,11 @@ fn seed_graph(ctx: &mut KanbanContext) -> Seeded {
         card_a,
         card_b,
         card_c,
+        card_d,
         sprint_id,
+        other_board_id,
+        backlog,
+        card_e,
     }
 }
 
