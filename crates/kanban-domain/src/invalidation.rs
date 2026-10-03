@@ -136,6 +136,20 @@ pub fn invalidation_from_inverse(inverse: &[crate::commands::Command]) -> Invali
     Invalidation::Entities(acc)
 }
 
+/// Derives a forward mutation's [`Invalidation`] from the batch and its
+/// captured inverse. The inverse decides `Entities` versus `All`, exactly as
+/// [`invalidation_from_inverse`]; the forward batch only contributes
+/// `card_columns` (and `archival_changed`), because only it knows where a
+/// moved card went. A forward command that cannot enumerate its entities
+/// contributes nothing.
+pub fn invalidation_from_batch(
+    forward: &[crate::commands::Command],
+    inverse: &[crate::commands::Command],
+) -> Invalidation {
+    let _ = forward;
+    invalidation_from_inverse(inverse)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -527,6 +541,108 @@ mod tests {
         }));
         assert_eq!(
             invalidation_from_inverse(std::slice::from_ref(&cmd)),
+            Invalidation::All
+        );
+    }
+
+    #[test]
+    fn test_move_card_touched_entities_names_the_destination_column() {
+        let card_id = Uuid::new_v4();
+        let col_b = Uuid::new_v4();
+        let cmd = Command::Card(CardCommand::Move(MoveCard {
+            card_id,
+            new_column_id: col_b,
+            new_position: 0,
+        }));
+        let ids = cmd.touched_entities().expect("enumerable");
+        assert_eq!(
+            ids.card_columns,
+            std::collections::HashMap::from([(card_id, HashSet::from([col_b]))])
+        );
+    }
+
+    #[test]
+    fn test_create_card_touched_entities_names_its_column() {
+        let id = Uuid::new_v4();
+        let board_id = Uuid::new_v4();
+        let column_id = Uuid::new_v4();
+        let cmd = Command::Card(CardCommand::Create(CreateCard {
+            id,
+            card_number: 1,
+            board_id,
+            column_id,
+            title: "t".into(),
+            position: 0,
+            options: CreateCardOptions::default(),
+            timestamp: Utc::now(),
+            default_card_prefix: "kan".into(),
+        }));
+        let ids = cmd.touched_entities().expect("enumerable");
+        assert_eq!(
+            ids.card_columns,
+            std::collections::HashMap::from([(id, HashSet::from([column_id]))])
+        );
+        assert_eq!(ids.boards, HashSet::from([board_id]));
+        assert!(ids.prefixes);
+    }
+
+    #[test]
+    fn test_invalidation_from_batch_names_both_the_source_and_destination_column() {
+        let card = Uuid::new_v4();
+        let col_a = Uuid::new_v4();
+        let col_b = Uuid::new_v4();
+        let forward = vec![Command::Card(CardCommand::Move(MoveCard {
+            card_id: card,
+            new_column_id: col_b,
+            new_position: 0,
+        }))];
+        let inverse = vec![Command::Card(CardCommand::Move(MoveCard {
+            card_id: card,
+            new_column_id: col_a,
+            new_position: 0,
+        }))];
+        match invalidation_from_batch(&forward, &inverse) {
+            Invalidation::Entities(ids) => {
+                assert_eq!(
+                    ids.card_columns,
+                    std::collections::HashMap::from([(card, HashSet::from([col_a, col_b]))])
+                );
+            }
+            Invalidation::All => panic!("expected Entities, got All"),
+        }
+    }
+
+    #[test]
+    fn test_invalidation_from_batch_ignores_an_unenumerable_forward_command() {
+        let column_id = Uuid::new_v4();
+        let forward = vec![Command::Card(CardCommand::CompactPositions(
+            CompactColumnPositions { column_id },
+        ))];
+        let inverse = vec![Command::Card(CardCommand::Move(MoveCard {
+            card_id: Uuid::new_v4(),
+            new_column_id: Uuid::new_v4(),
+            new_position: 0,
+        }))];
+        match invalidation_from_batch(&forward, &inverse) {
+            Invalidation::Entities(_) => {}
+            Invalidation::All => panic!("expected Entities, got All"),
+        }
+    }
+
+    #[test]
+    fn test_invalidation_from_batch_keeps_all_when_the_inverse_is_unenumerable() {
+        let forward = vec![Command::Card(CardCommand::Move(MoveCard {
+            card_id: Uuid::new_v4(),
+            new_column_id: Uuid::new_v4(),
+            new_position: 0,
+        }))];
+        let inverse = vec![Command::Card(CardCommand::CompactPositions(
+            CompactColumnPositions {
+                column_id: Uuid::new_v4(),
+            },
+        ))];
+        assert_eq!(
+            invalidation_from_batch(&forward, &inverse),
             Invalidation::All
         );
     }
