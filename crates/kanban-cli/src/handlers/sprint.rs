@@ -5,7 +5,7 @@ use crate::output;
 use kanban_core::{parse_datetime_input, resolve_page_params, PaginatedList};
 use kanban_domain::{FieldUpdate, KanbanOperations, Sprint, SprintUpdate};
 use kanban_service::api::SprintResponse;
-use kanban_service::resolve_sprint_name;
+use kanban_service::{resolve_committed_sprint_name, resolve_sprint_name};
 
 /// Project a domain `Sprint` into its wire `SprintResponse`, resolving the
 /// `name` against the owning board via the shared service helper so the JSON
@@ -13,6 +13,13 @@ use kanban_service::resolve_sprint_name;
 fn sprint_response(ctx: &CliContext, sprint: &Sprint) -> anyhow::Result<SprintResponse> {
     let name = resolve_sprint_name(ctx, sprint)?;
     Ok(SprintResponse::new(sprint, name))
+}
+
+/// Like [`sprint_response`], but for a sprint the caller has already
+/// committed: the name lookup degrades to `None` on failure instead of
+/// failing the command, because the write already happened.
+fn committed_sprint_response(ctx: &CliContext, sprint: &Sprint) -> SprintResponse {
+    SprintResponse::new(sprint, resolve_committed_sprint_name(ctx, sprint))
 }
 
 pub async fn handle(ctx: &mut CliContext, action: SprintAction) -> anyhow::Result<()> {
@@ -28,7 +35,7 @@ pub async fn handle(ctx: &mut CliContext, action: SprintAction) -> anyhow::Resul
             };
             let sprint = ctx.mutate(|c| c.create_sprint_impl(board_uuid, prefix, name))?;
             ctx.save().await?;
-            output::output_success(sprint_response(ctx, &sprint)?);
+            output::output_success(committed_sprint_response(ctx, &sprint));
         }
         SprintAction::List {
             board,
@@ -64,7 +71,7 @@ pub async fn handle(ctx: &mut CliContext, action: SprintAction) -> anyhow::Resul
                 Ok(s) => s,
                 Err(e) => return output::output_error(&e.to_string()),
             };
-            output::output_success(sprint_response(ctx, &sprint)?);
+            output::output_success(committed_sprint_response(ctx, &sprint));
         }
         SprintAction::Activate {
             board,
@@ -77,7 +84,7 @@ pub async fn handle(ctx: &mut CliContext, action: SprintAction) -> anyhow::Resul
             };
             let activated = ctx.mutate(|c| c.activate_sprint_impl(uuid, duration_days))?;
             ctx.save().await?;
-            output::output_success(sprint_response(ctx, &activated)?);
+            output::output_success(committed_sprint_response(ctx, &activated));
         }
         SprintAction::Complete { board, sprint } => {
             let uuid = match resolve_sprint_with_optional_board(ctx, &sprint, board.as_deref()) {
@@ -86,7 +93,7 @@ pub async fn handle(ctx: &mut CliContext, action: SprintAction) -> anyhow::Resul
             };
             let completed = ctx.mutate(|c| c.complete_sprint_impl(uuid))?;
             ctx.save().await?;
-            output::output_success(sprint_response(ctx, &completed)?);
+            output::output_success(committed_sprint_response(ctx, &completed));
         }
         SprintAction::Cancel { board, sprint } => {
             let uuid = match resolve_sprint_with_optional_board(ctx, &sprint, board.as_deref()) {
@@ -95,7 +102,7 @@ pub async fn handle(ctx: &mut CliContext, action: SprintAction) -> anyhow::Resul
             };
             let cancelled = ctx.mutate(|c| c.cancel_sprint_impl(uuid))?;
             ctx.save().await?;
-            output::output_success(sprint_response(ctx, &cancelled)?);
+            output::output_success(committed_sprint_response(ctx, &cancelled));
         }
         SprintAction::Delete { board, sprint } => {
             let uuid = match resolve_sprint_with_optional_board(ctx, &sprint, board.as_deref()) {
