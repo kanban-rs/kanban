@@ -459,6 +459,7 @@ mod tests {
    - Single version bump (highest precedence wins: patch < minor < major)
    - Automatic publish to crates.io
    - GitHub release created
+   - The `master` ruleset requires these CI checks to pass before the merge button enables: Format Check, Lint, Test, Test (Windows), Build, Build (no-tui), Release Validation, Changeset Check. This applies to hotfix PRs into `master` too. `develop` deliberately requires none. Renaming a job's `name:` in `.github/workflows/ci.yml` silently drops it from enforcement (or leaves the PR waiting forever on the old name), so update the `master` ruleset in the same PR. It also requires develop to be up to date with master; if a release's develop sync fails, open a PR that merges master into develop before the next release.
 
 ### Release Cadence
 
