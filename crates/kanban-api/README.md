@@ -22,7 +22,7 @@ pub use v1::{
     ChangeEventFrame, ChangeKind, CLIENT_ID_HEADER, ColumnResponse, CreateBoardRequest,
     CreateCardRequest,
     CreateColumnRequest, CreateSprintParts, CreateSprintRequest, DeleteResponse, EntityIdsDto,
-    EntityType, ErrorCode, InvalidationDto, MutationResponse, Page, PageParams, Patch,
+    EntityType, ErrorCode, HealthResponse, InvalidationDto, MutationResponse, Page, PageParams, Patch,
     PrefixResponse, RelatedEdgeDto,
     RelatesKindDto, ReorderColumnRequest, ReplaceBoardRequest,
     ReplaceCardRequest, ReplaceColumnRequest, ReplaceSprintRequest, SeverityDto, SortFieldDto,
@@ -37,6 +37,7 @@ pub use v1::{
 - `ChangeEventFrame` is the payload broadcast on `kanban-server`'s internal change-event channel; `entity_type`/`entity_id`/`kind` (`EntityType`, `ChangeKind`) name the single entity a mutation touched and how, retained for existing consumers; `invalidation` (`InvalidationDto`, wrapping `EntityIdsDto`) names the mutation's full blast radius, with `None` meaning the emitter could not describe the change and a consumer must treat it as invalidating everything.
 - `MutationResponse<T>` flattens a `T` entity DTO with an `invalidation` field, so create/update routes return the entity's usual fields alongside the mutation's blast radius while remaining parseable as the bare entity. `DeleteResponse` carries only `invalidation`, for routes that return no entity body.
 - `CLIENT_ID_HEADER` is the wire name of the client-identity request header, shared so the server's extractor and HTTP clients cannot drift.
+- `HealthResponse` is the body of `GET /health` (`status`, `instance_id`, and `version`, the server's kanban version; absent from servers that predate the version handshake, decoded as `None`), shared so the server and `HttpBackend`'s open probe cannot drift.
 
 The optional `schemars` feature (`dep:schemars`, `features = ["uuid1"]`) derives `schemars::JsonSchema` on these DTOs so `kanban-mcp` can use them directly as `Parameters<T>` for its tool handlers (rmcp requires a JSON Schema).
 

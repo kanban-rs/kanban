@@ -69,11 +69,16 @@ curl -s http://127.0.0.1:58548/health | jq
 ```json
 {
   "status": "ok",
-  "instance_id": "079131c7-ffac-4269-9dc6-5dee6af77097"
+  "instance_id": "079131c7-ffac-4269-9dc6-5dee6af77097",
+  "version": "0.11.0"
 }
 ```
 
 `instance_id` is a random UUID generated once per process start (`AppState::new`) — stable across requests within a run, and useful for a client to detect a server restart.
+
+### Version compatibility
+
+`HttpBackend` refuses to open a server whose `major.minor` is older than its own, or one that predates the version handshake and reports no `version` at all. A newer server is accepted. Upgrade the server before its clients. A patch release must not add a route or response field that clients depend on, since a client only checks the minor line.
 
 ```bash
 curl -s http://127.0.0.1:58548/v1/boards | jq
@@ -160,7 +165,7 @@ All request/response bodies are JSON. Errors share one envelope (see [Error Hand
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/health` | Liveness check. Returns `{"status": "ok", "instance_id": "<uuid>"}`. |
+| `GET` | `/health` | Liveness check and version handshake. Returns `{"status": "ok", "instance_id": "<uuid>", "version": "<kanban version>"}`. |
 
 ### Boards
 

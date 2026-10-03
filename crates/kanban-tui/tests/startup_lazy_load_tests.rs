@@ -722,3 +722,81 @@ mod backend_parity {
         server.shutdown().await;
     }
 }
+
+mod version_handshake {
+    use kanban_tui::App;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    fn test_store_manager() -> kanban_service::StoreManager {
+        let registry = kanban_persistence::StoreRegistry::new();
+        let mut backends = kanban_backend::KanbanBackendRegistry::new();
+        backends.register(Box::new(kanban_backend_http::HttpBackendFactory));
+        kanban_service::StoreManager::new(registry, backends)
+    }
+
+    fn find_headers_end(buf: &[u8]) -> Option<usize> {
+        buf.windows(4).position(|w| w == b"\r\n\r\n")
+    }
+
+    async fn serve_health_without_version() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let url = format!("http://{addr}");
+        tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = match listener.accept().await {
+                    Ok(conn) => conn,
+                    Err(_) => break,
+                };
+                tokio::spawn(async move {
+                    let mut buf = Vec::new();
+                    let mut tmp = [0u8; 4096];
+                    loop {
+                        let n = match socket.read(&mut tmp).await {
+                            Ok(n) => n,
+                            Err(_) => return,
+                        };
+                        buf.extend_from_slice(&tmp[..n]);
+                        if find_headers_end(&buf).is_some() || n == 0 {
+                            break;
+                        }
+                    }
+                    let body =
+                        r#"{"status":"ok","instance_id":"550e8400-e29b-41d4-a716-446655440000"}"#;
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = socket.write_all(response.as_bytes()).await;
+                    let _ = socket.shutdown().await;
+                });
+            }
+        });
+        url
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_tui_startup_against_a_server_without_a_version_fails_with_the_upgrade_message() {
+        let dir = tempfile::tempdir().unwrap();
+        let url = serve_health_without_version().await;
+        let sm = test_store_manager();
+        let config = kanban_core::AppConfig {
+            configuration_location: Some(
+                dir.path().join("config.toml").to_string_lossy().to_string(),
+            ),
+            ..Default::default()
+        };
+
+        let result = App::new_with_store_and_config(sm, Some(url), config).await;
+
+        match result {
+            Ok(_) => panic!("expected TUI startup to fail against a server without a version"),
+            Err(e) => assert!(
+                e.to_string()
+                    .contains("Upgrade the server before the client"),
+                "err: {e}"
+            ),
+        }
+    }
+}

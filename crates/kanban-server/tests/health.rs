@@ -43,6 +43,7 @@ async fn test_health_route_returns_ok_with_instance_id() {
     assert_eq!(json["status"], "ok");
     let instance_id = json["instance_id"].as_str().expect("instance_id present");
     uuid::Uuid::parse_str(instance_id).expect("instance_id is a valid uuid");
+    assert_eq!(json["version"], kanban_core::KANBAN_VERSION);
 }
 
 #[tokio::test(flavor = "multi_thread")]

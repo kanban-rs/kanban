@@ -7,6 +7,7 @@ mod error;
 mod error_mapping;
 mod events;
 mod graph;
+mod health;
 mod invalidation;
 mod mutation_response;
 mod pagination;
@@ -37,6 +38,7 @@ pub use graph::{
     AddBlockRequest, AddRelatedRequest, AttachChildrenRequest, BlockEdgeDto, CardGraphResponse,
     DetachChildrenRequest, RelatedEdgeDto,
 };
+pub use health::HealthResponse;
 pub use invalidation::{EntityIdsDto, InvalidationDto};
 pub use mutation_response::{DeleteResponse, MutationResponse};
 pub use pagination::{Page, PageParams};

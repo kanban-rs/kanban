@@ -335,6 +335,10 @@ pub enum KanbanError {
     ConflictDetected { path: String, source: Option<Box<dyn Error + Send + Sync>> },
     Database(String),
     Internal(String),
+    Transport(String),
+    Unsupported { operation: &'static str },
+    UnsupportedFutureVersion { file_version: u32, binary_max: u32 },
+    UnsupportedServerVersion { url: String, server_version: Option<String>, client_version: String },
 }
 ```
 

@@ -36,6 +36,61 @@ fn plain_error_lines(stderr: &str) -> Vec<&str> {
 
 #[cfg(feature = "http")]
 #[test]
+fn test_cli_startup_version_refusal_emits_one_error_envelope() {
+    let dir = tempdir().unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let url = format!("http://{addr}");
+    std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        for stream in listener.incoming() {
+            let mut stream = match stream {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf);
+            let body = r#"{"status":"ok","instance_id":"550e8400-e29b-41d4-a716-446655440000"}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(response.as_bytes());
+        }
+    });
+
+    let assert = kanban_no_config(dir.path())
+        .args([&url, "board", "list"])
+        .timeout(Duration::from_secs(60))
+        .assert()
+        .code(1);
+
+    let output = assert.get_output();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        plain_error_lines(&stderr).is_empty(),
+        "expected no plain 'Error: ' line, got stderr: {stderr}"
+    );
+
+    let envelopes = error_envelopes(&stderr);
+    assert_eq!(
+        envelopes.len(),
+        1,
+        "expected exactly one CliResponse error envelope, got stderr: {stderr}"
+    );
+
+    let error = envelopes[0]["error"].as_str().unwrap();
+    assert!(
+        error.contains("Upgrade the server before the client"),
+        "error was: {error}"
+    );
+    assert!(error.contains(&url), "error was: {error}");
+    assert!(!error.contains("health probe"), "error was: {error}");
+}
+
+#[cfg(feature = "http")]
+#[test]
 fn test_cli_startup_probe_failure_emits_the_cli_response_error_envelope() {
     let dir = tempdir().unwrap();
     let assert = kanban_no_config(dir.path())

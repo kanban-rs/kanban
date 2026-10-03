@@ -57,6 +57,14 @@ implement now fails fast with an explicit "not supported over the HTTP
 backend in v1" error instead of the generic `with_transaction` decline it hit
 before this crate had any `RemoteWrites` impl.
 
+## Version handshake
+
+`HttpBackend::probe()` (called by `KanbanContext::open`, before any write) reads the `version` field of `GET /health` and refuses to open when the server's `major.minor` is lower than this binary's, or the field is absent entirely (a server that predates the handshake). A newer server is accepted. The error names the URL, the server's version (or that it reports none), and this client's version, and says to upgrade the server first:
+
+```
+kanban server at http://host:5177 is v0.10.0, which is older than this client (v0.11.1). Upgrade the server before the client.
+```
+
 ## Key public exports
 
 ```rust
