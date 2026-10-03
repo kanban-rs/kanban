@@ -22,7 +22,7 @@ pub(crate) fn outcome_from_response(resp: &BatchOperationResponse) -> RemoteBatc
         failed: resp
             .failed
             .iter()
-            .map(|f| (f.id, f.error.clone()))
+            .map(|f| (f.id, f.to_api_error()))
             .collect(),
     }
 }

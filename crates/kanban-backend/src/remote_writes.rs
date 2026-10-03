@@ -68,11 +68,11 @@ pub trait RemoteCardWrites: Send + Sync {
 }
 
 /// Outcome of a batch mutation on [`RemoteBatchWrites`]: ids that succeeded,
-/// and ids that failed paired with the remote authority's message for each.
+/// and ids that failed paired with the remote authority's typed error.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RemoteBatchOutcome {
     pub succeeded: Vec<Uuid>,
-    pub failed: Vec<(Uuid, String)>,
+    pub failed: Vec<(Uuid, kanban_api::ApiError)>,
 }
 
 /// See [`RemoteBoardWrites`].
