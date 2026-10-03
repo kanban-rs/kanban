@@ -30,9 +30,49 @@ pub fn resolve_sprint_names<O: KanbanOperations + ?Sized>(
         .collect())
 }
 
+/// Write-side counterpart of [`resolve_sprint_name`] for a sprint the caller
+/// has already committed. A sprint returned without a `name_index` is read
+/// again by id first, because a backend that could not see the board's name
+/// pool at write time returns it unnamed. Any failed read degrades the name
+/// to `None` with a warning instead of failing the caller.
 pub fn resolve_committed_sprint_name<O: KanbanOperations + ?Sized>(
-    _ops: &O,
-    _sprint: &Sprint,
+    ops: &O,
+    sprint: &Sprint,
 ) -> Option<String> {
-    todo!("committed sprint name recovery")
+    let reread;
+    let sprint = if sprint.name_index.is_some() {
+        sprint
+    } else {
+        match ops.get_sprint(sprint.id) {
+            Ok(Some(fresh)) if fresh.name_index.is_some() => {
+                reread = fresh;
+                &reread
+            }
+            Ok(Some(_)) => return None,
+            Ok(None) => {
+                warn_committed_sprint_unnamed(sprint, &KanbanError::not_found("Sprint", sprint.id));
+                return None;
+            }
+            Err(e) => {
+                warn_committed_sprint_unnamed(sprint, &e);
+                return None;
+            }
+        }
+    };
+    match resolve_sprint_name(ops, sprint) {
+        Ok(name) => name,
+        Err(e) => {
+            warn_committed_sprint_unnamed(sprint, &e);
+            None
+        }
+    }
+}
+
+fn warn_committed_sprint_unnamed(sprint: &Sprint, error: &KanbanError) {
+    tracing::warn!(
+        board_id = %sprint.board_id,
+        sprint_id = %sprint.id,
+        error = %error,
+        "sprint write committed but its name lookup failed; reporting it unnamed"
+    );
 }
