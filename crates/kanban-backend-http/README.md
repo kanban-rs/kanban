@@ -20,11 +20,21 @@ them through its local command-execute-then-log path. The four card batch
 mutations (`archive_cards`, `move_cards`, `assign_cards_to_sprint`,
 `update_cards`) are diverted the same way via `RemoteBatchWrites`
 (`src/remote_writes/batch.rs`) and `KanbanBackend::remote_batch_writes()`:
-each is a single request against the `/v1/cards/batch/*` routes, returning
-the server's per-id outcome and its `Invalidation` verbatim instead of the
-local before/after-count diff, so a batch op that is a no-op locally (e.g.
-reassigning a card already on the target sprint) can still count as
-succeeded over HTTP. The six graph edge mutations (`attach_children`,
+each is a single request against the `/v1/cards/batch/*` routes, which run
+the `*_detailed` service functions server-side. The client returns the
+server's per-id outcome and its `Invalidation` verbatim, so the `*_detailed`
+variants match a local run exactly. The `(count, Invalidation)` variants
+derive the count from that outcome instead of the local before/after diff, so
+the count can differ from a local run. Three cases are pinned by the
+divergence tests in `tests/write_parity.rs`: a card already on the target
+sprint (`assign_cards_to_sprint`) or already in the target column
+(`move_cards`) counts as succeeded over HTTP and 0 locally, and a batch made
+only of already-archived cards is an error over HTTP (every id fails the
+server's live-card check, and an all-failed outcome becomes an error) where
+locally it counts 0. The store state and the `Invalidation` match in those
+three. The list is not exhaustive: a batch with duplicate ids, or a
+`move_cards` batch mixing known and unknown ids, also diverges. The six graph
+edge mutations (`attach_children`,
 `detach_children`, `block`, `unblock`, `relate`, `dissociate`) are diverted the
 same way via `RemoteGraphWrites` (`src/remote_writes/graph.rs`) and
 `KanbanBackend::remote_graph_writes()`: each is a single request against the
