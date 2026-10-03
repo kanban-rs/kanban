@@ -1127,3 +1127,91 @@ async fn test_patch_card_with_status_and_column_into_a_full_column_returns_409()
     assert_eq!(response.status(), StatusCode::CONFLICT);
     assert_eq!(json_of(response).await["code"], "WIP_LIMIT_EXCEEDED");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_assign_sprint_route_with_a_sprint_on_another_board_returns_422_sprint_board_mismatch()
+{
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let (card_id, sprint_b) = {
+        let mut ctx = state.ctx.lock().await;
+        let board_a = ctx
+            .create_board("A".to_string(), Some("AAA".to_string()))
+            .unwrap()
+            .id;
+        let col_a = ctx
+            .create_column(board_a, "Col".to_string(), None)
+            .unwrap()
+            .id;
+        let card_id = ctx
+            .create_card(board_a, col_a, "Task".to_string(), Default::default())
+            .unwrap()
+            .id;
+        let board_b = ctx
+            .create_board("B".to_string(), Some("BBB".to_string()))
+            .unwrap()
+            .id;
+        let sprint_b = ctx.create_sprint(board_b, None, None).unwrap().id;
+        (card_id, sprint_b)
+    };
+
+    let response = send(
+        &state,
+        "POST",
+        &format!("/v1/cards/{card_id}/assign-sprint?sprint_id={sprint_b}"),
+        None,
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(json_of(response).await["code"], "SPRINT_BOARD_MISMATCH");
+
+    let ctx = state.ctx.lock().await;
+    let card = ctx.get_card(card_id).unwrap().unwrap();
+    assert_eq!(card.sprint_id, None);
+    assert!(card.sprint_logs.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_patch_card_with_a_sprint_on_another_board_returns_422_sprint_board_mismatch() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let (card_id, sprint_b) = {
+        let mut ctx = state.ctx.lock().await;
+        let board_a = ctx
+            .create_board("A".to_string(), Some("AAA".to_string()))
+            .unwrap()
+            .id;
+        let col_a = ctx
+            .create_column(board_a, "Col".to_string(), None)
+            .unwrap()
+            .id;
+        let card_id = ctx
+            .create_card(board_a, col_a, "Task".to_string(), Default::default())
+            .unwrap()
+            .id;
+        let board_b = ctx
+            .create_board("B".to_string(), Some("BBB".to_string()))
+            .unwrap()
+            .id;
+        let sprint_b = ctx.create_sprint(board_b, None, None).unwrap().id;
+        (card_id, sprint_b)
+    };
+
+    let response = send(
+        &state,
+        "PATCH",
+        &format!("/v1/cards/{card_id}"),
+        Some(&json!({"sprint_id": sprint_b})),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(json_of(response).await["code"], "SPRINT_BOARD_MISMATCH");
+
+    let get_card = send(&state, "GET", &format!("/v1/cards/{card_id}"), None).await;
+    assert_eq!(get_card.status(), StatusCode::OK);
+    assert!(json_of(get_card).await["sprint_id"].is_null());
+}

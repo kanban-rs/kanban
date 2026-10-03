@@ -434,6 +434,79 @@ async fn test_batch_assign_sprint_route_assigns_and_is_visible_via_sprint_filter
     .await;
 }
 
+async fn scenario_batch_assign_sprint_route_fails_only_the_ids_on_another_board(state: AppState) {
+    let (_board_a_id, _col_id, c1, _c2) = seed_two_cards(&state).await;
+    let (b1, sprint_b) = {
+        let mut ctx = state.ctx.lock().await;
+        let board_b_id = ctx
+            .create_board("Other".to_string(), Some("OTH".to_string()))
+            .unwrap()
+            .id;
+        let col_b_id = ctx
+            .create_column(board_b_id, "To Do".to_string(), None)
+            .unwrap()
+            .id;
+        let b1 = ctx
+            .create_card(board_b_id, col_b_id, "B1".to_string(), Default::default())
+            .unwrap()
+            .id;
+        let sprint_b = ctx
+            .create_sprint(board_b_id, None, Some("Beta".to_string()))
+            .unwrap()
+            .id;
+        (b1, sprint_b)
+    };
+
+    let response = send(
+        &state,
+        "POST",
+        "/v1/cards/batch/assign-sprint",
+        Some(&json!({ "ids": [c1, b1], "sprint_id": sprint_b })),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_of(response).await;
+    let succeeded: Vec<String> = body["succeeded"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(succeeded, vec![b1.to_string()]);
+    let failed = body["failed"].as_array().unwrap();
+    assert_eq!(failed.len(), 1);
+    assert_eq!(failed[0]["id"], c1.to_string());
+    assert!(failed[0]["error"]
+        .as_str()
+        .unwrap()
+        .contains("belongs to board"));
+    assert_eq!(failed[0]["code"], "SPRINT_BOARD_MISMATCH");
+
+    let card1 = json_of(send(&state, "GET", &format!("/v1/cards/{c1}"), None).await).await;
+    assert!(card1["sprint_id"].is_null());
+    let card_b1 = json_of(send(&state, "GET", &format!("/v1/cards/{b1}"), None).await).await;
+    assert_eq!(card_b1["sprint_id"], sprint_b.to_string());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_batch_assign_sprint_route_fails_only_the_ids_on_another_board_json() {
+    let dir = tempdir().unwrap();
+    scenario_batch_assign_sprint_route_fails_only_the_ids_on_another_board(make_state(
+        &dir.path().join("s.json"),
+    ))
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_batch_assign_sprint_route_fails_only_the_ids_on_another_board_sqlite() {
+    let dir = tempdir().unwrap();
+    scenario_batch_assign_sprint_route_fails_only_the_ids_on_another_board(
+        make_sqlite_state(&dir.path().join("s.sqlite")).await,
+    )
+    .await;
+}
+
 async fn scenario_batch_update_route_applies_all_updates_atomically(state: AppState) {
     let (_board_id, _col_id, c1, c2) = seed_two_cards(&state).await;
 
