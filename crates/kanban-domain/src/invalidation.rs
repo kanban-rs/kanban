@@ -146,8 +146,17 @@ pub fn invalidation_from_batch(
     forward: &[crate::commands::Command],
     inverse: &[crate::commands::Command],
 ) -> Invalidation {
-    let _ = forward;
-    invalidation_from_inverse(inverse)
+    let mut acc = match invalidation_from_inverse(inverse) {
+        Invalidation::All => return Invalidation::All,
+        Invalidation::Entities(ids) => ids,
+    };
+    for ids in forward.iter().filter_map(|cmd| cmd.touched_entities()) {
+        for (card, columns) in ids.card_columns {
+            acc.card_columns.entry(card).or_default().extend(columns);
+        }
+        acc.archival_changed |= ids.archival_changed;
+    }
+    Invalidation::Entities(acc)
 }
 
 #[cfg(test)]

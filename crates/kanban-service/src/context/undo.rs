@@ -2,7 +2,8 @@ use super::KanbanContext;
 use kanban_core::KANBAN_VERSION;
 use kanban_domain::commands::{Command, CommandContext};
 use kanban_domain::{
-    invalidation_from_inverse, DataStore, Invalidation, KanbanError, KanbanResult, UndoOperations,
+    invalidation_from_batch, invalidation_from_inverse, DataStore, Invalidation, KanbanError,
+    KanbanResult, UndoOperations,
 };
 use std::sync::Arc;
 use uuid::Uuid;
@@ -84,7 +85,7 @@ impl KanbanContext {
             Ok(())
         }))?;
         let inverses: Vec<Command> = per_cmd_inverses.into_iter().rev().flatten().collect();
-        let invalidation = match invalidation_from_inverse(&inverses) {
+        let invalidation = match invalidation_from_batch(&commands, &inverses) {
             Invalidation::All => Invalidation::All,
             Invalidation::Entities(mut ids) => {
                 ids.merge(extra);

@@ -192,12 +192,17 @@ impl CreateCard {
     }
 
     pub fn touched_entities(&self) -> Option<crate::EntityIds> {
-        Some(crate::EntityIds {
+        let mut ids = crate::EntityIds {
             boards: [self.board_id].into(),
             cards: [self.id].into(),
             prefixes: true,
             ..Default::default()
-        })
+        };
+        ids.card_columns
+            .entry(self.id)
+            .or_default()
+            .insert(self.column_id);
+        Some(ids)
     }
 
     /// Inverse: delete the new card. `DeleteCard` is polymorphic over
