@@ -234,13 +234,15 @@ pub struct RestoreCard {
 }
 
 impl RestoreCard {
-    /// Inverse: archive the card again, preceded by a `MoveCard` back to
-    /// its original column/position plus a `RestoreSprintAttachment` when
-    /// the restore changed its board on a sprint-bound card. `capture_inverse`
-    /// runs before `execute`, so `store` still holds the pre-restore state
-    /// (reference-marker model). Mirrors `MoveCard::capture_inverse`: the
-    /// move back is itself a board change and may re-detach, so the
-    /// sprint restore is appended unconditionally, last, to win over that.
+    /// Inverse: archive the card again, preceded by a `RestoreCardPlacement`
+    /// back to its original column/board/position plus a
+    /// `RestoreSprintAttachment` when the restore changed its board on a
+    /// sprint-bound card. `capture_inverse` runs before `execute`, so `store`
+    /// still holds the pre-restore state (reference-marker model). The
+    /// placement is restored via the unchecked synthetic command rather than
+    /// `MoveCard`, because the original column may since have been deleted
+    /// (an archived card's column_id is allowed to dangle) or now be over its
+    /// WIP limit -- undo must land regardless.
     pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         let original = match store.get_card(self.card_id)? {
             Some(c) => c,
@@ -251,10 +253,11 @@ impl RestoreCard {
             .is_some_and(|target| target.board_id != original.board_id);
         if changes_board && original.sprint_id.is_some() {
             return Ok(vec![
-                Command::Card(CardCommand::Move(super::MoveCard {
+                Command::Card(CardCommand::RestorePlacement(super::RestoreCardPlacement {
                     card_id: self.card_id,
-                    new_column_id: original.column_id,
-                    new_position: original.position,
+                    column_id: original.column_id,
+                    board_id: original.board_id,
+                    position: original.position,
                 })),
                 Command::Card(CardCommand::RestoreSprintAttachment(
                     super::RestoreCardSprintAttachment {

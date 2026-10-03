@@ -5,6 +5,50 @@ use crate::{KanbanError, KanbanResult};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// Restore a card's `column_id`, `board_id`, and `position` to a captured
+/// pre-state, without `MoveCard`'s column-existence or WIP-limit checks.
+/// Emitted by `RestoreCard`'s inverse: the pre-restore placement can point
+/// at a column later deleted while the card stayed archived, or at a column
+/// now full, and undo must land unconditionally either way.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RestoreCardPlacement {
+    pub card_id: Uuid,
+    pub column_id: Uuid,
+    pub board_id: Uuid,
+    pub position: i32,
+}
+
+impl RestoreCardPlacement {
+    pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
+        let mut card = context.get_card(self.card_id)?;
+        card.column_id = self.column_id;
+        card.board_id = self.board_id;
+        card.position = self.position;
+        context.store.upsert_card(card)?;
+        Ok(())
+    }
+
+    pub fn description(&self) -> String {
+        format!("Restore placement for card {}", self.card_id)
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        let mut ids = crate::EntityIds::cards([self.card_id]);
+        ids.card_columns
+            .entry(self.card_id)
+            .or_default()
+            .insert(self.column_id);
+        Some(ids)
+    }
+
+    pub fn capture_inverse(&self, _store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
+        Err(KanbanError::Internal(format!(
+            "RestoreCardPlacement is a synthetic command: it must only appear inside an inverse batch (RestoreCard undo), never as a top-level forward command. Card id: {}",
+            self.card_id
+        )))
+    }
+}
+
 /// Move card to a different column
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MoveCard {
