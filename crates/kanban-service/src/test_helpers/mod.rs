@@ -253,8 +253,8 @@ macro_rules! context_contract_tests {
             $crate::test_helpers::contract::sprint_board::test_update_moving_a_card_cross_board_with_a_sprint_on_the_target_board_succeeds(&$factory_fn()).await;
         }
         #[tokio::test(flavor = "multi_thread")]
-        async fn test_update_with_status_and_a_cross_board_column_and_sprint_is_refused() {
-            $crate::test_helpers::contract::sprint_board::test_update_with_status_and_a_cross_board_column_and_sprint_is_refused(&$factory_fn()).await;
+        async fn test_update_with_status_and_a_cross_board_column_binds_the_destination_boards_sprint() {
+            $crate::test_helpers::contract::sprint_board::test_update_with_status_and_a_cross_board_column_binds_the_destination_boards_sprint(&$factory_fn()).await;
         }
         #[tokio::test(flavor = "multi_thread")]
         async fn test_a_pre_existing_cross_board_binding_still_reads_and_survives_an_unrelated_edit() {
@@ -279,6 +279,10 @@ macro_rules! context_contract_tests {
         #[tokio::test(flavor = "multi_thread")]
         async fn test_update_moving_a_card_cross_board_while_resubmitting_its_old_sprint_is_refused() {
             $crate::test_helpers::contract::sprint_board::test_update_moving_a_card_cross_board_while_resubmitting_its_old_sprint_is_refused(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_update_with_status_and_a_cross_board_column_resubmitting_the_old_sprint_is_refused() {
+            $crate::test_helpers::contract::sprint_board::test_update_with_status_and_a_cross_board_column_resubmitting_the_old_sprint_is_refused(&$factory_fn()).await;
         }
         #[tokio::test(flavor = "multi_thread")]
         async fn test_restoring_an_archived_card_into_another_boards_column_detaches_its_sprint() {
@@ -473,6 +477,22 @@ macro_rules! context_contract_tests {
         #[tokio::test(flavor = "multi_thread")]
         async fn test_move_card_between_columns_roundtrip() {
             $crate::test_helpers::contract::movement::test_move_card_between_columns_roundtrip(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_update_with_status_and_a_cross_board_column_moves_the_card_and_undo_restores_the_whole_graph() {
+            $crate::test_helpers::contract::movement::test_update_with_status_and_a_cross_board_column_moves_the_card_and_undo_restores_the_whole_graph(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_update_with_status_and_a_same_board_column_appends_like_a_move() {
+            $crate::test_helpers::contract::movement::test_update_with_status_and_a_same_board_column_appends_like_a_move(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_update_with_status_and_a_cross_board_column_invalidates_the_source_and_destination_column() {
+            $crate::test_helpers::contract::movement::test_update_with_status_and_a_cross_board_column_invalidates_the_source_and_destination_column(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_update_cards_naming_one_card_twice_across_boards_is_refused_and_writes_nothing() {
+            $crate::test_helpers::contract::movement::test_update_cards_naming_one_card_twice_across_boards_is_refused_and_writes_nothing(&$factory_fn()).await;
         }
 
         // Lifecycle tests

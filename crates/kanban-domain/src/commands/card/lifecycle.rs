@@ -19,7 +19,13 @@ impl UpdateCard {
         // Validate a re-targeted column FK before mutating, mirroring MoveCard
         // (KAN-248). Without this an update could orphan card.column_id.
         if let Some(new_column_id) = self.updates.column_id {
-            context.require_column(new_column_id)?;
+            let column = context.require_column(new_column_id)?;
+            if new_column_id != card.column_id && column.board_id != card.board_id {
+                return Err(KanbanError::validation(format!(
+                    "card {} cannot be updated into column {} on another board; move it instead",
+                    self.card_id, new_column_id
+                )));
+            }
         }
         if let crate::FieldUpdate::Set(sprint_id) = self.updates.sprint_id {
             if card.sprint_id != Some(sprint_id) {
