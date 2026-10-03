@@ -767,8 +767,6 @@ fn test_a_batch_update_naming_a_second_column_for_the_same_card_drops_the_final_
         &mut NoProjections,
     );
 
-    // Same card named twice in one batch: first settles into `mid`, then a
-    // second update (carrying a status change too) re-targets it to `dest`.
     let (_, inv) = ctx
         .update_cards_impl(vec![
             (
