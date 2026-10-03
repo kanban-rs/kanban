@@ -588,7 +588,9 @@ async fn test_create_or_replace_card_returns_the_update_invalidation_on_the_repl
     )?;
 
     assert!(!outcome.created);
-    assert_eq!(inv, Invalidation::Entities(EntityIds::cards([id])));
+    let mut expected = EntityIds::cards([id]);
+    expected.card_columns.entry(id).or_default().insert(col.id);
+    assert_eq!(inv, Invalidation::Entities(expected));
     Ok(())
 }
 
