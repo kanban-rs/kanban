@@ -245,7 +245,7 @@ impl KanbanContext {
                         chained.mov = Some((col, pos));
                     }
                 }
-                (None, Some(new_col)) => {
+                (_, Some(new_col)) => {
                     // A genuine column change must go through MoveCard, the same
                     // as move_card/move_cards — that's what enforces the target
                     // column's WIP limit and syncs card.board_id to the target
@@ -274,9 +274,12 @@ impl KanbanContext {
                         card_updates.column_id = None;
                         chained.mov = Some((new_col, position));
                     }
-                    chained.status = self.compute_target_status_for_move(card_id, new_col)?;
+                    chained.status = match card_updates.status.take() {
+                        Some(explicit) => Some(explicit),
+                        None => self.compute_target_status_for_move(card_id, new_col)?,
+                    };
                 }
-                _ => {}
+                (None, None) => {}
             }
 
             let deferred_sprint = if chained.mov.is_some() {
