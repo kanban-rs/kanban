@@ -885,6 +885,74 @@ async fn test_flat_carry_over_route_refuses_a_target_sprint_on_another_board_wit
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_flat_carry_over_route_refusal_leaves_the_open_cards_on_the_source_sprint_on_sqlite() {
+    let dir = tempdir().unwrap();
+    let state = make_sqlite_state(&dir.path().join("s.sqlite")).await;
+
+    let (card_id, sprint_a, sprint_b) = {
+        let mut ctx = state.ctx.lock().await;
+        let board_a = ctx
+            .create_board("A".to_string(), Some("AAA".to_string()))
+            .unwrap()
+            .id;
+        let col_a = ctx
+            .create_column(board_a, "Col".to_string(), None)
+            .unwrap()
+            .id;
+        let sprint_a = ctx
+            .create_sprint(board_a, Some("SPR".to_string()), Some("Alpha".to_string()))
+            .unwrap()
+            .id;
+        let card_id = ctx
+            .create_card(
+                board_a,
+                col_a,
+                "Task".to_string(),
+                CreateCardOptions {
+                    sprint_id: Some(sprint_a),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .id;
+        let board_b = ctx
+            .create_board("B".to_string(), Some("BBB".to_string()))
+            .unwrap()
+            .id;
+        let sprint_b = ctx
+            .create_sprint(board_b, Some("SPR".to_string()), Some("Beta".to_string()))
+            .unwrap()
+            .id;
+        (card_id, sprint_a, sprint_b)
+    };
+
+    let complete = send(
+        &state,
+        "POST",
+        &format!("/v1/sprints/{sprint_a}/complete"),
+        None,
+    )
+    .await;
+    assert_eq!(complete.status(), StatusCode::OK);
+
+    let carry_over = send(
+        &state,
+        "POST",
+        &format!("/v1/sprints/{sprint_a}/carry-over"),
+        Some(&json!({"to_sprint_id": sprint_b})),
+    )
+    .await;
+    assert_eq!(carry_over.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let json = json_of(carry_over).await;
+    assert_eq!(json["code"], "SPRINT_BOARD_MISMATCH");
+
+    let get_card = send(&state, "GET", &format!("/v1/cards/{card_id}"), None).await;
+    assert_eq!(get_card.status(), StatusCode::OK);
+    let card_json = json_of(get_card).await;
+    assert_eq!(card_json["sprint_id"], sprint_a.to_string());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_flat_lifecycle_route_unknown_sprint_returns_404() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));

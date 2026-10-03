@@ -1407,3 +1407,67 @@ async fn test_cancel_sprint_over_http_returns_a_named_sprint_and_the_server_inva
     server.shutdown().await;
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_carry_over_over_http_to_a_sprint_on_another_board_is_refused_with_sprint_board_mismatch(
+) -> KanbanResult<()> {
+    let server = TestServer::start().await;
+    let mut ctx = ctx_over(&server).await;
+    let (board_a, _) = ctx.create_board_from_spec(None, a_new_board())?;
+    let (column_a, _) = ctx.create_column_from_spec(None, a_new_column(board_a.id))?;
+    let (sprint_a, _) =
+        ctx.create_sprint_from_spec(board_a.id, None, Some("Alpha".into()), None, false)?;
+    let (card, _) = ctx.create_card_from_spec(
+        None,
+        NewCard {
+            sprint_id: Some(sprint_a.id),
+            ..a_new_card(column_a.id)
+        },
+    )?;
+    let (board_b, _) = ctx.create_board_from_spec(None, a_new_board())?;
+    let (sprint_b, _) =
+        ctx.create_sprint_from_spec(board_b.id, None, Some("Beta".into()), None, false)?;
+
+    let _ = ctx.activate_sprint_impl(sprint_a.id, Some(14))?;
+    let _ = ctx.complete_sprint_impl(sprint_a.id)?;
+
+    let err = ctx
+        .carry_over_sprint_cards_impl(sprint_a.id, sprint_b.id)
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("SPRINT_BOARD_MISMATCH"),
+        "err: {err}"
+    );
+    assert_eq!(
+        ctx.data_store().get_card(card.id)?.unwrap().sprint_id,
+        Some(sprint_a.id)
+    );
+
+    server.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_assign_card_to_sprint_over_http_on_another_board_is_refused_with_sprint_board_mismatch(
+) -> KanbanResult<()> {
+    let server = TestServer::start().await;
+    let mut ctx = ctx_over(&server).await;
+    let (board_a, _) = ctx.create_board_from_spec(None, a_new_board())?;
+    let (column_a, _) = ctx.create_column_from_spec(None, a_new_column(board_a.id))?;
+    let (card, _) = ctx.create_card_from_spec(None, a_new_card(column_a.id))?;
+    let (board_b, _) = ctx.create_board_from_spec(None, a_new_board())?;
+    let (sprint_b, _) =
+        ctx.create_sprint_from_spec(board_b.id, None, Some("Beta".into()), None, false)?;
+
+    let err = ctx
+        .assign_card_to_sprint_impl(card.id, sprint_b.id)
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("SPRINT_BOARD_MISMATCH"),
+        "err: {err}"
+    );
+    assert_eq!(ctx.data_store().get_card(card.id)?.unwrap().sprint_id, None);
+
+    server.shutdown().await;
+    Ok(())
+}
