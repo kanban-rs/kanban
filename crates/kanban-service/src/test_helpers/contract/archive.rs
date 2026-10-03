@@ -1133,9 +1133,8 @@ pub async fn test_board_archive_restore_full_graph_roundtrip(factory: &BackendFa
     );
 }
 
-/// Assert the full rich-seed graph is byte-for-byte unchanged from `before`,
-/// including every archived marker's `archived_at` and the dependency
-/// graph's archived edge.
+/// Assert the rich-seed graph and every archived marker's `archived_at` are
+/// unchanged from `before`, including the dependency graph's archived edge.
 fn assert_store_unchanged(ctx: &KanbanContext, before: &kanban_domain::Snapshot, s: &RichSeed) {
     let snap = read_full_snapshot(ctx.data_store()).unwrap();
 
