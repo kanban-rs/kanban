@@ -1,10 +1,11 @@
 use super::super::BackendFactory;
+use super::assert_card_eq;
 use crate::KanbanContext;
 use kanban_core::AppConfig;
 use kanban_domain::dependencies::edge_meta::Severity;
 use kanban_domain::{
-    Card, CardUpdate, CreateCardOptions, FieldUpdate, GraphOperations, KanbanOperations,
-    KanbanResult, UndoOperations,
+    Card, CardUpdate, ColumnUpdate, CreateCardOptions, FieldUpdate, GraphOperations,
+    KanbanOperations, KanbanResult, UndoOperations,
 };
 use tempfile::TempDir;
 use uuid::Uuid;
@@ -358,6 +359,359 @@ pub async fn test_undo_delete_sprint_restores_a_pre_existing_cross_board_binding
 
     let before = graph_state(&ctx, fx.a1).unwrap();
     ctx.delete_sprint(fx.sb).unwrap();
+    ctx.undo().unwrap();
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+    let after = graph_state(&ctx, fx.a1).unwrap();
+    assert_graph_unchanged(&before, &after);
+}
+
+pub async fn test_moving_a_sprint_bound_card_cross_board_detaches_it_and_undo_restores_the_whole_graph(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+    let fx = seed_two_boards(&mut ctx).await.unwrap();
+
+    let before = graph_state(&ctx, fx.a1).unwrap();
+
+    ctx.move_card(fx.a1, fx.b_col, None).unwrap();
+    let a1 = ctx.get_card(fx.a1).unwrap().unwrap();
+    assert_eq!(a1.sprint_id, None);
+    assert_eq!(a1.board_id, fx.board_b);
+    assert!(a1
+        .sprint_logs
+        .iter()
+        .find(|l| l.sprint_id == fx.sa)
+        .expect("sa log entry")
+        .ended_at
+        .is_some());
+
+    ctx.undo().unwrap();
+    let a1 = ctx.get_card(fx.a1).unwrap().unwrap();
+    assert_eq!(a1.sprint_id, Some(fx.sa));
+    ctx.redo().unwrap();
+    let a1 = ctx.get_card(fx.a1).unwrap().unwrap();
+    assert_eq!(a1.sprint_id, None);
+
+    ctx.undo().unwrap();
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+    let after = graph_state(&ctx, fx.a1).unwrap();
+    assert_graph_unchanged(&before, &after);
+}
+
+pub async fn test_batch_moving_sprint_bound_cards_cross_board_detaches_each(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+    let fx = seed_two_boards(&mut ctx).await.unwrap();
+
+    ctx.assign_card_to_sprint(fx.a2, fx.sa).unwrap();
+
+    let before = graph_state(&ctx, fx.a1).unwrap();
+    ctx.move_cards(vec![fx.a1, fx.a2], fx.b_col).unwrap();
+
+    let a1 = ctx.get_card(fx.a1).unwrap().unwrap();
+    assert_eq!(a1.sprint_id, None);
+    assert!(a1
+        .sprint_logs
+        .iter()
+        .find(|l| l.sprint_id == fx.sa)
+        .expect("sa log entry")
+        .ended_at
+        .is_some());
+    let a2 = ctx.get_card(fx.a2).unwrap().unwrap();
+    assert_eq!(a2.sprint_id, None);
+    assert!(a2
+        .sprint_logs
+        .iter()
+        .find(|l| l.sprint_id == fx.sa)
+        .expect("sa log entry")
+        .ended_at
+        .is_some());
+
+    ctx.undo().unwrap();
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+    let after = graph_state(&ctx, fx.a1).unwrap();
+    assert_graph_unchanged(&before, &after);
+}
+
+pub async fn test_update_moving_a_card_cross_board_closes_the_old_sprint_log(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+    let fx = seed_two_boards(&mut ctx).await.unwrap();
+
+    ctx.update_card(
+        fx.a1,
+        CardUpdate {
+            column_id: Some(fx.b_col),
+            sprint_id: FieldUpdate::Set(fx.sb),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    ctx.assign_card_to_sprint(fx.a2, fx.sa).unwrap();
+    ctx.update_card(
+        fx.a2,
+        CardUpdate {
+            column_id: Some(fx.b_col),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+    let a1 = ctx.get_card(fx.a1).unwrap().unwrap();
+    assert_eq!(a1.sprint_id, Some(fx.sb));
+    assert!(a1
+        .sprint_logs
+        .iter()
+        .find(|l| l.sprint_id == fx.sa)
+        .expect("sa log entry")
+        .ended_at
+        .is_some());
+    let a2 = ctx.get_card(fx.a2).unwrap().unwrap();
+    assert_eq!(a2.sprint_id, None);
+}
+
+pub async fn test_update_moving_a_card_cross_board_while_resubmitting_its_old_sprint_is_refused(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+    let fx = seed_two_boards(&mut ctx).await.unwrap();
+
+    let before = graph_state(&ctx, fx.a1).unwrap();
+    assert!(ctx
+        .update_card(
+            fx.a1,
+            CardUpdate {
+                column_id: Some(fx.b_col),
+                sprint_id: FieldUpdate::Set(fx.sa),
+                ..Default::default()
+            },
+        )
+        .unwrap_err()
+        .is_sprint_board_mismatch());
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+    let after = graph_state(&ctx, fx.a1).unwrap();
+    assert_graph_unchanged(&before, &after);
+}
+
+pub async fn test_restoring_an_archived_card_into_another_boards_column_detaches_its_sprint(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+    let fx = seed_two_boards(&mut ctx).await.unwrap();
+
+    ctx.archive_card(fx.a1).unwrap();
+    ctx.restore_card(fx.a1, Some(fx.b_col)).unwrap();
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+    let a1 = ctx.get_card(fx.a1).unwrap().unwrap();
+    assert_eq!(a1.sprint_id, None);
+    assert_eq!(a1.board_id, fx.board_b);
+    let a2 = ctx.get_card(fx.a2).unwrap().unwrap();
+    assert_eq!(a2.sprint_id, None);
+    let b1 = ctx.get_card(fx.b1).unwrap().unwrap();
+    assert_eq!(b1.sprint_id, None);
+    let sprints: std::collections::HashSet<Uuid> = ctx
+        .data_store()
+        .list_all_sprints()
+        .unwrap()
+        .into_iter()
+        .map(|s| s.id)
+        .collect();
+    assert_eq!(sprints, std::collections::HashSet::from([fx.sa, fx.sb]));
+    let columns: std::collections::HashSet<Uuid> = ctx
+        .data_store()
+        .list_all_columns()
+        .unwrap()
+        .into_iter()
+        .map(|c| c.id)
+        .collect();
+    assert_eq!(
+        columns,
+        std::collections::HashSet::from([fx.a_col, fx.b_col])
+    );
+    assert_eq!(ctx.list_blocked_by(fx.a1).unwrap(), vec![fx.a2]);
+}
+
+pub async fn test_undo_restoring_a_bound_card_into_another_boards_column_restores_the_whole_graph(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+    let fx = seed_two_boards(&mut ctx).await.unwrap();
+
+    ctx.archive_card(fx.a1).unwrap();
+    let before = graph_state(&ctx, fx.a2).unwrap();
+
+    ctx.restore_card(fx.a1, Some(fx.b_col)).unwrap();
+    let a1 = ctx.get_card(fx.a1).unwrap().unwrap();
+    assert_eq!(a1.board_id, fx.board_b);
+    assert_eq!(a1.sprint_id, None);
+
+    ctx.undo().unwrap();
+    let a1 = ctx.get_card(fx.a1).unwrap().unwrap();
+    assert_eq!(a1.board_id, fx.board_a);
+    assert_eq!(a1.column_id, fx.a_col);
+    assert_eq!(a1.sprint_id, Some(fx.sa));
+    assert!(
+        ctx.data_store().get_archived_card(fx.a1).unwrap().is_some(),
+        "undo must leave the card archived again"
+    );
+
+    // Redo re-executes the original RestoreCard forward command, which
+    // re-runs detach_sprint_if_board_changes with a fresh timestamp, so only
+    // the identity-relevant fields (not sprint_logs' `ended_at`) match the
+    // first restore.
+    ctx.redo().unwrap();
+    let a1 = ctx.get_card(fx.a1).unwrap().unwrap();
+    assert_eq!(a1.board_id, fx.board_b);
+    assert_eq!(a1.column_id, fx.b_col);
+    assert_eq!(a1.sprint_id, None);
+
+    ctx.undo().unwrap();
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+    let after = graph_state(&ctx, fx.a2).unwrap();
+    assert_graph_unchanged(&before, &after);
+    assert!(
+        ctx.data_store().get_archived_card(fx.a1).unwrap().is_some(),
+        "undo must leave the card archived again after reload"
+    );
+}
+
+pub async fn test_undo_restoring_a_bound_card_into_another_boards_column_succeeds_despite_original_columns_wip_limit(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+    let fx = seed_two_boards(&mut ctx).await.unwrap();
+    let original_a1 = ctx.get_card(fx.a1).unwrap().unwrap();
+
+    ctx.archive_card(fx.a1).unwrap();
+    ctx.update_column(
+        fx.a_col,
+        ColumnUpdate {
+            wip_limit: FieldUpdate::Set(1),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    ctx.restore_card(fx.a1, Some(fx.b_col)).unwrap();
+    let a1 = ctx.get_card(fx.a1).unwrap().unwrap();
+    assert_eq!(a1.board_id, fx.board_b);
+    assert_eq!(a1.sprint_id, None);
+
+    ctx.undo().unwrap();
+    let a1 = ctx.get_card(fx.a1).unwrap().unwrap();
+    assert_card_eq(&original_a1, &a1);
+    assert!(
+        ctx.data_store().get_archived_card(fx.a1).unwrap().is_some(),
+        "undo must leave the card archived again"
+    );
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+    let a1 = ctx.get_card(fx.a1).unwrap().unwrap();
+    assert_card_eq(&original_a1, &a1);
+    assert!(
+        ctx.data_store().get_archived_card(fx.a1).unwrap().is_some(),
+        "undo must leave the card archived again after reload"
+    );
+}
+
+pub async fn test_undo_restoring_a_bound_card_into_another_boards_column_succeeds_despite_a_deleted_original_column(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+    let fx = seed_two_boards(&mut ctx).await.unwrap();
+    let original_a1 = ctx.get_card(fx.a1).unwrap().unwrap();
+
+    ctx.archive_card(fx.a1).unwrap();
+    ctx.archive_card(fx.a2).unwrap();
+    ctx.delete_column(fx.a_col).unwrap();
+
+    ctx.restore_card(fx.a1, Some(fx.b_col)).unwrap();
+    let a1 = ctx.get_card(fx.a1).unwrap().unwrap();
+    assert_eq!(a1.board_id, fx.board_b);
+    assert_eq!(a1.sprint_id, None);
+
+    ctx.undo().unwrap();
+    let a1 = ctx.get_card(fx.a1).unwrap().unwrap();
+    assert_card_eq(&original_a1, &a1);
+    assert!(
+        ctx.data_store().get_archived_card(fx.a1).unwrap().is_some(),
+        "undo must leave the card archived again"
+    );
+
+    ctx.save().await.unwrap();
+    let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
+    let a1 = ctx.get_card(fx.a1).unwrap().unwrap();
+    assert_card_eq(&original_a1, &a1);
+    assert!(
+        ctx.data_store().get_archived_card(fx.a1).unwrap().is_some(),
+        "undo must leave the card archived again after reload"
+    );
+}
+
+pub async fn test_undo_moving_a_card_onto_its_cross_board_sprints_board_restores_the_binding(
+    factory: &BackendFactory,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.store");
+    let mut ctx = KanbanContext::open(factory(&path), AppConfig::default())
+        .await
+        .unwrap();
+    let fx = seed_two_boards(&mut ctx).await.unwrap();
+
+    bind_raw(&ctx, fx.a2, fx.sb).unwrap();
+
+    let before = graph_state(&ctx, fx.a1).unwrap();
+    ctx.move_card(fx.a2, fx.b_col, None).unwrap();
+    let a2 = ctx.get_card(fx.a2).unwrap().unwrap();
+    assert_eq!(a2.sprint_id, Some(fx.sb));
+
     ctx.undo().unwrap();
 
     ctx.save().await.unwrap();

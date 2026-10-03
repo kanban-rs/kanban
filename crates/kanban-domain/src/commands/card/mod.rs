@@ -27,9 +27,13 @@ pub enum CardCommand {
     ApplyMetadata(ApplyCardMetadata),
     CompactPositions(CompactColumnPositions),
     /// Synthetic: restore a card's sprint binding and sprint_logs to a
-    /// captured pre-state. Emitted by Assign/Unassign/UpdateCard/DeleteSprint
-    /// inverses; not a user-facing command.
+    /// captured pre-state. Emitted by Assign/Unassign/UpdateCard/DeleteSprint/
+    /// MoveCard inverses; not a user-facing command.
     RestoreSprintAttachment(RestoreCardSprintAttachment),
+    /// Synthetic: restore a card's column_id/board_id/position to a
+    /// captured pre-state, unchecked. Emitted by RestoreCard's inverse;
+    /// not a user-facing command.
+    RestorePlacement(RestoreCardPlacement),
 }
 
 impl CardCommand {
@@ -46,6 +50,7 @@ impl CardCommand {
             CardCommand::ApplyMetadata(c) => c.execute(context),
             CardCommand::CompactPositions(c) => c.execute(context),
             CardCommand::RestoreSprintAttachment(c) => c.execute(context),
+            CardCommand::RestorePlacement(c) => c.execute(context),
         }
     }
 
@@ -62,6 +67,7 @@ impl CardCommand {
             CardCommand::ApplyMetadata(c) => c.description(),
             CardCommand::CompactPositions(c) => c.description(),
             CardCommand::RestoreSprintAttachment(c) => c.description(),
+            CardCommand::RestorePlacement(c) => c.description(),
         }
     }
 
@@ -78,6 +84,7 @@ impl CardCommand {
             CardCommand::Restore(c) => c.capture_inverse(store),
             CardCommand::Delete(c) => c.capture_inverse(store),
             CardCommand::RestoreSprintAttachment(c) => c.capture_inverse(store),
+            CardCommand::RestorePlacement(c) => c.capture_inverse(store),
         }
     }
 
@@ -94,6 +101,7 @@ impl CardCommand {
             CardCommand::ApplyMetadata(c) => c.touched_entities(),
             CardCommand::CompactPositions(c) => c.touched_entities(),
             CardCommand::RestoreSprintAttachment(c) => c.touched_entities(),
+            CardCommand::RestorePlacement(c) => c.touched_entities(),
         }
     }
 }

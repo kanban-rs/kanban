@@ -5,6 +5,50 @@ use crate::{KanbanError, KanbanResult};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// Restore a card's `column_id`, `board_id`, and `position` to a captured
+/// pre-state, without `MoveCard`'s column-existence or WIP-limit checks.
+/// Emitted by `RestoreCard`'s inverse: the pre-restore placement can point
+/// at a column later deleted while the card stayed archived, or at a column
+/// now full, and undo must land unconditionally either way.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RestoreCardPlacement {
+    pub card_id: Uuid,
+    pub column_id: Uuid,
+    pub board_id: Uuid,
+    pub position: i32,
+}
+
+impl RestoreCardPlacement {
+    pub fn execute(&self, context: &CommandContext) -> KanbanResult<()> {
+        let mut card = context.get_card(self.card_id)?;
+        card.column_id = self.column_id;
+        card.board_id = self.board_id;
+        card.position = self.position;
+        context.store.upsert_card(card)?;
+        Ok(())
+    }
+
+    pub fn description(&self) -> String {
+        format!("Restore placement for card {}", self.card_id)
+    }
+
+    pub fn touched_entities(&self) -> Option<crate::EntityIds> {
+        let mut ids = crate::EntityIds::cards([self.card_id]);
+        ids.card_columns
+            .entry(self.card_id)
+            .or_default()
+            .insert(self.column_id);
+        Some(ids)
+    }
+
+    pub fn capture_inverse(&self, _store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
+        Err(KanbanError::Internal(format!(
+            "RestoreCardPlacement is a synthetic command: it must only appear inside an inverse batch (RestoreCard undo), never as a top-level forward command. Card id: {}",
+            self.card_id
+        )))
+    }
+}
+
 /// Move card to a different column
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MoveCard {
@@ -21,6 +65,11 @@ impl MoveCard {
         context.check_wip_limit(self.new_column_id, 1, &[self.card_id])?;
         let mut card = context.get_card(self.card_id)?;
         card.move_to_column(self.new_column_id, self.new_position);
+        crate::sprint_membership::detach_sprint_if_board_changes(
+            context.store,
+            &mut card,
+            column.board_id,
+        )?;
         // Keep board_id in sync with the target column's board -- cross-board
         // moves are intentionally permitted, not guarded against (KAN-963).
         card.board_id = column.board_id;
@@ -45,17 +94,35 @@ impl MoveCard {
     }
 
     /// Inverse: another MoveCard pointing back to the card's current
-    /// (column_id, position).
+    /// (column_id, position), plus a RestoreSprintAttachment when the move
+    /// changes board on a sprint-bound card. The move back may itself
+    /// detach the binding (a move onto the card's original board but away
+    /// from the sprint's board), so the restore is appended unconditionally
+    /// on any board change, last, to win over that detach.
     pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         let card = match store.get_card(self.card_id)? {
             Some(c) => c,
             None => return Err(KanbanError::not_found("Card", self.card_id)),
         };
-        Ok(vec![Command::Card(CardCommand::Move(MoveCard {
+        let mut commands = vec![Command::Card(CardCommand::Move(MoveCard {
             card_id: self.card_id,
             new_column_id: card.column_id,
             new_position: card.position,
-        }))])
+        }))];
+        let changes_board = store
+            .get_column(self.new_column_id)?
+            .is_some_and(|target| target.board_id != card.board_id);
+        if changes_board && card.sprint_id.is_some() {
+            commands.push(Command::Card(CardCommand::RestoreSprintAttachment(
+                super::RestoreCardSprintAttachment {
+                    card_id: card.id,
+                    sprint_id: card.sprint_id,
+                    sprint_logs: card.sprint_logs.clone(),
+                    updated_at: card.updated_at,
+                },
+            )));
+        }
+        Ok(commands)
     }
 }
 

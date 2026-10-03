@@ -234,12 +234,41 @@ pub struct RestoreCard {
 }
 
 impl RestoreCard {
-    /// Inverse: archive the card again. The card id is in the forward
-    /// command. ArchiveCards captures original column/position from the
-    /// live card at capture time — by the time this runs the card has
-    /// been restored to (self.column_id, self.position), so the
-    /// re-archive will use those values as the new "original" location.
-    pub fn capture_inverse(&self, _store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
+    /// Inverse: archive the card again. When the restore moved a sprint-bound
+    /// card to another board, the archive is preceded by a
+    /// `RestoreCardPlacement` back to its original column, board and position
+    /// and a `RestoreSprintAttachment`. Runs before `execute`, so `store` still
+    /// holds the pre-restore state. The placement is restored even when the
+    /// original column has since been deleted or is over its WIP limit.
+    pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
+        let original = match store.get_card(self.card_id)? {
+            Some(c) => c,
+            None => return Err(KanbanError::not_found("Card", self.card_id)),
+        };
+        let changes_board = store
+            .get_column(self.column_id)?
+            .is_some_and(|target| target.board_id != original.board_id);
+        if changes_board && original.sprint_id.is_some() {
+            return Ok(vec![
+                Command::Card(CardCommand::RestorePlacement(super::RestoreCardPlacement {
+                    card_id: self.card_id,
+                    column_id: original.column_id,
+                    board_id: original.board_id,
+                    position: original.position,
+                })),
+                Command::Card(CardCommand::RestoreSprintAttachment(
+                    super::RestoreCardSprintAttachment {
+                        card_id: self.card_id,
+                        sprint_id: original.sprint_id,
+                        sprint_logs: original.sprint_logs.clone(),
+                        updated_at: original.updated_at,
+                    },
+                )),
+                Command::Card(CardCommand::Archive(ArchiveCards {
+                    ids: vec![self.card_id],
+                })),
+            ]);
+        }
         Ok(vec![Command::Card(CardCommand::Archive(ArchiveCards {
             ids: vec![self.card_id],
         }))])
@@ -259,12 +288,18 @@ impl RestoreCard {
             .store
             .get_card(self.card_id)?
             .ok_or_else(|| KanbanError::not_found("Card", self.card_id))?;
+        let target_board = context.require_column(self.column_id)?.board_id;
+        crate::sprint_membership::detach_sprint_if_board_changes(
+            context.store,
+            &mut card,
+            target_board,
+        )?;
         card.column_id = self.column_id;
         // Keep board_id in sync with wherever the card actually lands -- the
         // normal capture_inverse-driven restore always targets the card's own
         // current column (a no-op here), but nothing else validates that
         // `column_id` belongs to the card's original board (KAN-963).
-        card.board_id = context.require_column(self.column_id)?.board_id;
+        card.board_id = target_board;
         card.position = self.position;
         card.updated_at = self.timestamp;
 

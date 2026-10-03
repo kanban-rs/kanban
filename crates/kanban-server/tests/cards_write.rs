@@ -5,9 +5,11 @@
 //! a change event on success, then returns the appropriate status.
 
 use axum::http::StatusCode;
-use kanban_domain::{CardStatus, ColumnUpdate, KanbanOperations};
+use kanban_domain::{CardStatus, ColumnUpdate, CreateCardOptions, KanbanOperations};
 use kanban_server::state::AppState;
-use kanban_server::test_helpers::{json_of, make_state, send, send_with_headers};
+use kanban_server::test_helpers::{
+    json_of, make_sqlite_state, make_state, send, send_with_headers,
+};
 use serde_json::json;
 use tempfile::tempdir;
 use uuid::Uuid;
@@ -923,4 +925,70 @@ async fn test_batch_move_route_still_routes_to_the_batch_handler_after_the_flat_
     let body = json_of(response).await;
     assert_eq!(body["succeeded"].as_array().unwrap().len(), 1);
     assert_eq!(body["failed"].as_array().unwrap().len(), 0);
+}
+
+async fn scenario_move_route_to_another_boards_column_clears_the_sprint(state: AppState) {
+    let (card_id, board_b_id, col_b_id) = {
+        let mut ctx = state.ctx.lock().await;
+        let board_a_id = ctx
+            .create_board("A".to_string(), Some("AAA".to_string()))
+            .unwrap()
+            .id;
+        let col_a_id = ctx
+            .create_column(board_a_id, "Col".to_string(), None)
+            .unwrap()
+            .id;
+        let sprint_a_id = ctx.create_sprint(board_a_id, None, None).unwrap().id;
+        let card_id = ctx
+            .create_card(
+                board_a_id,
+                col_a_id,
+                "Task".to_string(),
+                CreateCardOptions {
+                    sprint_id: Some(sprint_a_id),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .id;
+
+        let board_b_id = ctx
+            .create_board("B".to_string(), Some("BBB".to_string()))
+            .unwrap()
+            .id;
+        let col_b_id = ctx
+            .create_column(board_b_id, "Col".to_string(), None)
+            .unwrap()
+            .id;
+        (card_id, board_b_id, col_b_id)
+    };
+
+    let response = send(
+        &state,
+        "POST",
+        &format!("/v1/cards/{card_id}/move?column_id={col_b_id}"),
+        None,
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_of(response).await;
+    assert!(body["sprint_id"].is_null());
+    assert_eq!(body["board_id"], board_b_id.to_string());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_move_route_to_another_boards_column_returns_the_card_with_its_sprint_cleared_on_json()
+{
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+    scenario_move_route_to_another_boards_column_clears_the_sprint(state).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_move_route_to_another_boards_column_returns_the_card_with_its_sprint_cleared_on_sqlite(
+) {
+    let dir = tempdir().unwrap();
+    let state = make_sqlite_state(&dir.path().join("s.sqlite")).await;
+    scenario_move_route_to_another_boards_column_clears_the_sprint(state).await;
 }
