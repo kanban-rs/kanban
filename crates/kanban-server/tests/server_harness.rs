@@ -269,3 +269,24 @@ async fn test_start_recording_seeds_the_context_like_start_with() {
 
     server.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_health_endpoint_reports_the_server_version_over_real_socket() {
+    let server = TestServer::start().await;
+
+    let response = server
+        .client()
+        .get(format!("{}/health", server.base_url()))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let json: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(json["version"], kanban_core::KANBAN_VERSION);
+    assert_eq!(json["status"], "ok");
+    let instance_id = json["instance_id"].as_str().expect("instance_id present");
+    Uuid::parse_str(instance_id).expect("instance_id is a valid uuid");
+
+    server.shutdown().await;
+}

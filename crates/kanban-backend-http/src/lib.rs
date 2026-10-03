@@ -7,6 +7,7 @@ mod events;
 mod http;
 mod http_mutation;
 mod remote_writes;
+mod version_check;
 
 pub use backend_factory::HttpBackendFactory;
 

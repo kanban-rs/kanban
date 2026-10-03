@@ -7,6 +7,7 @@ mod error;
 mod error_mapping;
 mod events;
 mod graph;
+mod health;
 mod invalidation;
 mod mutation_response;
 mod pagination;

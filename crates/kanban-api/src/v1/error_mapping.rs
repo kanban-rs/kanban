@@ -243,6 +243,14 @@ mod tests {
                 },
                 ErrorCode::UnsupportedVersion,
             ),
+            (
+                KanbanError::UnsupportedServerVersion {
+                    url: "http://host:5177".to_string(),
+                    server_version: Some("0.10.0".to_string()),
+                    client_version: "0.11.1".to_string(),
+                },
+                ErrorCode::UnsupportedVersion,
+            ),
         ];
         for (err, expected) in cases {
             assert_eq!(ApiError::from(&err).code, expected, "for error: {err}");

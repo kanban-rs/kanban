@@ -602,6 +602,39 @@ mod tests {
     }
 
     #[test]
+    fn test_unsupported_server_version_display_names_url_both_versions_and_the_fix() {
+        let err = KanbanError::UnsupportedServerVersion {
+            url: "http://host:5177".to_string(),
+            server_version: Some("0.10.0".to_string()),
+            client_version: "0.11.1".to_string(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("http://host:5177"), "msg: {msg}");
+        assert!(msg.contains("v0.10.0"), "msg: {msg}");
+        assert!(msg.contains("v0.11.1"), "msg: {msg}");
+        assert!(
+            msg.contains("Upgrade the server before the client"),
+            "msg: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_unsupported_server_version_display_without_server_version_says_it_reports_none() {
+        let err = KanbanError::UnsupportedServerVersion {
+            url: "http://host:5177".to_string(),
+            server_version: None,
+            client_version: "0.11.1".to_string(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("reports no version"), "msg: {msg}");
+        assert!(msg.contains("v0.11.1"), "msg: {msg}");
+        assert!(
+            msg.contains("Upgrade the server before the client"),
+            "msg: {msg}"
+        );
+    }
+
+    #[test]
     fn test_not_found_by_name_display_lists_available() {
         let err = KanbanError::not_found_by_name(
             "Column",
