@@ -52,7 +52,7 @@ ctx.with_app_type(app_type: AppType) -> Self
 additionally awaits `backend.probe()` so a lazy backend's load/parse errors,
 or a remote backend's unreachable server, surface at construction time
 rather than on first use. The default `probe()` reads the command log;
-`HttpBackend` overrides it with a `GET /health` liveness check. `with_app_type`
+`HttpBackend` overrides it with a `GET /health` check that also refuses a server older than the client (the version handshake). `with_app_type`
 is a builder call made right after `open_deferred`/`open` to record which
 surface (CLI, MCP, TUI) owns the context, for command attribution.
 
