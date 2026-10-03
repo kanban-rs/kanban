@@ -359,11 +359,19 @@ impl ArchiveCards {
     /// archive runs.
     pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         let mut commands: Vec<Command> = Vec::new();
+        let mut seen: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
         for id in &self.ids {
+            if !seen.insert(*id) {
+                continue;
+            }
             let card = match store.get_card(*id)? {
                 Some(c) => c,
                 None => continue, // skipped (matches ArchiveCards::execute's filter)
             };
+            // Already archived: execute's idempotency guard leaves it untouched, so undo must too.
+            if store.get_archived_card(*id)?.is_some() {
+                continue;
+            }
             commands.push(Command::Card(CardCommand::Restore(RestoreCard {
                 card_id: card.id,
                 column_id: card.column_id,

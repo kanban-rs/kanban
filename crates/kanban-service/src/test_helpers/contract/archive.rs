@@ -1748,7 +1748,12 @@ pub async fn test_archive_batch_with_a_duplicated_id_is_undoable(factory: &Backe
     let board = ctx.create_board("Board".into(), None).unwrap();
     let col = ctx.create_column(board.id, "Col".into(), None).unwrap();
     let live = ctx
-        .create_card(board.id, col.id, "Live".into(), CreateCardOptions::default())
+        .create_card(
+            board.id,
+            col.id,
+            "Live".into(),
+            CreateCardOptions::default(),
+        )
         .unwrap();
     let original_column = live.column_id;
     let original_position = live.position;
@@ -1758,7 +1763,10 @@ pub async fn test_archive_batch_with_a_duplicated_id_is_undoable(factory: &Backe
     assert!(ctx.undo().unwrap().is_some(), "undo returned Some");
 
     assert!(
-        ctx.data_store().get_archived_card(live.id).unwrap().is_none(),
+        ctx.data_store()
+            .get_archived_card(live.id)
+            .unwrap()
+            .is_none(),
         "no leftover marker after undo"
     );
     let restored = ctx.data_store().get_card(live.id).unwrap().unwrap();
@@ -1767,7 +1775,11 @@ pub async fn test_archive_batch_with_a_duplicated_id_is_undoable(factory: &Backe
 
     ctx.save().await.unwrap();
     let ctx = KanbanContext::open_deferred(factory(&path), AppConfig::default());
-    assert!(ctx.data_store().get_archived_card(live.id).unwrap().is_none());
+    assert!(ctx
+        .data_store()
+        .get_archived_card(live.id)
+        .unwrap()
+        .is_none());
     assert!(ctx
         .data_store()
         .list_all_cards()
@@ -1788,10 +1800,20 @@ pub async fn test_archive_batch_undo_with_a_pre_archived_card_succeeds_at_a_full
     let board = ctx.create_board("Board".into(), None).unwrap();
     let col = ctx.create_column(board.id, "Col".into(), None).unwrap();
     let live = ctx
-        .create_card(board.id, col.id, "Live".into(), CreateCardOptions::default())
+        .create_card(
+            board.id,
+            col.id,
+            "Live".into(),
+            CreateCardOptions::default(),
+        )
         .unwrap();
     let arch = ctx
-        .create_card(board.id, col.id, "Arch".into(), CreateCardOptions::default())
+        .create_card(
+            board.id,
+            col.id,
+            "Arch".into(),
+            CreateCardOptions::default(),
+        )
         .unwrap();
     ctx.archive_card(arch.id).unwrap();
 
@@ -1817,5 +1839,9 @@ pub async fn test_archive_batch_undo_with_a_pre_archived_card_succeeds_at_a_full
 
     let restored = ctx.data_store().get_card(live.id).unwrap().unwrap();
     assert_eq!(restored.column_id, col.id);
-    assert!(ctx.data_store().get_archived_card(arch.id).unwrap().is_some());
+    assert!(ctx
+        .data_store()
+        .get_archived_card(arch.id)
+        .unwrap()
+        .is_some());
 }
