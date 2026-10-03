@@ -1,6 +1,6 @@
 use super::KanbanContext;
 use kanban_domain::commands::{CardCommand, Command};
-use kanban_domain::{CardStatus, CardUpdate, Invalidation, KanbanError, KanbanResult};
+use kanban_domain::{CardStatus, CardUpdate, FieldUpdate, Invalidation, KanbanError, KanbanResult};
 use uuid::Uuid;
 
 impl KanbanContext {
@@ -279,6 +279,11 @@ impl KanbanContext {
                 _ => {}
             }
 
+            let deferred_sprint = if chained.mov.is_some() {
+                std::mem::take(&mut card_updates.sprint_id)
+            } else {
+                FieldUpdate::NoChange
+            };
             batch.push(Command::Card(CardCommand::Update(UpdateCard {
                 card_id,
                 updates: card_updates,
@@ -289,6 +294,15 @@ impl KanbanContext {
                     card_id,
                     new_column_id: col,
                     new_position: pos,
+                })));
+            }
+            if !matches!(deferred_sprint, FieldUpdate::NoChange) {
+                batch.push(Command::Card(CardCommand::Update(UpdateCard {
+                    card_id,
+                    updates: CardUpdate {
+                        sprint_id: deferred_sprint,
+                        ..Default::default()
+                    },
                 })));
             }
             if let Some(status) = chained.status {

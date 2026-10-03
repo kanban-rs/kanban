@@ -1,7 +1,7 @@
 use super::super::{Command, CommandContext};
 use super::CardCommand;
 use crate::data_store::DataStore;
-use crate::{CardUpdate, CreateCardOptions, DomainError, KanbanError, KanbanResult, NewCard};
+use crate::{CardUpdate, CreateCardOptions, KanbanError, KanbanResult, NewCard};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -20,6 +20,12 @@ impl UpdateCard {
         // (KAN-248). Without this an update could orphan card.column_id.
         if let Some(new_column_id) = self.updates.column_id {
             context.require_column(new_column_id)?;
+        }
+        if let crate::FieldUpdate::Set(sprint_id) = self.updates.sprint_id {
+            if card.sprint_id != Some(sprint_id) {
+                let sprint = context.get_sprint(sprint_id)?;
+                crate::sprint_membership::require_sprint_on_board(&sprint, card.board_id)?;
+            }
         }
         card.update(self.updates.clone(), Utc::now());
         context.store.upsert_card(card)?;
@@ -73,19 +79,24 @@ impl UpdateCard {
                     None => FieldUpdate::Clear,
                 },
             },
-            sprint_id: match upd.sprint_id {
-                FieldUpdate::NoChange => FieldUpdate::NoChange,
-                _ => match card.sprint_id {
-                    Some(v) => FieldUpdate::Set(v),
-                    None => FieldUpdate::Clear,
-                },
-            },
+            sprint_id: FieldUpdate::NoChange,
         };
 
-        Ok(vec![Command::Card(CardCommand::Update(UpdateCard {
+        let mut commands = vec![Command::Card(CardCommand::Update(UpdateCard {
             card_id: self.card_id,
             updates: inverse,
-        }))])
+        }))];
+        if !matches!(upd.sprint_id, FieldUpdate::NoChange) {
+            commands.push(Command::Card(CardCommand::RestoreSprintAttachment(
+                super::RestoreCardSprintAttachment {
+                    card_id: self.card_id,
+                    sprint_id: card.sprint_id,
+                    sprint_logs: card.sprint_logs.clone(),
+                    updated_at: card.updated_at,
+                },
+            )));
+        }
+        Ok(commands)
     }
 }
 
@@ -148,13 +159,7 @@ impl CreateCard {
 
         if let Some(sprint_id) = self.options.sprint_id {
             let sprint = context.get_sprint(sprint_id)?;
-            if sprint.board_id != self.board_id {
-                return Err(KanbanError::Domain(DomainError::SprintBoardMismatch {
-                    sprint_id,
-                    sprint_board: sprint.board_id,
-                    card_board: self.board_id,
-                }));
-            }
+            crate::sprint_membership::require_sprint_on_board(&sprint, self.board_id)?;
             let sprint_number = sprint.sprint_number;
             let sprint_name = sprint.get_name(&board).map(|s| s.to_string());
             let sprint_status = format!("{:?}", sprint.status);

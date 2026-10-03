@@ -339,6 +339,86 @@ fn test_delete_sprint_uses_embedded_timestamp() {
 }
 
 #[test]
+fn test_delete_sprint_inverse_restores_live_card_bindings_verbatim() {
+    use kanban_domain::commands::{CardCommand, Command};
+
+    let tc = TestContext::new();
+    let board = kanban_domain::Board::new("B", Some("KAN"));
+    let board_id = board.id;
+    let col = kanban_domain::Column::new(board_id, "Col", 0);
+    let sprint = kanban_domain::Sprint::new(board_id, 1, None, None::<String>);
+    let sprint_id = sprint.id;
+
+    let mut card1 = kanban_domain::Card::new(board_id, col.id, "C1", 0);
+    card1.assign_to_sprint(
+        sprint_id,
+        sprint.sprint_number,
+        None::<String>,
+        "Planning",
+        chrono::Utc::now(),
+    );
+    let mut card2 = kanban_domain::Card::new(board_id, col.id, "C2", 1);
+    card2.assign_to_sprint(
+        sprint_id,
+        sprint.sprint_number,
+        None::<String>,
+        "Planning",
+        chrono::Utc::now(),
+    );
+    let card1_id = card1.id;
+    let card2_id = card2.id;
+
+    tc.store.upsert_board(board).unwrap();
+    tc.store.upsert_column(col).unwrap();
+    tc.store.upsert_sprint(sprint).unwrap();
+    tc.store.upsert_card(card1.clone()).unwrap();
+    tc.store.upsert_card(card2.clone()).unwrap();
+
+    let forward = DeleteSprint {
+        sprint_id,
+        timestamp: chrono::Utc::now(),
+    };
+    let inverse = forward.capture_inverse(&tc.store).unwrap();
+
+    let restores: Vec<_> = inverse
+        .iter()
+        .filter_map(|c| match c {
+            Command::Card(CardCommand::RestoreSprintAttachment(r)) => Some(r),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        restores.len(),
+        2,
+        "one RestoreSprintAttachment per live card"
+    );
+    assert!(inverse
+        .iter()
+        .all(|c| !matches!(c, Command::Card(CardCommand::AssignToSprint(_)))));
+
+    for r in &restores {
+        let expected = if r.card_id == card1_id {
+            &card1
+        } else {
+            &card2
+        };
+        assert_eq!(r.sprint_id, expected.sprint_id);
+        assert_eq!(r.sprint_logs, expected.sprint_logs);
+        assert_eq!(r.updated_at, expected.updated_at);
+    }
+
+    let context = tc.as_command_context();
+    forward.execute(&context).unwrap();
+    for cmd in inverse {
+        cmd.execute(&context).unwrap();
+    }
+    let after1 = tc.store.get_card(card1_id).unwrap().unwrap();
+    let after2 = tc.store.get_card(card2_id).unwrap().unwrap();
+    assert_eq!(after1.sprint_logs, card1.sprint_logs);
+    assert_eq!(after2.sprint_logs, card2.sprint_logs);
+}
+
+#[test]
 fn test_update_sprint_card_prefix_unique_valid_succeeds() {
     let tc = TestContext::new();
     let board = kanban_domain::Board::new("B", Some("KAN"));

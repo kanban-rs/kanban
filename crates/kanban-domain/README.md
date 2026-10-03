@@ -383,6 +383,7 @@ KanbanError::is_conflict_detected(&self) -> bool
 - **Completion column**: the rightmost column is used when toggling a card to Done (falls back to the rightmost column)
 - **WIP limits**: advisory only — enforcement is the UI's responsibility
 - **Sprint assignability**: only `Planning` and `Active` sprints can be assigned to cards
+- **Sprint board membership**: binding a card to a sprint on another board is refused (`SprintBoardMismatch`)
 
 ---
 

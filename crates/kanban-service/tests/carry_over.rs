@@ -244,3 +244,26 @@ async fn carry_over_includes_blocked_cards() {
     let stayed = ctx.get_card(card_done.id).unwrap().unwrap();
     assert_eq!(stayed.sprint_id, Some(from_sprint.id));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn carry_over_to_a_sprint_on_another_board_reports_the_board_mismatch_before_the_target_status(
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("test.kanban").to_string_lossy().to_string();
+
+    let mut ctx = open_context(&path, AppConfig::default()).await.unwrap();
+
+    let board_a = ctx.create_board("A".into(), Some("AAA".into())).unwrap();
+    let from_sprint = ctx.create_sprint(board_a.id, None, None).unwrap();
+    ctx.activate_sprint(from_sprint.id, Some(14)).unwrap();
+    ctx.complete_sprint(from_sprint.id).unwrap();
+
+    let board_b = ctx.create_board("B".into(), Some("BBB".into())).unwrap();
+    let to_sprint = ctx.create_sprint(board_b.id, None, None).unwrap();
+    ctx.activate_sprint(to_sprint.id, Some(14)).unwrap();
+
+    let err = ctx
+        .carry_over_sprint_cards(from_sprint.id, to_sprint.id)
+        .unwrap_err();
+    assert!(err.is_sprint_board_mismatch(), "err: {err:?}");
+}

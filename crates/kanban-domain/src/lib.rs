@@ -42,6 +42,7 @@ pub mod sort;
 pub mod sprint;
 pub mod sprint_factory;
 pub mod sprint_log;
+pub mod sprint_membership;
 pub mod tag;
 pub mod task_list_view;
 pub mod undo_operations;

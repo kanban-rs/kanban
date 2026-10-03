@@ -231,6 +231,40 @@ macro_rules! context_contract_tests {
             $crate::test_helpers::contract::sprint_log::test_sprint_log_with_name_roundtrip(&$factory_fn()).await;
         }
 
+        // Sprint board membership tests
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_binding_a_card_to_a_sprint_on_another_board_is_refused_on_every_backend() {
+            $crate::test_helpers::contract::sprint_board::test_binding_a_card_to_a_sprint_on_another_board_is_refused_on_every_backend(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_carry_over_to_a_sprint_on_another_board_is_refused_and_moves_nothing() {
+            $crate::test_helpers::contract::sprint_board::test_carry_over_to_a_sprint_on_another_board_is_refused_and_moves_nothing(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_carry_over_leaves_a_pre_existing_cross_board_card_on_the_source_sprint() {
+            $crate::test_helpers::contract::sprint_board::test_carry_over_leaves_a_pre_existing_cross_board_card_on_the_source_sprint(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_detailed_assign_fails_only_the_cards_on_another_board() {
+            $crate::test_helpers::contract::sprint_board::test_detailed_assign_fails_only_the_cards_on_another_board(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_update_moving_a_card_cross_board_with_a_sprint_on_the_target_board_succeeds() {
+            $crate::test_helpers::contract::sprint_board::test_update_moving_a_card_cross_board_with_a_sprint_on_the_target_board_succeeds(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_update_with_status_and_a_cross_board_column_and_sprint_is_refused() {
+            $crate::test_helpers::contract::sprint_board::test_update_with_status_and_a_cross_board_column_and_sprint_is_refused(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_a_pre_existing_cross_board_binding_still_reads_and_survives_an_unrelated_edit() {
+            $crate::test_helpers::contract::sprint_board::test_a_pre_existing_cross_board_binding_still_reads_and_survives_an_unrelated_edit(&$factory_fn()).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn test_undo_delete_sprint_restores_a_pre_existing_cross_board_binding_verbatim() {
+            $crate::test_helpers::contract::sprint_board::test_undo_delete_sprint_restores_a_pre_existing_cross_board_binding_verbatim(&$factory_fn()).await;
+        }
+
         // Archive tests
         #[tokio::test(flavor = "multi_thread")]
         async fn test_archive_card_roundtrip() {

@@ -488,7 +488,7 @@ impl DeleteSprint {
     /// every archived card assigned to it. On undo:
     ///
     /// 1. Re-insert the Sprint via `ImportEntities`.
-    /// 2. Re-assign live cards via `AssignCardsToSprint`.
+    /// 2. Restore each live card's sprint binding and log via `RestoreSprintAttachment`.
     /// 3. Re-attach the sprint binding to archived cards via the
     ///    internal `SetArchivedCardsSprint` cascade primitive (there's
     ///    no other command that sets `sprint_id` on an archived card).
@@ -497,11 +497,7 @@ impl DeleteSprint {
             Some(s) => s,
             None => return Err(KanbanError::not_found("Sprint", self.sprint_id)),
         };
-        let assigned_card_ids: Vec<Uuid> = store
-            .list_cards_by_sprint(self.sprint_id)?
-            .into_iter()
-            .map(|c| c.id)
-            .collect();
+        let assigned_cards = store.list_cards_by_sprint(self.sprint_id)?;
         // Reference-marker model: read the sprint binding from each marker's LIVE
         // card (fetched by `entity_id`), not from the marker.
         let mut archived_with_sprint: Vec<Uuid> = Vec::new();
@@ -520,11 +516,13 @@ impl DeleteSprint {
                 ..Default::default()
             },
         ))];
-        if !assigned_card_ids.is_empty() {
-            commands.push(Command::Card(super::CardCommand::AssignToSprint(
-                super::AssignCardsToSprint {
-                    ids: assigned_card_ids,
-                    sprint_id: self.sprint_id,
+        for card in assigned_cards {
+            commands.push(Command::Card(super::CardCommand::RestoreSprintAttachment(
+                super::RestoreCardSprintAttachment {
+                    card_id: card.id,
+                    sprint_id: card.sprint_id,
+                    sprint_logs: card.sprint_logs.clone(),
+                    updated_at: card.updated_at,
                 },
             )));
         }

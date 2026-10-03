@@ -141,7 +141,7 @@ pub enum DomainError {
     WipLimitExceeded { column_id: Uuid, limit: u32 },
 
     #[error(
-        "sprint {sprint_id} belongs to board {sprint_board} but card is being created on board {card_board}"
+        "sprint {sprint_id} belongs to board {sprint_board} but the card is on board {card_board}"
     )]
     SprintBoardMismatch {
         sprint_id: Uuid,
@@ -549,6 +549,18 @@ mod tests {
         assert!(msg.contains(&sprint_board.to_string()), "msg: {msg}");
         assert!(msg.contains(&card_board.to_string()), "msg: {msg}");
         assert!(msg.contains("belongs to board"), "msg: {msg}");
+    }
+
+    #[test]
+    fn test_sprint_board_mismatch_display_does_not_assume_a_create() {
+        let err = KanbanError::Domain(DomainError::SprintBoardMismatch {
+            sprint_id: Uuid::new_v4(),
+            sprint_board: Uuid::new_v4(),
+            card_board: Uuid::new_v4(),
+        });
+        let msg = err.to_string();
+        assert!(msg.contains("but the card is on board"), "msg: {msg}");
+        assert!(!msg.contains("being created"), "msg: {msg}");
     }
 
     #[test]

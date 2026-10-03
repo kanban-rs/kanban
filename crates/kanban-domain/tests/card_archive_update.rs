@@ -3,8 +3,9 @@ use common::TestContext;
 
 use kanban_domain::commands::card::{ArchiveCards, UpdateCard};
 use kanban_domain::commands::column_commands::DeleteColumn;
+use kanban_domain::commands::{CardCommand, Command};
 
-use kanban_domain::{CardUpdate, DataStore};
+use kanban_domain::{CardUpdate, DataStore, FieldUpdate};
 use uuid::Uuid;
 
 #[test]
@@ -45,6 +46,213 @@ fn test_update_card_to_nonexistent_column_returns_not_found() {
     // FK rejected before mutation: the card stays in its original column.
     let stored = tc.store.get_card(card_id).unwrap().unwrap();
     assert_eq!(stored.column_id, col_id);
+}
+
+#[test]
+fn test_update_card_setting_a_sprint_on_another_board_returns_sprint_board_mismatch() {
+    let tc = TestContext::new();
+    let board_a = kanban_domain::Board::new("A", Some("AAA"));
+    let board_b = kanban_domain::Board::new("B", Some("BBB"));
+    let col_a = kanban_domain::Column::new(board_a.id, "Col", 0);
+    let card = kanban_domain::Card::new(board_a.id, col_a.id, "Card", 0);
+    let card_id = card.id;
+    let sprint_b = kanban_domain::Sprint::new(board_b.id, 1, None, Some("Sprint"));
+    let sprint_id = sprint_b.id;
+    tc.store.upsert_board(board_a).unwrap();
+    tc.store.upsert_board(board_b).unwrap();
+    tc.store.upsert_column(col_a).unwrap();
+    tc.store.upsert_card(card).unwrap();
+    tc.store.upsert_sprint(sprint_b).unwrap();
+
+    let context = tc.as_command_context();
+    let cmd = UpdateCard {
+        card_id,
+        updates: CardUpdate {
+            sprint_id: FieldUpdate::Set(sprint_id),
+            ..CardUpdate::default()
+        },
+    };
+    let result = cmd.execute(&context);
+    assert!(result.unwrap_err().is_sprint_board_mismatch());
+
+    let stored = tc.store.get_card(card_id).unwrap().unwrap();
+    assert_eq!(stored.sprint_id, None);
+}
+
+#[test]
+fn test_update_card_setting_an_unknown_sprint_returns_not_found() {
+    let tc = TestContext::new();
+    let board = kanban_domain::Board::new("Test", Some("TST"));
+    let col = kanban_domain::Column::new(board.id, "Col", 0);
+    let card = kanban_domain::Card::new(board.id, col.id, "Card", 0);
+    let card_id = card.id;
+    tc.store.upsert_board(board).unwrap();
+    tc.store.upsert_column(col).unwrap();
+    tc.store.upsert_card(card).unwrap();
+
+    let context = tc.as_command_context();
+    let cmd = UpdateCard {
+        card_id,
+        updates: CardUpdate {
+            sprint_id: FieldUpdate::Set(Uuid::new_v4()),
+            ..CardUpdate::default()
+        },
+    };
+    let result = cmd.execute(&context);
+    assert!(result.unwrap_err().is_not_found());
+}
+
+#[test]
+fn test_update_card_resubmitting_its_existing_cross_board_sprint_succeeds() {
+    let tc = TestContext::new();
+    let board_a = kanban_domain::Board::new("A", Some("AAA"));
+    let board_b = kanban_domain::Board::new("B", Some("BBB"));
+    let col_a = kanban_domain::Column::new(board_a.id, "Col", 0);
+    let mut card = kanban_domain::Card::new(board_a.id, col_a.id, "Card", 0);
+    let sprint_b = kanban_domain::Sprint::new(board_b.id, 1, None, Some("Sprint"));
+    let sprint_id = sprint_b.id;
+    card.assign_to_sprint(
+        sprint_id,
+        sprint_b.sprint_number,
+        None::<String>,
+        "Planning",
+        chrono::Utc::now(),
+    );
+    let card_id = card.id;
+    tc.store.upsert_board(board_a).unwrap();
+    tc.store.upsert_board(board_b).unwrap();
+    tc.store.upsert_column(col_a).unwrap();
+    tc.store.upsert_card(card).unwrap();
+    tc.store.upsert_sprint(sprint_b).unwrap();
+
+    let context = tc.as_command_context();
+    let cmd = UpdateCard {
+        card_id,
+        updates: CardUpdate {
+            title: Some("Renamed".to_string()),
+            sprint_id: FieldUpdate::Set(sprint_id),
+            ..CardUpdate::default()
+        },
+    };
+    let result = cmd.execute(&context);
+    assert!(result.is_ok());
+
+    let stored = tc.store.get_card(card_id).unwrap().unwrap();
+    assert_eq!(stored.title, "Renamed");
+    assert_eq!(stored.sprint_id, Some(sprint_id));
+}
+
+#[test]
+fn test_update_card_with_a_column_on_another_board_checks_the_sprint_against_the_cards_stored_board(
+) {
+    let tc = TestContext::new();
+    let board_a = kanban_domain::Board::new("A", Some("AAA"));
+    let board_b = kanban_domain::Board::new("B", Some("BBB"));
+    let col_b = kanban_domain::Column::new(board_b.id, "Col", 0);
+    let col_b_id = col_b.id;
+    let card = kanban_domain::Card::new(board_a.id, Uuid::new_v4(), "Card", 0);
+    let card_id = card.id;
+    let sprint_b = kanban_domain::Sprint::new(board_b.id, 1, None, Some("Sprint"));
+    let sprint_id = sprint_b.id;
+    tc.store.upsert_board(board_a).unwrap();
+    tc.store.upsert_board(board_b).unwrap();
+    tc.store.upsert_column(col_b).unwrap();
+    tc.store.upsert_card(card).unwrap();
+    tc.store.upsert_sprint(sprint_b).unwrap();
+
+    let context = tc.as_command_context();
+    // Raw UpdateCard with a column on board B but the card is still stored on
+    // board A: the sprint check must compare against the card's stored
+    // board_id, not the (unsynced) target column's board.
+    let cmd = UpdateCard {
+        card_id,
+        updates: CardUpdate {
+            column_id: Some(col_b_id),
+            sprint_id: FieldUpdate::Set(sprint_id),
+            ..CardUpdate::default()
+        },
+    };
+    let result = cmd.execute(&context);
+    assert!(result.unwrap_err().is_sprint_board_mismatch());
+
+    let stored = tc.store.get_card(card_id).unwrap().unwrap();
+    assert_eq!(stored.sprint_id, None);
+}
+
+#[test]
+fn test_update_card_inverse_restores_the_sprint_attachment_verbatim() {
+    let tc = TestContext::new();
+    let board = kanban_domain::Board::new("A", Some("AAA"));
+    let col = kanban_domain::Column::new(board.id, "Col", 0);
+    let card = kanban_domain::Card::new(board.id, col.id, "Card", 0);
+    let card_id = card.id;
+    let sprint = kanban_domain::Sprint::new(board.id, 1, None, Some("Sprint"));
+    let sprint_id = sprint.id;
+    tc.store.upsert_board(board).unwrap();
+    tc.store.upsert_column(col).unwrap();
+    tc.store.upsert_card(card).unwrap();
+    tc.store.upsert_sprint(sprint).unwrap();
+
+    let before = tc.store.get_card(card_id).unwrap().unwrap();
+
+    let forward = UpdateCard {
+        card_id,
+        updates: CardUpdate {
+            sprint_id: FieldUpdate::Set(sprint_id),
+            ..CardUpdate::default()
+        },
+    };
+    let inverse = forward.capture_inverse(&tc.store).unwrap();
+    assert_eq!(
+        inverse.len(),
+        2,
+        "plain Update plus RestoreSprintAttachment"
+    );
+    match &inverse[0] {
+        Command::Card(CardCommand::Update(u)) => {
+            assert_eq!(u.updates.sprint_id, FieldUpdate::NoChange);
+        }
+        other => panic!("expected Update first, got {other:?}"),
+    }
+    match &inverse[1] {
+        Command::Card(CardCommand::RestoreSprintAttachment(r)) => {
+            assert_eq!(r.card_id, card_id);
+            assert_eq!(r.sprint_id, before.sprint_id);
+            assert_eq!(r.sprint_logs, before.sprint_logs);
+            assert_eq!(r.updated_at, before.updated_at);
+        }
+        other => panic!("expected RestoreSprintAttachment second, got {other:?}"),
+    }
+
+    let context = tc.as_command_context();
+    forward.execute(&context).unwrap();
+    for cmd in inverse {
+        cmd.execute(&context).unwrap();
+    }
+    let after = tc.store.get_card(card_id).unwrap().unwrap();
+    assert_eq!(after, before);
+}
+
+#[test]
+fn test_update_card_inverse_without_sprint_change_is_a_single_update() {
+    let tc = TestContext::new();
+    let board = kanban_domain::Board::new("A", Some("AAA"));
+    let col = kanban_domain::Column::new(board.id, "Col", 0);
+    let card = kanban_domain::Card::new(board.id, col.id, "Card", 0);
+    let card_id = card.id;
+    tc.store.upsert_board(board).unwrap();
+    tc.store.upsert_column(col).unwrap();
+    tc.store.upsert_card(card).unwrap();
+
+    let forward = UpdateCard {
+        card_id,
+        updates: CardUpdate {
+            title: Some("Renamed".to_string()),
+            ..CardUpdate::default()
+        },
+    };
+    let inverse = forward.capture_inverse(&tc.store).unwrap();
+    assert_eq!(inverse.len(), 1);
 }
 
 #[test]

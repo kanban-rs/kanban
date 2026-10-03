@@ -7,10 +7,10 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Restore a card's `sprint_id`, `sprint_logs`, and `updated_at` to a
-/// captured pre-state. Emitted by `AssignCardsToSprint` and
-/// `UnassignCardFromSprint` inverses to round-trip the sprint-history
-/// log cleanly — otherwise the inverse would push a new log entry
-/// instead of removing the one the forward added.
+/// captured pre-state. Emitted by `AssignCardsToSprint`,
+/// `UnassignCardFromSprint`, `UpdateCard` and `DeleteSprint` inverses to
+/// round-trip the sprint-history log cleanly: otherwise the inverse would
+/// push a new log entry instead of removing the one the forward added.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RestoreCardSprintAttachment {
     pub card_id: Uuid,
@@ -39,7 +39,7 @@ impl RestoreCardSprintAttachment {
 
     pub fn capture_inverse(&self, _store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         Err(KanbanError::Internal(format!(
-            "RestoreCardSprintAttachment is a synthetic command — it must only appear inside an inverse batch (Assign/Unassign undo), never as a top-level forward command. Card id: {}",
+            "RestoreCardSprintAttachment is a synthetic command: it must only appear inside an inverse batch (Assign/Unassign/UpdateCard/DeleteSprint undo), never as a top-level forward command. Card id: {}",
             self.card_id
         )))
     }
@@ -89,9 +89,17 @@ impl AssignCardsToSprint {
         let sprint_status = format!("{:?}", sprint.status);
 
         let valid_ids = context.filter_valid_card_ids(&self.ids, "AssignCardsToSprint");
-        let now = Utc::now();
+        let mut cards = Vec::with_capacity(valid_ids.len());
         for id in &valid_ids {
-            let mut card = context.get_card(*id)?;
+            let card = context.get_card(*id)?;
+            if card.sprint_id != Some(self.sprint_id) {
+                crate::sprint_membership::require_sprint_on_board(&sprint, card.board_id)?;
+            }
+            cards.push(card);
+        }
+
+        let now = Utc::now();
+        for mut card in cards {
             if let Some(old_sprint_id) = card.sprint_id {
                 if old_sprint_id != self.sprint_id {
                     card.end_current_sprint_log();

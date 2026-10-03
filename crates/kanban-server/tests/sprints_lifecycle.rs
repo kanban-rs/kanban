@@ -857,7 +857,7 @@ async fn test_flat_carry_over_route_returns_moved_and_the_invalidation() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_flat_carry_over_route_accepts_a_target_sprint_on_another_board() {
+async fn test_flat_carry_over_route_refuses_a_target_sprint_on_another_board_with_422() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
     let (_board_a, sprint_a) = seed_board_and_sprint(&state, "Alpha").await;
@@ -879,13 +879,9 @@ async fn test_flat_carry_over_route_accepts_a_target_sprint_on_another_board() {
         Some(&json!({"to_sprint_id": sprint_b})),
     )
     .await;
-    assert_eq!(
-        carry_over.status(),
-        StatusCode::OK,
-        "carry-over across boards must succeed on the flat route, matching local parity"
-    );
+    assert_eq!(carry_over.status(), StatusCode::UNPROCESSABLE_ENTITY);
     let json = json_of(carry_over).await;
-    assert_eq!(json["moved"], 0);
+    assert_eq!(json["code"], "SPRINT_BOARD_MISMATCH");
 }
 
 #[tokio::test(flavor = "multi_thread")]

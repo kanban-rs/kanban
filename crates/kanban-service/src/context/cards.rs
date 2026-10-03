@@ -2,8 +2,8 @@ use super::KanbanContext;
 use kanban_domain::commands::{CardCommand, Command};
 use kanban_domain::{
     ArchivedCard, ArchivedEntity, Card, CardCreateOutcome, CardListFilter, CardSummary, CardUpdate,
-    Column, CreateCardOptions, DomainError, FieldUpdate, Invalidation, KanbanError, KanbanResult,
-    NewCard, Sprint,
+    Column, CreateCardOptions, FieldUpdate, Invalidation, KanbanError, KanbanResult, NewCard,
+    Sprint,
 };
 use uuid::Uuid;
 
@@ -113,13 +113,7 @@ impl KanbanContext {
                 .backend
                 .get_sprint(sprint_id)?
                 .ok_or_else(|| KanbanError::not_found("Sprint", sprint_id))?;
-            if sprint.board_id != board_id {
-                return Err(KanbanError::Domain(DomainError::SprintBoardMismatch {
-                    sprint_id,
-                    sprint_board: sprint.board_id,
-                    card_board: board_id,
-                }));
-            }
+            kanban_domain::sprint_membership::require_sprint_on_board(&sprint, board_id)?;
         }
 
         // id uniqueness across live AND archived cards (validate before mint).
