@@ -177,7 +177,7 @@ All request/response bodies are JSON. Errors share one envelope (see [Error Hand
 | `PUT` | `/v1/boards/{id}` | Full replace (RFC 9110 §9.3.4) — creates the board at `id` if absent (`201`), otherwise replaces it in full (`200`). All non-nullable fields are required; a partial body is a 400. | `ReplaceBoardRequest` |
 | `PATCH` | `/v1/boards/{id}` | Partial update — JSON Merge Patch (RFC 7386): an absent field is no change, `null` clears it, a value sets it. Body is `MutationResponse<BoardResponse>`. | `UpdateBoardRequest` |
 | `DELETE` | `/v1/boards/{id}` | Delete a board and everything under it. `200 OK` with `{"invalidation": ...}` (`DeleteResponse`, see below), not `204 No Content`. | — |
-| `POST` | `/v1/boards/{id}/archive` | Archive a board reversibly. `200 OK` with the board stamped with `archived_at`; the subtree stays reachable. Re-archiving succeeds and refreshes the stamp. Body is `BoardResponse` flattened with an `invalidation` field (`MutationResponse<BoardResponse>`, see below). | — |
+| `POST` | `/v1/boards/{id}/archive` | Archive a board reversibly. `200 OK` with the board stamped with `archived_at`; the subtree stays reachable. Re-archiving an archived board succeeds and changes nothing: `archived_at` keeps the original archive time. Body is `BoardResponse` flattened with an `invalidation` field (`MutationResponse<BoardResponse>`, see below). | — |
 | `POST` | `/v1/boards/{id}/restore` | Restore an archived board. `200 OK`; `archived_at` is absent. 404 if the board is not archived. Body is `MutationResponse<BoardResponse>`. | — |
 | `GET` | `/v1/archived-boards` | List archived-board markers (`entity_id` + `archived_at`). Returns `Page<ArchivedBoardResponse>`; accepts `?page=&page_size=`. | — |
 
