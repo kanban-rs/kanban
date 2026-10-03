@@ -21,6 +21,11 @@ impl MoveCard {
         context.check_wip_limit(self.new_column_id, 1, &[self.card_id])?;
         let mut card = context.get_card(self.card_id)?;
         card.move_to_column(self.new_column_id, self.new_position);
+        crate::sprint_membership::detach_sprint_if_board_changes(
+            context.store,
+            &mut card,
+            column.board_id,
+        )?;
         // Keep board_id in sync with the target column's board -- cross-board
         // moves are intentionally permitted, not guarded against (KAN-963).
         card.board_id = column.board_id;
@@ -45,17 +50,35 @@ impl MoveCard {
     }
 
     /// Inverse: another MoveCard pointing back to the card's current
-    /// (column_id, position).
+    /// (column_id, position), plus a RestoreSprintAttachment when the move
+    /// changes board on a sprint-bound card. The move back may itself
+    /// detach the binding (a move onto the card's original board but away
+    /// from the sprint's board), so the restore is appended unconditionally
+    /// on any board change, last, to win over that detach.
     pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         let card = match store.get_card(self.card_id)? {
             Some(c) => c,
             None => return Err(KanbanError::not_found("Card", self.card_id)),
         };
-        Ok(vec![Command::Card(CardCommand::Move(MoveCard {
+        let mut commands = vec![Command::Card(CardCommand::Move(MoveCard {
             card_id: self.card_id,
             new_column_id: card.column_id,
             new_position: card.position,
-        }))])
+        }))];
+        let changes_board = store
+            .get_column(self.new_column_id)?
+            .is_some_and(|target| target.board_id != card.board_id);
+        if changes_board && card.sprint_id.is_some() {
+            commands.push(Command::Card(CardCommand::RestoreSprintAttachment(
+                super::RestoreCardSprintAttachment {
+                    card_id: card.id,
+                    sprint_id: card.sprint_id,
+                    sprint_logs: card.sprint_logs.clone(),
+                    updated_at: card.updated_at,
+                },
+            )));
+        }
+        Ok(commands)
     }
 }
 

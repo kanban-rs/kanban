@@ -8,9 +8,10 @@ use uuid::Uuid;
 
 /// Restore a card's `sprint_id`, `sprint_logs`, and `updated_at` to a
 /// captured pre-state. Emitted by `AssignCardsToSprint`,
-/// `UnassignCardFromSprint`, `UpdateCard` and `DeleteSprint` inverses to
-/// round-trip the sprint-history log cleanly: otherwise the inverse would
-/// push a new log entry instead of removing the one the forward added.
+/// `UnassignCardFromSprint`, `UpdateCard`, `DeleteSprint` and `MoveCard`
+/// inverses to round-trip the sprint-history log cleanly: otherwise the
+/// inverse would push a new log entry instead of removing the one the
+/// forward added.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RestoreCardSprintAttachment {
     pub card_id: Uuid,
@@ -39,7 +40,7 @@ impl RestoreCardSprintAttachment {
 
     pub fn capture_inverse(&self, _store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         Err(KanbanError::Internal(format!(
-            "RestoreCardSprintAttachment is a synthetic command: it must only appear inside an inverse batch (Assign/Unassign/UpdateCard/DeleteSprint undo), never as a top-level forward command. Card id: {}",
+            "RestoreCardSprintAttachment is a synthetic command: it must only appear inside an inverse batch (Assign/Unassign/UpdateCard/DeleteSprint/MoveCard undo), never as a top-level forward command. Card id: {}",
             self.card_id
         )))
     }

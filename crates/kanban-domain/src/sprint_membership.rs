@@ -1,4 +1,5 @@
-use crate::{DomainError, KanbanError, KanbanResult, Sprint};
+use crate::data_store::DataStore;
+use crate::{Card, DomainError, KanbanError, KanbanResult, Sprint};
 use uuid::Uuid;
 
 pub fn require_sprint_on_board(sprint: &Sprint, card_board: Uuid) -> KanbanResult<()> {
@@ -10,6 +11,28 @@ pub fn require_sprint_on_board(sprint: &Sprint, card_board: Uuid) -> KanbanResul
         sprint_board: sprint.board_id,
         card_board,
     }))
+}
+
+/// Drops the card's sprint binding when moving it onto `target_board` would
+/// leave it bound to a sprint on another board. A same-board move never
+/// touches the binding, so an already-inconsistent binding is left as is.
+pub fn detach_sprint_if_board_changes(
+    store: &dyn DataStore,
+    card: &mut Card,
+    target_board: Uuid,
+) -> KanbanResult<bool> {
+    let Some(sprint_id) = card.sprint_id else {
+        return Ok(false);
+    };
+    if card.board_id == target_board {
+        return Ok(false);
+    }
+    if matches!(store.get_sprint(sprint_id)?, Some(s) if s.board_id == target_board) {
+        return Ok(false);
+    }
+    card.end_current_sprint_log();
+    card.sprint_id = None;
+    Ok(true)
 }
 
 #[cfg(test)]
