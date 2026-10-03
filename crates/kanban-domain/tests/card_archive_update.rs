@@ -528,3 +528,70 @@ fn test_archive_cards_missing_card_after_filter_returns_error() {
     assert_eq!(tc.store.list_all_cards().unwrap().len(), 0);
     assert_eq!(tc.store.list_archived_cards().unwrap().len(), 1);
 }
+
+#[test]
+fn test_archive_cards_capture_inverse_skips_an_already_archived_card() {
+    let tc = TestContext::new();
+    let board = kanban_domain::Board::new("Test", Some("TST"));
+    let board_id = board.id;
+    let col = kanban_domain::Column::new(board_id, "Col", 0);
+    let col_id = col.id;
+    let live = kanban_domain::Card::new(board_id, col_id, "Live", 0);
+    let live_id = live.id;
+    let archived = kanban_domain::Card::new(board_id, col_id, "Archived", 1);
+    let archived_id = archived.id;
+    tc.store.upsert_board(board).unwrap();
+    tc.store.upsert_column(col).unwrap();
+    tc.store.upsert_card(live).unwrap();
+    tc.store.upsert_card(archived).unwrap();
+
+    let context = tc.as_command_context();
+    ArchiveCards {
+        ids: vec![archived_id],
+    }
+    .execute(&context)
+    .unwrap();
+
+    let inverse = ArchiveCards {
+        ids: vec![live_id, archived_id],
+    }
+    .capture_inverse(&tc.store)
+    .unwrap();
+
+    assert_eq!(inverse.len(), 1);
+    match &inverse[0] {
+        Command::Card(CardCommand::Restore(r)) => {
+            assert_eq!(r.card_id, live_id);
+            let live_card = tc.store.get_card(live_id).unwrap().unwrap();
+            assert_eq!(r.column_id, live_card.column_id);
+            assert_eq!(r.position, live_card.position);
+        }
+        other => panic!("expected Restore for the live card, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_archive_cards_capture_inverse_records_one_restore_per_distinct_id() {
+    let tc = TestContext::new();
+    let board = kanban_domain::Board::new("Test", Some("TST"));
+    let board_id = board.id;
+    let col = kanban_domain::Column::new(board_id, "Col", 0);
+    let col_id = col.id;
+    let live = kanban_domain::Card::new(board_id, col_id, "Live", 0);
+    let live_id = live.id;
+    tc.store.upsert_board(board).unwrap();
+    tc.store.upsert_column(col).unwrap();
+    tc.store.upsert_card(live).unwrap();
+
+    let inverse = ArchiveCards {
+        ids: vec![live_id, live_id],
+    }
+    .capture_inverse(&tc.store)
+    .unwrap();
+
+    assert_eq!(inverse.len(), 1);
+    match &inverse[0] {
+        Command::Card(CardCommand::Restore(r)) => assert_eq!(r.card_id, live_id),
+        other => panic!("expected a single Restore for the live card, got {other:?}"),
+    }
+}
