@@ -137,6 +137,7 @@ pub trait RemoteGraphWrites: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kanban_api::{ApiError, ErrorCode};
     use kanban_domain::EntityIds;
 
     struct Probe;
@@ -153,7 +154,10 @@ mod tests {
         ) -> KanbanResult<(RemoteBatchOutcome, Invalidation)> {
             let outcome = RemoteBatchOutcome {
                 succeeded: vec![ids[0]],
-                failed: vec![(ids[1], "Card b not found".to_string())],
+                failed: vec![(
+                    ids[1],
+                    ApiError::new(ErrorCode::NotFound, "Card b not found"),
+                )],
             };
             Ok((outcome, Invalidation::Entities(EntityIds::default())))
         }
@@ -184,7 +188,10 @@ mod tests {
         let (outcome, _invalidation) = probe.move_cards(&[a, b], Uuid::new_v4())?;
 
         assert_eq!(outcome.succeeded, vec![a]);
-        assert_eq!(outcome.failed, vec![(b, "Card b not found".to_string())]);
+        assert_eq!(
+            outcome.failed,
+            vec![(b, ApiError::new(ErrorCode::NotFound, "Card b not found"))]
+        );
         Ok(())
     }
 

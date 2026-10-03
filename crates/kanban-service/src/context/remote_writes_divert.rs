@@ -2,6 +2,7 @@
 
 use super::{BatchOperationFailure, KanbanContext};
 use crate::backend_test_support::MockBackend;
+use kanban_api::{ApiError, ErrorCode};
 use kanban_backend::{
     RemoteBatchOutcome, RemoteBatchWrites, RemoteBoardWrites, RemoteCardWrites, RemoteGraphWrites,
     RemoteSprintWrites, RemoteWrites,
@@ -1033,20 +1034,46 @@ async fn test_each_graph_op_with_remote_writes_but_no_graph_writes_declines_with
 }
 
 #[tokio::test]
-async fn test_archive_cards_with_remote_batch_writes_all_failed_returns_the_first_failure_as_validation(
+async fn test_archive_cards_with_remote_batch_writes_all_failed_rebuilds_the_error_through_from_api_error(
 ) {
     let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
     let a = Uuid::new_v4();
+    let api_error = ApiError::new(ErrorCode::NotFound, "Card a not found");
     let outcome = RemoteBatchOutcome {
         succeeded: vec![],
-        failed: vec![(a, "Card a not found".to_string())],
+        failed: vec![(a, api_error.clone())],
     };
     let batch_rw = Arc::new(RecordingBatchWrites::new(canned_inv(), outcome));
     let mut ctx = open_ctx_with_batch_writes(rw.clone(), batch_rw.clone()).await;
 
     let err = ctx.archive_cards_impl(vec![a]).unwrap_err();
 
-    assert!(err.to_string().contains("Card a not found"), "got: {err}");
+    assert_eq!(
+        err.to_string(),
+        kanban_domain::KanbanError::from(api_error).to_string()
+    );
+    assert!(rw.calls().is_empty());
+}
+
+#[tokio::test]
+async fn test_archive_cards_with_remote_batch_writes_all_failed_with_a_server_fault_returns_internal(
+) {
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let a = Uuid::new_v4();
+    let api_error = ApiError::new(ErrorCode::DatabaseError, "internal server error");
+    let outcome = RemoteBatchOutcome {
+        succeeded: vec![],
+        failed: vec![(a, api_error)],
+    };
+    let batch_rw = Arc::new(RecordingBatchWrites::new(canned_inv(), outcome));
+    let mut ctx = open_ctx_with_batch_writes(rw.clone(), batch_rw.clone()).await;
+
+    let err = ctx.archive_cards_impl(vec![a]).unwrap_err();
+
+    assert!(
+        matches!(err, kanban_domain::KanbanError::Internal(_)),
+        "got: {err:?}"
+    );
     assert!(rw.calls().is_empty());
 }
 
@@ -1095,6 +1122,26 @@ async fn test_move_cards_with_remote_batch_writes_diverts_before_the_local_dedup
         batch_rw.calls(),
         vec![format!("move_cards:{ids:?}:{column_id}")]
     );
+    assert!(rw.calls().is_empty());
+}
+
+#[tokio::test]
+async fn test_move_cards_with_remote_batch_writes_partial_failure_counts_only_the_succeeded_ids() {
+    let rw = Arc::new(RecordingRemoteWrites::new(canned_inv()));
+    let a = Uuid::new_v4();
+    let b = Uuid::new_v4();
+    let column_id = Uuid::new_v4();
+    let outcome = RemoteBatchOutcome {
+        succeeded: vec![a],
+        failed: vec![(b, ApiError::new(ErrorCode::NotFound, "Card b not found"))],
+    };
+    let batch_rw = Arc::new(RecordingBatchWrites::new(canned_inv(), outcome));
+    let mut ctx = open_ctx_with_batch_writes(rw.clone(), batch_rw.clone()).await;
+
+    let (count, inv) = ctx.move_cards_impl(vec![a, b], column_id).unwrap();
+
+    assert_eq!(count, 1);
+    assert_eq!(inv, canned_inv());
     assert!(rw.calls().is_empty());
 }
 
@@ -1285,7 +1332,7 @@ async fn test_move_cards_detailed_with_remote_batch_writes_returns_the_outcome_v
     let column_id = Uuid::new_v4();
     let outcome = RemoteBatchOutcome {
         succeeded: vec![a],
-        failed: vec![(b, "Card b not found".to_string())],
+        failed: vec![(b, ApiError::new(ErrorCode::NotFound, "Card b not found"))],
     };
     let batch_rw = Arc::new(RecordingBatchWrites::new(canned_inv(), outcome));
     let mut ctx = open_ctx_with_batch_writes(rw.clone(), batch_rw.clone()).await;
@@ -1296,6 +1343,10 @@ async fn test_move_cards_detailed_with_remote_batch_writes_returns_the_outcome_v
     assert_eq!(result.failed.len(), 1);
     assert_eq!(result.failed[0].id, b);
     assert_eq!(result.failed[0].error, "Card b not found");
+    assert_eq!(
+        result.failed[0].api_error,
+        ApiError::new(ErrorCode::NotFound, "Card b not found")
+    );
     assert_eq!(inv, canned_inv());
     assert_eq!(
         batch_rw.calls(),
