@@ -281,7 +281,9 @@ Returned by the `*_detailed` bulk operation methods. `error` is the raw
 output and every local return value). `api_error` is the wire form built by
 `BatchOperationFailure::new`: it carries the `ErrorCode` and the client-safe
 message that `kanban-server` sends on `/v1/cards/batch/*`, scrubbing server
-faults the same way every other route does.
+faults the same way every other route does. Over HTTP (`From<RemoteBatchOutcome>`),
+`error` is the server's wire message and `api_error` is the server's `ApiError`
+as received, code included.
 
 ---
 
