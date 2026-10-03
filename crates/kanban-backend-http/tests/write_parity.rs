@@ -1389,3 +1389,103 @@ async fn test_remote_sprint_crud_leaves_graph_equal_to_local_json() {
 async fn test_remote_sprint_crud_leaves_graph_equal_to_local_sqlite() {
     op_parity(Backend::Sqlite, seed_graph, sprint_crud_ops).await;
 }
+
+struct LifecycleSeeded {
+    base: Seeded,
+    second_sprint: Uuid,
+}
+
+fn seed_lifecycle_graph(ctx: &mut KanbanContext) -> LifecycleSeeded {
+    let base = seed_graph(ctx);
+    ctx.assign_card_to_sprint(base.card_a, base.sprint_id)
+        .unwrap();
+    let second_sprint = ctx.create_sprint(base.board_id, None, None).unwrap().id;
+    LifecycleSeeded {
+        base,
+        second_sprint,
+    }
+}
+
+fn sprint_lifecycle_ops(ctx: &mut KanbanContext, s: &LifecycleSeeded) {
+    let _ = ctx.activate_sprint_impl(s.base.sprint_id, Some(7)).unwrap();
+    let _ = ctx.complete_sprint_impl(s.base.sprint_id).unwrap();
+    let (moved, _) = ctx
+        .carry_over_sprint_cards_impl(s.base.sprint_id, s.second_sprint)
+        .unwrap();
+    assert_eq!(
+        moved, 2,
+        "card_a and card_c are uncompleted in the first sprint"
+    );
+    let _ = ctx.cancel_sprint_impl(s.second_sprint).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_remote_sprint_lifecycle_leaves_graph_equal_to_local_json() {
+    op_parity(Backend::Json, seed_lifecycle_graph, sprint_lifecycle_ops).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_remote_sprint_lifecycle_leaves_graph_equal_to_local_sqlite() {
+    op_parity(Backend::Sqlite, seed_lifecycle_graph, sprint_lifecycle_ops).await;
+}
+
+fn issued_since(
+    log: &kanban_server::test_helpers::RequestLog,
+    from: usize,
+) -> Vec<(String, String)> {
+    log.lock().unwrap()[from..]
+        .iter()
+        .map(|(method, path)| (method.to_string(), path.clone()))
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_sprint_lifecycle_over_http_issues_one_flat_write_and_at_most_one_board_read() {
+    let mut seeded_slot: Option<LifecycleSeeded> = None;
+    let (server, log) = TestServer::start_recording(|ctx| {
+        seeded_slot = Some(seed_lifecycle_graph(ctx));
+    })
+    .await;
+    let s = seeded_slot.unwrap();
+    let (first, second, board_id) = (s.base.sprint_id, s.second_sprint, s.base.board_id);
+    let post = |path: String| ("POST".to_string(), path);
+    let board_read = ("GET".to_string(), format!("/v1/boards/{board_id}"));
+    let mut ctx = ctx_over(&server).await;
+
+    let mark = log.lock().unwrap().len();
+    let _ = ctx.activate_sprint_impl(first, Some(7)).unwrap();
+    assert_eq!(
+        issued_since(&log, mark),
+        vec![
+            post(format!("/v1/sprints/{first}/activate")),
+            board_read.clone()
+        ]
+    );
+
+    let mark = log.lock().unwrap().len();
+    let _ = ctx.complete_sprint_impl(first).unwrap();
+    assert_eq!(
+        issued_since(&log, mark),
+        vec![
+            post(format!("/v1/sprints/{first}/complete")),
+            board_read.clone()
+        ]
+    );
+
+    let mark = log.lock().unwrap().len();
+    let _ = ctx.carry_over_sprint_cards_impl(first, second).unwrap();
+    assert_eq!(
+        issued_since(&log, mark),
+        vec![post(format!("/v1/sprints/{first}/carry-over"))]
+    );
+
+    let mark = log.lock().unwrap().len();
+    let _ = ctx.cancel_sprint_impl(second).unwrap();
+    assert_eq!(
+        issued_since(&log, mark),
+        vec![post(format!("/v1/sprints/{second}/cancel")), board_read]
+    );
+
+    drop(ctx);
+    server.shutdown().await;
+}
