@@ -32,13 +32,17 @@ same way via `RemoteGraphWrites` (`src/remote_writes/graph.rs`) and
 routes (see [the server README's Graph
 section](../kanban-server/README.md#graph)), and the born-archived decision
 for a new edge is made server-side from the server's own card state, not the
-client's. The three sprint CRUD mutations (`create_sprint`, `update_sprint`,
-`delete_sprint`) are diverted the same way via `RemoteSprintWrites`
+client's. The sprint CRUD and lifecycle mutations (`create_sprint`,
+`update_sprint`, `delete_sprint`, `activate_sprint`, `complete_sprint`,
+`cancel_sprint`) are diverted the same way via `RemoteSprintWrites`
 (`src/remote_writes/sprints.rs`) and `KanbanBackend::remote_sprint_writes()`:
-create and update each issue a mutation request and then re-fetch the owning
-board so the returned `Sprint`'s `name_index` resolves against the server's
-own `sprint_names` pool instead of an empty one, since that pool is the only
-way a client-side `Sprint` conversion can know it.
+every one of them that returns a `Sprint` (create, update, activate, complete,
+cancel) issues a mutation request and then re-fetches the owning board so the
+returned `Sprint`'s `name_index` resolves against the server's own
+`sprint_names` pool instead of an empty one, since that pool is the only way a
+client-side `Sprint` conversion can know it. When that board re-fetch fails
+after the write already committed, the sprint is returned unnamed with a
+warning instead of turning the write into an error.
 
 The remaining `DataStore`/`CommandStore` *writes* (sprint lifecycle writes,
 namely activate/complete/cancel/carry-over, and prefix writes, plus the
