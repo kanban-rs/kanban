@@ -30,7 +30,7 @@ impl Model {
     ///
     /// `scoped_card_index` is a reverse index over `cards_by_column`; every
     /// clear of that tier here clears the matching index entries too, so
-    /// `set_cards_of_column` remains its only writer.
+    /// `set_cards_of_column` remains the only code that inserts entries.
     ///
     /// The flat archival-marker tiers (`archived_cards`/`archived_boards` and
     /// their id sets) are dropped by the arm of the entity kind they mark: a
