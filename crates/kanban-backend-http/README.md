@@ -7,7 +7,7 @@ of a local file) talk to boards through the same `KanbanBackend` interface
 every other backend implements.
 
 **Status: reads, the core CRUD writes, the card batch mutations, the graph
-mutations, and sprint create/update/delete are live.**
+mutations, and the sprint CRUD and lifecycle writes are live.**
 `HttpBackend` builds its own dedicated Tokio runtime and HTTP client and
 implements `KanbanBackend`. Every `DataStore` read (`src/data_store.rs`) is a
 real request against `kanban-server`'s v1 REST endpoints. `RemoteWrites`
@@ -34,18 +34,20 @@ section](../kanban-server/README.md#graph)), and the born-archived decision
 for a new edge is made server-side from the server's own card state, not the
 client's. The sprint CRUD and lifecycle mutations (`create_sprint`,
 `update_sprint`, `delete_sprint`, `activate_sprint`, `complete_sprint`,
-`cancel_sprint`) are diverted the same way via `RemoteSprintWrites`
-(`src/remote_writes/sprints.rs`) and `KanbanBackend::remote_sprint_writes()`:
-every one of them that returns a `Sprint` (create, update, activate, complete,
-cancel) issues a mutation request and then re-fetches the owning board so the
-returned `Sprint`'s `name_index` resolves against the server's own
-`sprint_names` pool instead of an empty one, since that pool is the only way a
-client-side `Sprint` conversion can know it. When that board re-fetch fails
-after the write already committed, the sprint is returned unnamed with a
-warning instead of turning the write into an error.
+`cancel_sprint`, `carry_over_sprint_cards`) are diverted the same way via
+`RemoteSprintWrites` (`src/remote_writes/sprints.rs`) and
+`KanbanBackend::remote_sprint_writes()`: every one of them that returns a
+`Sprint` (create, update, activate, complete, cancel) issues a mutation
+request and then re-fetches the owning board so the returned `Sprint`'s
+`name_index` resolves against the server's own `sprint_names` pool instead of
+an empty one, since that pool is the only way a client-side `Sprint`
+conversion can know it. When that board re-fetch fails after the write
+already committed, the sprint is returned unnamed with a warning instead of
+turning the write into an error. `carry_over_sprint_cards` returns the
+server's moved count from a single `POST /v1/sprints/{id}/carry-over` and
+makes no board re-read.
 
-The remaining `DataStore`/`CommandStore` *writes* (sprint lifecycle writes,
-namely activate/complete/cancel/carry-over, and prefix writes, plus the
+The remaining `DataStore`/`CommandStore` *writes* (prefix writes and the
 command log) still decline under their own name, see
 `test_http_backend_stub_method_returns_unsupported_error` in `src/lib.rs`. The
 reads in those families are implemented: `get_prefix`, `list_prefixes`,
