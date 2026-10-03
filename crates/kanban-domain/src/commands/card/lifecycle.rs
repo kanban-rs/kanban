@@ -234,15 +234,12 @@ pub struct RestoreCard {
 }
 
 impl RestoreCard {
-    /// Inverse: archive the card again, preceded by a `RestoreCardPlacement`
-    /// back to its original column/board/position plus a
-    /// `RestoreSprintAttachment` when the restore changed its board on a
-    /// sprint-bound card. `capture_inverse` runs before `execute`, so `store`
-    /// still holds the pre-restore state (reference-marker model). The
-    /// placement is restored via the unchecked synthetic command rather than
-    /// `MoveCard`, because the original column may since have been deleted
-    /// (an archived card's column_id is allowed to dangle) or now be over its
-    /// WIP limit -- undo must land regardless.
+    /// Inverse: archive the card again. When the restore moved a sprint-bound
+    /// card to another board, the archive is preceded by a
+    /// `RestoreCardPlacement` back to its original column, board and position
+    /// and a `RestoreSprintAttachment`. Runs before `execute`, so `store` still
+    /// holds the pre-restore state. The placement is restored even when the
+    /// original column has since been deleted or is over its WIP limit.
     pub fn capture_inverse(&self, store: &dyn DataStore) -> KanbanResult<Vec<Command>> {
         let original = match store.get_card(self.card_id)? {
             Some(c) => c,
