@@ -31,28 +31,7 @@ impl KanbanContext {
                 );
             }
         };
-        let card_ids: std::collections::HashSet<Uuid> = all_cards.iter().map(|c| c.id).collect();
-        let mut to_archive = Vec::new();
-        let mut succeeded = Vec::new();
-        let mut failed = Vec::new();
-        for id in ids {
-            if card_ids.contains(&id) {
-                to_archive.push(id);
-                succeeded.push(id);
-                continue;
-            }
-            match self.backend.get_archived_card(id) {
-                Ok(Some(_)) => succeeded.push(id),
-                Ok(None) => failed.push(BatchOperationFailure {
-                    id,
-                    error: KanbanError::not_found("Card", id).to_string(),
-                }),
-                Err(e) => failed.push(BatchOperationFailure {
-                    id,
-                    error: e.to_string(),
-                }),
-            }
-        }
+        let (to_archive, succeeded, failed) = self.classify_archive_ids(ids, &all_cards);
         if to_archive.is_empty() {
             return (
                 BatchOperationResult { succeeded, failed },
@@ -83,6 +62,36 @@ impl KanbanContext {
                 )
             }
         }
+    }
+
+    fn classify_archive_ids(
+        &self,
+        ids: Vec<Uuid>,
+        live_cards: &[Card],
+    ) -> (Vec<Uuid>, Vec<Uuid>, Vec<BatchOperationFailure>) {
+        let live_ids: std::collections::HashSet<Uuid> = live_cards.iter().map(|c| c.id).collect();
+        let mut to_archive = Vec::new();
+        let mut succeeded = Vec::new();
+        let mut failed = Vec::new();
+        for id in ids {
+            if live_ids.contains(&id) {
+                to_archive.push(id);
+                succeeded.push(id);
+                continue;
+            }
+            match self.backend.get_archived_card(id) {
+                Ok(Some(_)) => succeeded.push(id),
+                Ok(None) => failed.push(BatchOperationFailure {
+                    id,
+                    error: KanbanError::not_found("Card", id).to_string(),
+                }),
+                Err(e) => failed.push(BatchOperationFailure {
+                    id,
+                    error: e.to_string(),
+                }),
+            }
+        }
+        (to_archive, succeeded, failed)
     }
 
     pub fn move_cards_detailed(
