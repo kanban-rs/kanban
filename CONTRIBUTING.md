@@ -490,7 +490,7 @@ published):
 1. `kanban-core` — no internal dependencies
 2. `kanban-domain` — depends on `kanban-core`
 3. `kanban-api`, `kanban-persistence` — depend on `kanban-core` + `kanban-domain`
-4. `kanban-backend` — depends on `kanban-persistence`
+4. `kanban-backend` — depends on `kanban-api` + `kanban-persistence`
 5. `kanban-backend-memory`, `kanban-backend-http` — depend on `kanban-backend`
 6. `kanban-persistence-json`, `kanban-persistence-sqlite` — depend on `kanban-backend` + `kanban-backend-memory`
 7. `kanban-service` — depends on `kanban-backend` + `kanban-api` (+ `kanban-persistence-sqlite` behind the default-on `sqlite` feature)
