@@ -19,17 +19,18 @@ impl Model {
     ///
     /// A `cards` id narrows to just its own `cards_by_column` scopes when
     /// `ids.card_columns` names every one of `ids.cards`: the named columns
-    /// drop, and so does the column `scoped_card_index` says currently holds
-    /// each card, so a producer that names only the destination of a move
-    /// cannot leave the source scope serving a stale copy. A producer must
-    /// still name every column it put a card INTO; the model can recover
-    /// where a card was, never where it went. Otherwise the whole
-    /// `cards_by_column` tier drops. The four `archived_*` tiers drop on
-    /// every `cards` invalidation, narrow or not.
+    /// drop, and so does every cached scope that holds a named card (each
+    /// `Loaded` scope whose rows contain it, plus the scope
+    /// `scoped_card_index` points at, which may be `Failed`). A stale copy in
+    /// a move's source scope therefore drops whether or not the producer
+    /// names it. A producer must still name every column it put a card INTO,
+    /// because a scope loaded before the move does not hold the card yet.
+    /// Otherwise the whole `cards_by_column` tier drops. The four
+    /// `archived_*` tiers drop on every `cards` invalidation, narrow or not.
     ///
     /// `scoped_card_index` is a reverse index over `cards_by_column`; every
     /// clear of that tier here clears the matching index entries too, so
-    /// `set_cards_of_column` remains its only writer.
+    /// `set_cards_of_column` remains the only code that inserts entries.
     ///
     /// The flat archival-marker tiers (`archived_cards`/`archived_boards` and
     /// their id sets) are dropped by the arm of the entity kind they mark: a
@@ -77,13 +78,17 @@ impl Model {
             let exact = !ids.card_columns.is_empty()
                 && ids.cards.iter().all(|c| ids.card_columns.contains_key(c));
             if exact {
-                let cached: Vec<Uuid> = ids
+                let mut holding: Vec<Uuid> = ids
                     .cards
                     .iter()
                     .filter_map(|id| self.scoped_card_index.get(id).copied())
                     .collect();
-                for col in ids.card_columns.values().flatten().copied().chain(cached) {
+                holding.extend(self.loaded_scopes_holding(&ids.cards));
+                for col in ids.card_columns.values().flatten().copied().chain(holding) {
                     self.drop_card_scope(col);
+                }
+                for id in &ids.cards {
+                    self.scoped_card_index.remove(id);
                 }
             } else {
                 self.cards_by_column.clear();
@@ -112,6 +117,18 @@ impl Model {
     fn drop_card_scope(&mut self, column_id: Uuid) {
         self.cards_by_column.remove(&column_id);
         self.scoped_card_index.retain(|_, col| *col != column_id);
+    }
+
+    fn loaded_scopes_holding(&self, card_ids: &HashSet<Uuid>) -> Vec<Uuid> {
+        self.cards_by_column
+            .iter()
+            .filter(|(_, state)| {
+                state
+                    .loaded()
+                    .is_some_and(|cards| cards.iter().any(|c| card_ids.contains(&c.id)))
+            })
+            .map(|(column_id, _)| *column_id)
+            .collect()
     }
 }
 
@@ -1255,5 +1272,102 @@ mod tests {
 
         assert!(m.board_archived_cards_state(b1.id).is_not_loaded());
         assert!(m.board_archived_cards_state(b2.id).is_loaded());
+    }
+
+    #[test]
+    fn test_exact_invalidation_drops_every_loaded_scope_still_holding_the_card() {
+        let board = Board::new("B", None::<String>);
+        let col_a = Column::new(board.id, "A", 0);
+        let col_b = Column::new(board.id, "B", 1);
+        let col_d = Column::new(board.id, "D", 2);
+        let stale_k = Card::new(board.id, col_a.id, "k", 0);
+        let mut fresh_k = stale_k.clone();
+        fresh_k.column_id = col_b.id;
+        let other = Card::new(board.id, col_d.id, "other", 0);
+
+        let mut m = Model::default();
+        m.set_cards_of_column(col_a.id, LoadState::Loaded(vec![stale_k.clone()]));
+        m.set_cards_of_column(col_b.id, LoadState::Loaded(vec![fresh_k.clone()]));
+        m.set_cards_of_column(col_d.id, LoadState::Loaded(vec![other.clone()]));
+        assert_eq!(m.scoped_card_index.get(&stale_k.id), Some(&col_b.id));
+        assert_eq!(
+            m.column_cards_state(col_a.id)
+                .loaded()
+                .map(|cards| cards.len()),
+            Some(1)
+        );
+
+        let ids = EntityIds {
+            cards: [stale_k.id].into(),
+            card_columns: [(stale_k.id, [col_b.id].into())].into(),
+            ..Default::default()
+        };
+        let _ = m.invalidate(Invalidation::Entities(ids));
+
+        assert!(m.column_cards_state(col_a.id).is_not_loaded());
+        assert!(m.column_cards_state(col_b.id).is_not_loaded());
+        assert!(m.card_by_id_state(stale_k.id).is_not_loaded());
+        assert_eq!(m.scoped_card_index.get(&stale_k.id), None);
+        assert!(m.column_cards_state(col_d.id).is_loaded());
+        assert_eq!(m.scoped_card_index.get(&other.id), Some(&col_d.id));
+    }
+
+    #[test]
+    fn test_exact_invalidation_of_a_move_drops_a_stale_duplicate_scope_the_producer_did_not_name() {
+        let board = Board::new("B", None::<String>);
+        let col_a = Column::new(board.id, "A", 0);
+        let col_b = Column::new(board.id, "B", 1);
+        let col_c = Column::new(board.id, "C", 2);
+        let stale_k = Card::new(board.id, col_a.id, "k", 0);
+        let mut fresh_k = stale_k.clone();
+        fresh_k.column_id = col_b.id;
+
+        let mut m = Model::default();
+        m.set_cards_of_column(col_a.id, LoadState::Loaded(vec![stale_k.clone()]));
+        m.set_cards_of_column(col_b.id, LoadState::Loaded(vec![fresh_k.clone()]));
+        m.set_cards_of_column(col_c.id, LoadState::Loaded(vec![]));
+
+        let ids = EntityIds {
+            cards: [stale_k.id].into(),
+            card_columns: [(stale_k.id, [col_b.id, col_c.id].into())].into(),
+            ..Default::default()
+        };
+        let _ = m.invalidate(Invalidation::Entities(ids));
+
+        assert!(m.column_cards_state(col_a.id).is_not_loaded());
+        assert!(m.column_cards_state(col_b.id).is_not_loaded());
+        assert!(m.column_cards_state(col_c.id).is_not_loaded());
+        assert_eq!(m.scoped_card_index.get(&stale_k.id), None);
+    }
+
+    #[test]
+    fn test_exact_invalidation_still_drops_a_failed_scope_the_index_points_at() {
+        let board = Board::new("B", None::<String>);
+        let col_a = Column::new(board.id, "A", 0);
+        let col_b = Column::new(board.id, "B", 1);
+        let k = Card::new(board.id, col_a.id, "k", 0);
+
+        let mut m = Model::default();
+        m.set_cards_of_column(col_a.id, LoadState::Loaded(vec![k.clone()]));
+        let _ = m.mark_failed(
+            EntityIds::cards([k.id]),
+            Arc::new(KanbanError::unsupported("boom")),
+        );
+        m.set_cards_of_column(col_b.id, LoadState::Loaded(vec![]));
+        assert!(matches!(
+            m.column_cards_state(col_a.id),
+            LoadState::Failed(_)
+        ));
+
+        let ids = EntityIds {
+            cards: [k.id].into(),
+            card_columns: [(k.id, [col_b.id].into())].into(),
+            ..Default::default()
+        };
+        let _ = m.invalidate(Invalidation::Entities(ids));
+
+        assert!(m.column_cards_state(col_a.id).is_not_loaded());
+        assert!(m.column_cards_state(col_b.id).is_not_loaded());
+        assert_eq!(m.scoped_card_index.get(&k.id), None);
     }
 }

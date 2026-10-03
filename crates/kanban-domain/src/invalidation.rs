@@ -16,8 +16,9 @@ pub struct EntityIds {
     /// For each card id this batch named, the columns whose `cards_by_column`
     /// scope it invalidated. A card absent from this map means "column
     /// unknown", forcing the conservative whole-tier drop. A producer must
-    /// name every column a card moved INTO; the column it was cached in is
-    /// recovered from the model's own index.
+    /// name every column a card moved INTO; `Model::invalidate` also drops
+    /// every cached scope that already holds the card, but a destination
+    /// scope loaded before the move does not hold it yet.
     pub card_columns: HashMap<Uuid, HashSet<Uuid>>,
     /// Reserved. Not read by `Model::invalidate`, which drops every
     /// archived-card tier on any `cards` invalidation: a `false` here cannot
