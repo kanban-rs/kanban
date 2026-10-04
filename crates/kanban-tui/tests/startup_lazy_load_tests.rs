@@ -767,31 +767,33 @@ mod version_handshake {
             ),
         }
 
-        let state = log.lock().unwrap();
-        let warnings: Vec<_> = state
-            .entries
-            .iter()
-            .filter(|entry| entry.message.contains("reports no version"))
-            .collect();
-        assert_eq!(
-            warnings.len(),
-            1,
-            "expected exactly one warning entry, got: {:?}",
-            state.entries
-        );
-        assert!(
-            matches!(warnings[0].level, LogLevel::Warn),
-            "expected Warn level, got: {:?}",
-            warnings[0].level
-        );
-        assert_eq!(
-            state.error_count, 0,
-            "a compatibility notice must not auto-open the F12 panel"
-        );
-        assert!(
-            state.unread_count >= 1,
-            "the footer badge must reflect the unread warning"
-        );
+        {
+            let state = log.lock().unwrap();
+            let warnings: Vec<_> = state
+                .entries
+                .iter()
+                .filter(|entry| entry.message.contains("reports no version"))
+                .collect();
+            assert_eq!(
+                warnings.len(),
+                1,
+                "expected exactly one warning entry, got: {:?}",
+                state.entries
+            );
+            assert!(
+                matches!(warnings[0].level, LogLevel::Warn),
+                "expected Warn level, got: {:?}",
+                warnings[0].level
+            );
+            assert_eq!(
+                state.error_count, 0,
+                "a compatibility notice must not auto-open the F12 panel"
+            );
+            assert!(
+                state.unread_count >= 1,
+                "the footer badge must reflect the unread warning"
+            );
+        }
 
         stub.shutdown().await;
     }
