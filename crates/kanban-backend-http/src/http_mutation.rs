@@ -2,8 +2,13 @@
 //! `Ok(None)` short-circuit for a mutation, unlike the read-side `get_json`.
 //! `CONFLICT_DETECTED` is remapped to `KanbanError::ConflictDetected`
 //! explicitly, because `From<ApiError>` otherwise classifies it as a plain
-//! validation error. No `If-Match` header is sent: v1 mutations are
-//! last-writer-wins.
+//! validation error. A 404 or 405 whose body is not an error envelope (a
+//! JSON object with a string `code` field) is a route the server has no
+//! handler for, and becomes `KanbanError::UnsupportedByServer`. An envelope
+//! with a `code` this client does not recognize (a newer server) is a real
+//! server error, not an unsupported route, so it is reported as `Internal`
+//! using the envelope's `message`.
+//! No `If-Match` header is sent: v1 mutations are last-writer-wins.
 
 use crate::HttpBackend;
 use kanban_api::{ApiError, ErrorCode, CLIENT_ID_HEADER};
@@ -24,6 +29,7 @@ impl HttpBackend {
         T: DeserializeOwned,
     {
         let url = format!("{}{}", self.base_url(), path);
+        let operation_method = method.clone();
         let mut request = self
             .client()
             .request(method, &url)
@@ -41,7 +47,13 @@ impl HttpBackend {
             .await
             .map_err(|e| KanbanError::Transport(e.to_string()))?;
         if !status.is_success() {
-            return Err(map_mutation_error(status, &body_text, &url));
+            return Err(map_mutation_error(
+                &operation_method,
+                path,
+                self.base_url(),
+                status,
+                &body_text,
+            ));
         }
         decode_mutation_body(&body_text)
     }
@@ -54,16 +66,70 @@ fn decode_mutation_body<T: DeserializeOwned>(body: &str) -> KanbanResult<T> {
     serde_json::from_str(body).map_err(|e| KanbanError::Serialization(e.to_string()))
 }
 
-fn map_mutation_error(status: StatusCode, body: &str, url: &str) -> KanbanError {
-    if let Ok(api_err) = serde_json::from_str::<ApiError>(body) {
-        if api_err.code == ErrorCode::ConflictDetected {
-            return KanbanError::ConflictDetected {
-                path: url.to_string(),
+fn map_mutation_error(
+    method: &Method,
+    path: &str,
+    base_url: &str,
+    status: StatusCode,
+    body: &str,
+) -> KanbanError {
+    match serde_json::from_str::<ApiError>(body) {
+        Ok(api_err) if api_err.code == ErrorCode::ConflictDetected => {
+            KanbanError::ConflictDetected {
+                path: format!("{base_url}{path}"),
                 source: None,
-            };
+            }
         }
+        Ok(_) => crate::http::map_error_response(status, body),
+        Err(_) => match envelope_message(body) {
+            Some((code, message)) => {
+                KanbanError::Internal(format!("HTTP {status}: {code}: {message}"))
+            }
+            None if matches!(
+                status,
+                StatusCode::NOT_FOUND | StatusCode::METHOD_NOT_ALLOWED
+            ) =>
+            {
+                KanbanError::unsupported_by_server(
+                    format!("{method} {}", route_template(path)),
+                    base_url,
+                    kanban_core::KANBAN_VERSION,
+                )
+            }
+            None => crate::http::map_error_response(status, body),
+        },
     }
-    crate::http::map_error_response(status, body)
+}
+
+fn envelope_message(body: &str) -> Option<(String, String)> {
+    let object = serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| v.as_object().cloned())?;
+    match object.get("code")? {
+        serde_json::Value::String(code) => Some((
+            code.clone(),
+            object
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or_default()
+                .to_string(),
+        )),
+        _ => None,
+    }
+}
+
+fn route_template(path: &str) -> String {
+    let path = path.split_once('?').map_or(path, |(route, _)| route);
+    path.split('/')
+        .map(|segment| {
+            if uuid::Uuid::parse_str(segment).is_ok() {
+                "{id}"
+            } else {
+                segment
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 #[cfg(test)]
@@ -301,6 +367,93 @@ mod tests {
             matches!(result, Err(KanbanError::Serialization(_))),
             "got: {result:?}"
         );
+
+        handle.await.unwrap();
+    }
+
+    #[test]
+    fn test_route_template_replaces_uuid_segments_and_drops_the_query() {
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        assert_eq!(
+            route_template(&format!("/v1/cards/{a}/move?column_id={b}")),
+            "/v1/cards/{id}/move"
+        );
+        assert_eq!(
+            route_template(&format!("/v1/cards/{a}/blocks/{b}")),
+            "/v1/cards/{id}/blocks/{id}"
+        );
+        assert_eq!(route_template("/v1/boards"), "/v1/boards");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_send_json_mutation_maps_a_405_with_an_empty_body_to_unsupported_by_server() {
+        let (url, handle) = stub_once("405 Method Not Allowed", "").await;
+        let backend = HttpBackend::new(&url).unwrap();
+
+        let result: KanbanResult<DeleteResponse> = backend
+            .send_json_mutation::<(), DeleteResponse>(
+                Method::POST,
+                "/v1/cards/x/children/detach",
+                None,
+            )
+            .await;
+
+        let err = result.unwrap_err();
+        assert!(err.is_unsupported(), "got: {err:?}");
+        assert!(
+            err.to_string().contains("POST /v1/cards/x/children/detach"),
+            "got: {err}"
+        );
+
+        handle.await.unwrap();
+    }
+
+    #[test]
+    fn test_envelope_message_an_html_404_body_is_not_an_envelope() {
+        assert_eq!(envelope_message("<html>Not Found</html>"), None);
+    }
+
+    #[test]
+    fn test_envelope_message_a_json_array_body_is_not_an_envelope() {
+        assert_eq!(envelope_message(r#"["NOT_FOUND"]"#), None);
+    }
+
+    #[test]
+    fn test_envelope_message_an_object_without_a_code_field_is_not_an_envelope() {
+        assert_eq!(envelope_message(r#"{"message":"oops"}"#), None);
+    }
+
+    #[test]
+    fn test_envelope_message_an_object_with_an_unknown_string_code_is_an_envelope() {
+        assert_eq!(
+            envelope_message(r#"{"code":"SOME_FUTURE_CODE","message":"thing not found"}"#),
+            Some((
+                "SOME_FUTURE_CODE".to_string(),
+                "thing not found".to_string()
+            ))
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_send_json_mutation_with_a_404_envelope_carrying_an_unknown_code_is_not_unsupported(
+    ) {
+        let (url, handle) = stub_once(
+            "404 Not Found",
+            r#"{"code":"SOME_FUTURE_CODE","message":"thing not found"}"#,
+        )
+        .await;
+        let backend = HttpBackend::new(&url).unwrap();
+
+        let update = kanban_api::UpdateBoardRequest::default();
+        let result: KanbanResult<MutationResponse<BoardResponse>> = backend
+            .send_json_mutation(Method::PATCH, "/v1/boards/x", Some(&update))
+            .await;
+
+        let err = result.unwrap_err();
+        assert!(!err.is_unsupported(), "got: {err:?}");
+        assert!(err.to_string().contains("thing not found"), "got: {err}");
+        assert!(err.to_string().contains("SOME_FUTURE_CODE"), "got: {err}");
 
         handle.await.unwrap();
     }

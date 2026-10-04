@@ -85,6 +85,14 @@ before this crate had any `RemoteWrites` impl.
 
 A write the server commits is reported as success even when the answer is a bare entity, or an empty `204 No Content` to a delete, rather than the `MutationResponse<T>`/`DeleteResponse` wrapper current servers send. A missing `invalidation` field is treated as `Invalidation::All`, so the client over-invalidates rather than reporting a serialization error after the write already happened.
 
+A write route the server has no handler for (a 404 or 405 answered without an error envelope, i.e. a JSON object with a string `code` field) fails, and nothing was written, with `KanbanError::UnsupportedByServer` naming the method, the route template and the server URL, for example:
+
+```
+kanban server at http://host:5177 does not support POST /v1/cards/{id}/move, so nothing was written. Upgrade the server to this client's version (v0.12.0) to use it.
+```
+
+`is_unsupported()` is true for it. A 404 answered WITH an `ApiError` body (an entity genuinely not found) still surfaces as before, as a validation error carrying the server's `NOT_FOUND` code. A 404 or 405 answered with an envelope whose `code` this client does not recognize (a newer server) is reported as a generic error carrying the server's code and message, not `UnsupportedByServer`, since the route clearly exists.
+
 ## Version handshake
 
 `HttpBackend::probe()` (called by `KanbanContext::open`, before any write) reads the `version` field of `GET /health` and refuses to open when the server's `major.minor` is lower than this binary's, or the field is absent entirely (a server that predates the handshake). A newer server is accepted. The error names the URL, the server's version (or that it reports none), and this client's version, and says to upgrade the server first:

@@ -1,5 +1,5 @@
 use kanban_api::{CardGraphResponse, SprintResponse};
-use kanban_backend::{RemoteGraphWrites, RemoteSprintWrites};
+use kanban_backend::{RemoteCardWrites, RemoteGraphWrites, RemoteSprintWrites};
 use kanban_backend_http::HttpBackend;
 use kanban_domain::{DependencyGraph, Invalidation, KanbanResult, Severity, Sprint, SprintUpdate};
 use kanban_server::test_helpers::{StubReply, StubServer};
@@ -130,6 +130,113 @@ async fn test_sprint_update_answered_with_a_bare_sprint_response_returns_ok_with
 
     assert_eq!(updated.id, sprint.id);
     assert_eq!(invalidation, Invalidation::All);
+
+    drop(backend);
+    stub.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_card_move_against_a_server_without_the_route_returns_unsupported_naming_the_route(
+) -> KanbanResult<()> {
+    let stub = StubServer::start(|_, _| StubReply::empty(404)).await;
+    let backend = HttpBackend::new(&stub.base_url())?;
+
+    let err = backend
+        .move_card(Uuid::new_v4(), Uuid::new_v4(), None)
+        .unwrap_err();
+
+    assert!(err.is_unsupported(), "got: {err:?}");
+    let msg = err.to_string();
+    assert!(msg.contains("POST /v1/cards/{id}/move"), "got: {msg}");
+    assert!(msg.contains(&stub.base_url()), "got: {msg}");
+    assert!(msg.contains("Upgrade the server"), "got: {msg}");
+
+    drop(backend);
+    stub.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_sprint_activate_against_a_server_without_the_flat_route_returns_unsupported_naming_the_route(
+) -> KanbanResult<()> {
+    let stub = StubServer::start(|_, _| StubReply::empty(404)).await;
+    let backend = HttpBackend::new(&stub.base_url())?;
+
+    let err = backend.activate_sprint(Uuid::new_v4(), None).unwrap_err();
+
+    assert!(err.is_unsupported(), "got: {err:?}");
+    let msg = err.to_string();
+    assert!(msg.contains("POST /v1/sprints/{id}/activate"), "got: {msg}");
+    assert!(msg.contains(&stub.base_url()), "got: {msg}");
+    assert!(msg.contains("Upgrade the server"), "got: {msg}");
+
+    drop(backend);
+    stub.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_detach_children_answered_405_by_an_old_server_returns_unsupported_naming_the_route(
+) -> KanbanResult<()> {
+    let stub = StubServer::start(|_, _| StubReply::empty(405)).await;
+    let backend = HttpBackend::new(&stub.base_url())?;
+    let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
+
+    let err = backend.detach_children(a, &[b]).unwrap_err();
+
+    assert!(err.is_unsupported(), "got: {err:?}");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("POST /v1/cards/{id}/children/detach"),
+        "got: {msg}"
+    );
+    assert!(msg.contains(&stub.base_url()), "got: {msg}");
+    assert!(msg.contains("Upgrade the server"), "got: {msg}");
+
+    drop(backend);
+    stub.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_404_envelope_with_an_unknown_error_code_is_not_reported_as_an_unsupported_route(
+) -> KanbanResult<()> {
+    let stub = StubServer::start(|_, _| {
+        StubReply::json(
+            404,
+            r#"{"code":"SOME_FUTURE_CODE","message":"thing not found"}"#,
+        )
+    })
+    .await;
+    let backend = HttpBackend::new(&stub.base_url())?;
+    let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
+
+    let err = backend.block(a, b, Severity::High).unwrap_err();
+
+    assert!(!err.is_unsupported(), "got: {err:?}");
+    assert!(err.to_string().contains("thing not found"), "got: {err}");
+    assert!(err.to_string().contains("SOME_FUTURE_CODE"), "got: {err}");
+
+    drop(backend);
+    stub.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_404_with_a_not_found_envelope_still_maps_to_the_servers_not_found_error(
+) -> KanbanResult<()> {
+    let stub = StubServer::start(|_, _| {
+        StubReply::json(404, r#"{"code":"NOT_FOUND","message":"Card x not found"}"#)
+    })
+    .await;
+    let backend = HttpBackend::new(&stub.base_url())?;
+    let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
+
+    let err = backend.block(a, b, Severity::High).unwrap_err();
+
+    assert!(!err.is_unsupported(), "got: {err:?}");
+    assert!(err.to_string().contains("NOT_FOUND"), "got: {err}");
 
     drop(backend);
     stub.shutdown().await;
