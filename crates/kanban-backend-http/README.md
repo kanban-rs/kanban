@@ -83,7 +83,7 @@ before this crate had any `RemoteWrites` impl.
 
 ## Older servers
 
-A write the server commits is reported as success even when the answer is a bare entity or an empty `204 No Content`, rather than a server-version-shaped `MutationResponse<T>`/`DeleteResponse`. A missing or absent `invalidation` field is treated as `Invalidation::All`, so the client over-invalidates rather than reporting a serialization error after the write already happened.
+A write the server commits is reported as success even when the answer is a bare entity, or an empty `204 No Content` to a delete, rather than the `MutationResponse<T>`/`DeleteResponse` wrapper current servers send. A missing `invalidation` field is treated as `Invalidation::All`, so the client over-invalidates rather than reporting a serialization error after the write already happened.
 
 ## Version handshake
 
