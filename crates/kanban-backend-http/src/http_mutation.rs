@@ -2,8 +2,12 @@
 //! `Ok(None)` short-circuit for a mutation, unlike the read-side `get_json`.
 //! `CONFLICT_DETECTED` is remapped to `KanbanError::ConflictDetected`
 //! explicitly, because `From<ApiError>` otherwise classifies it as a plain
-//! validation error. A 404 or 405 without an `ApiError` body is a route the
-//! server has no handler for, and becomes `KanbanError::UnsupportedByServer`.
+//! validation error. A 404 or 405 whose body is not an error envelope (a
+//! JSON object with a string `code` field) is a route the server has no
+//! handler for, and becomes `KanbanError::UnsupportedByServer`. An envelope
+//! with a `code` this client does not recognize (a newer server) is a real
+//! server error, not an unsupported route, so it is reported as `Internal`
+//! using the envelope's `message`.
 //! No `If-Match` header is sent: v1 mutations are last-writer-wins.
 
 use crate::HttpBackend;
@@ -77,19 +81,21 @@ fn map_mutation_error(
             }
         }
         Ok(_) => crate::http::map_error_response(status, body),
-        Err(_)
-            if matches!(
+        Err(_) => match envelope_message(body) {
+            Some(message) => KanbanError::Internal(format!("HTTP {status}: {message}")),
+            None if matches!(
                 status,
                 StatusCode::NOT_FOUND | StatusCode::METHOD_NOT_ALLOWED
             ) =>
-        {
-            KanbanError::unsupported_by_server(
-                format!("{method} {}", route_template(path)),
-                base_url,
-                kanban_core::KANBAN_VERSION,
-            )
-        }
-        Err(_) => crate::http::map_error_response(status, body),
+            {
+                KanbanError::unsupported_by_server(
+                    format!("{method} {}", route_template(path)),
+                    base_url,
+                    kanban_core::KANBAN_VERSION,
+                )
+            }
+            None => crate::http::map_error_response(status, body),
+        },
     }
 }
 
