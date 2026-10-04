@@ -193,65 +193,20 @@ fn test_mcp_server_with_defaults_detects_json_backend() {
 
 #[cfg(feature = "http")]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_build_against_a_server_without_a_version_fails_with_the_upgrade_message() {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::TcpListener;
+async fn test_build_against_a_server_without_a_version_succeeds() {
+    use kanban_server::test_helpers::{StubReply, StubServer};
 
-    fn find_headers_end(buf: &[u8]) -> Option<usize> {
-        buf.windows(4).position(|w| w == b"\r\n\r\n")
-    }
-
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    let url = format!("http://{addr}");
-    tokio::spawn(async move {
-        loop {
-            let (mut socket, _) = match listener.accept().await {
-                Ok(conn) => conn,
-                Err(_) => break,
-            };
-            tokio::spawn(async move {
-                let mut buf = Vec::new();
-                let mut tmp = [0u8; 4096];
-                loop {
-                    let n = match socket.read(&mut tmp).await {
-                        Ok(n) => n,
-                        Err(_) => return,
-                    };
-                    buf.extend_from_slice(&tmp[..n]);
-                    if find_headers_end(&buf).is_some() || n == 0 {
-                        break;
-                    }
-                }
-                let body =
-                    r#"{"status":"ok","instance_id":"550e8400-e29b-41d4-a716-446655440000"}"#;
-                let response = format!(
-                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-                    body.len()
-                );
-                let _ = socket.write_all(response.as_bytes()).await;
-                let _ = socket.shutdown().await;
-            });
-        }
-    });
+    let stub = StubServer::pre_handshake(|_, _| StubReply::empty(404)).await;
 
     let result = McpServer::with_defaults()
         .with_config(AppConfig::default())
-        .with_data_file(url)
+        .with_data_file(stub.base_url())
         .build()
         .await;
 
-    let err = match result {
-        Ok(_) => panic!("expected build to fail against a server without a version"),
-        Err(e) => e,
-    };
-    let msg = format!("{err:#}");
-    assert!(
-        msg.contains("Failed to initialize KanbanMcpServer"),
-        "msg: {msg}"
-    );
-    assert!(
-        msg.contains("Upgrade the server before the client"),
-        "msg: {msg}"
-    );
+    if let Err(e) = result {
+        panic!("expected build to succeed against a server without a version, got: {e:#}");
+    }
+
+    stub.shutdown().await;
 }

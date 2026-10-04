@@ -78,7 +78,7 @@ curl -s http://127.0.0.1:58548/health | jq
 
 ### Version compatibility
 
-`HttpBackend` refuses to open a server whose `major.minor` is older than its own, or one that predates the version handshake and reports no `version` at all. A newer server is accepted. Upgrade the server before its clients. A patch release must not add a route or response field that clients depend on, since a client only checks the minor line.
+`HttpBackend` warns once (does not refuse) when it opens against a server whose `major.minor` is older than its own, or one that predates the version handshake and reports no `version` at all. A newer server is accepted without a warning. A write the server has no route for still fails with `KanbanError::UnsupportedByServer` (see the [backend-http README's "Older servers"](../kanban-backend-http/README.md#older-servers)). Upgrade the server before its clients regardless. A patch release must not add a route or response field that clients depend on, since a client only checks the minor line, and a new field on a decoded response needs a serde default so an older server's response still parses.
 
 ```bash
 curl -s http://127.0.0.1:58548/v1/boards | jq

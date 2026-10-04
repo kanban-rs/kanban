@@ -95,14 +95,13 @@ kanban server at http://host:5177 does not support POST /v1/cards/{id}/move, so 
 
 ## Version handshake
 
-`HttpBackend::probe()` (called by `KanbanContext::open`, before any write) reads the `version` field of `GET /health` and refuses to open when the server's `major.minor` is lower than this binary's, or the field is absent entirely (a server that predates the handshake). A newer server is accepted. The error names the URL, the server's version (or that it reports none), and this client's version, and says to upgrade the server first:
+`HttpBackend::probe()` (called by `KanbanContext::open`, before any write) reads the `version` field of `GET /health` and never refuses a reachable server. When the server's `major.minor` is lower than this binary's, or the field is absent or unparseable, it logs one `tracing::warn!` naming the URL, the server's version (or that it predates the handshake), and this client's version, and exposes the same information through `compatibility_notice()`:
 
 ```
-kanban server at http://host:5177 reports no version, which is older than this client (v0.11.0). Upgrade the server before the client.
-kanban server at http://host:5177 is v0.11.0, which is older than this client (v0.12.0). Upgrade the server before the client.
+kanban server at http://host:5177 reports no version, so it predates this client (v0.11.0). Writes it has no route for fail with an upgrade message, and rules added in newer releases may not be enforced. Upgrade the server to clear this warning.
 ```
 
-The first form is what a server released before the handshake (v0.10.x) produces.
+The first form (`UnknownServerVersion`, `reported: None`) is what a server released before the handshake (v0.10.x) produces. A server whose `major.minor` is lower but parseable gets `OlderServer` instead, naming both versions. See [Older servers](#older-servers) for what a write the server has no route for does; a server that accepts a request but behaves differently (ignores a field, enforces a rule at fewer entry points) is only warned about, not caught.
 
 ## Key public exports
 
@@ -110,8 +109,9 @@ The first form is what a server released before the handshake (v0.10.x) produces
 pub struct HttpBackend {
     base_url: String,
     client: reqwest::Client,
-    runtime: tokio::runtime::Runtime,
+    runtime: Option<tokio::runtime::Runtime>,
     instance_id: uuid::Uuid,
+    compatibility: std::sync::Mutex<Option<kanban_backend::CompatibilityNotice>>,
 }
 
 impl HttpBackend {
@@ -121,6 +121,7 @@ impl HttpBackend {
 impl kanban_backend::KanbanBackend for HttpBackend {
     fn as_data_store(&self) -> &dyn kanban_domain::DataStore { self }
     fn instance_id(&self) -> uuid::Uuid { self.instance_id }
+    fn compatibility_notice(&self) -> Option<kanban_backend::CompatibilityNotice>;
 }
 
 pub struct HttpBackendFactory;

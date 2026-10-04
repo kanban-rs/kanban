@@ -338,7 +338,6 @@ pub enum KanbanError {
     Transport(String),
     Unsupported { operation: &'static str },
     UnsupportedFutureVersion { file_version: u32, binary_max: u32 },
-    UnsupportedServerVersion { url: String, server_version: Option<String>, client_version: String },
     UnsupportedByServer { operation: String, url: String, client_version: String },
 }
 ```
