@@ -82,7 +82,9 @@ fn map_mutation_error(
         }
         Ok(_) => crate::http::map_error_response(status, body),
         Err(_) => match envelope_message(body) {
-            Some(message) => KanbanError::Internal(format!("HTTP {status}: {message}")),
+            Some((code, message)) => {
+                KanbanError::Internal(format!("HTTP {status}: {code}: {message}"))
+            }
             None if matches!(
                 status,
                 StatusCode::NOT_FOUND | StatusCode::METHOD_NOT_ALLOWED
@@ -99,18 +101,19 @@ fn map_mutation_error(
     }
 }
 
-fn envelope_message(body: &str) -> Option<String> {
+fn envelope_message(body: &str) -> Option<(String, String)> {
     let object = serde_json::from_str::<serde_json::Value>(body)
         .ok()
         .and_then(|v| v.as_object().cloned())?;
     match object.get("code")? {
-        serde_json::Value::String(_) => Some(
+        serde_json::Value::String(code) => Some((
+            code.clone(),
             object
                 .get("message")
                 .and_then(|m| m.as_str())
                 .unwrap_or_default()
                 .to_string(),
-        ),
+        )),
         _ => None,
     }
 }
@@ -425,7 +428,10 @@ mod tests {
     fn test_envelope_message_an_object_with_an_unknown_string_code_is_an_envelope() {
         assert_eq!(
             envelope_message(r#"{"code":"SOME_FUTURE_CODE","message":"thing not found"}"#),
-            Some("thing not found".to_string())
+            Some((
+                "SOME_FUTURE_CODE".to_string(),
+                "thing not found".to_string()
+            ))
         );
     }
 
@@ -447,6 +453,7 @@ mod tests {
         let err = result.unwrap_err();
         assert!(!err.is_unsupported(), "got: {err:?}");
         assert!(err.to_string().contains("thing not found"), "got: {err}");
+        assert!(err.to_string().contains("SOME_FUTURE_CODE"), "got: {err}");
 
         handle.await.unwrap();
     }

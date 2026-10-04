@@ -216,6 +216,7 @@ async fn test_a_404_envelope_with_an_unknown_error_code_is_not_reported_as_an_un
 
     assert!(!err.is_unsupported(), "got: {err:?}");
     assert!(err.to_string().contains("thing not found"), "got: {err}");
+    assert!(err.to_string().contains("SOME_FUTURE_CODE"), "got: {err}");
 
     drop(backend);
     stub.shutdown().await;
