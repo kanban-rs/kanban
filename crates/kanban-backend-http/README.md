@@ -85,13 +85,13 @@ before this crate had any `RemoteWrites` impl.
 
 A write the server commits is reported as success even when the answer is a bare entity, or an empty `204 No Content` to a delete, rather than the `MutationResponse<T>`/`DeleteResponse` wrapper current servers send. A missing `invalidation` field is treated as `Invalidation::All`, so the client over-invalidates rather than reporting a serialization error after the write already happened.
 
-A write route the server has no handler for (a 404 or 405 answered without an `ApiError` body) fails before anything is written, with `KanbanError::UnsupportedByServer` naming the method, the route template and the server URL, for example:
+A write route the server has no handler for (a 404 or 405 answered without an `ApiError` body) fails, and nothing was written, with `KanbanError::UnsupportedByServer` naming the method, the route template and the server URL, for example:
 
 ```
 kanban server at http://host:5177 does not support POST /v1/cards/{id}/move, so nothing was written. Upgrade the server to this client's version (v0.12.0) to use it.
 ```
 
-`is_unsupported()` is true for it. A 404 answered WITH an `ApiError` body (an entity genuinely not found) still maps to the server's own `NOT_FOUND` error as before.
+`is_unsupported()` is true for it. A 404 answered WITH an `ApiError` body (an entity genuinely not found) still surfaces as before, as a validation error carrying the server's `NOT_FOUND` code.
 
 ## Version handshake
 
