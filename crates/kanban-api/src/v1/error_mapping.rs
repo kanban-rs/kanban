@@ -253,6 +253,14 @@ mod tests {
                 },
                 ErrorCode::UnsupportedVersion,
             ),
+            (
+                KanbanError::unsupported_by_server(
+                    "POST /v1/cards/{id}/move",
+                    "http://host:5177",
+                    "0.12.0",
+                ),
+                ErrorCode::UnsupportedVersion,
+            ),
         ];
         for (err, expected) in cases {
             assert_eq!(ApiError::from(&err).code, expected, "for error: {err}");

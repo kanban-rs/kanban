@@ -656,6 +656,32 @@ mod tests {
     }
 
     #[test]
+    fn test_unsupported_by_server_display_names_the_operation_url_client_version_and_the_fix() {
+        let err = KanbanError::unsupported_by_server(
+            "POST /v1/cards/{id}/move",
+            "http://host:5177",
+            "0.12.0",
+        );
+        let msg = err.to_string();
+        assert!(msg.contains("POST /v1/cards/{id}/move"), "msg: {msg}");
+        assert!(msg.contains("http://host:5177"), "msg: {msg}");
+        assert!(msg.contains("v0.12.0"), "msg: {msg}");
+        assert!(msg.contains("nothing was written"), "msg: {msg}");
+        assert!(msg.contains("Upgrade the server"), "msg: {msg}");
+    }
+
+    #[test]
+    fn test_unsupported_by_server_is_unsupported_and_not_not_found() {
+        let err = KanbanError::unsupported_by_server(
+            "POST /v1/cards/{id}/move",
+            "http://host:5177",
+            "0.12.0",
+        );
+        assert!(err.is_unsupported());
+        assert!(!err.is_not_found());
+    }
+
+    #[test]
     fn test_not_found_by_name_display_lists_available() {
         let err = KanbanError::not_found_by_name(
             "Column",

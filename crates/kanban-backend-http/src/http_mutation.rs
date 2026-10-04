@@ -305,6 +305,44 @@ mod tests {
         handle.await.unwrap();
     }
 
+    #[test]
+    fn test_route_template_replaces_uuid_segments_and_drops_the_query() {
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        assert_eq!(
+            route_template(&format!("/v1/cards/{a}/move?column_id={b}")),
+            "/v1/cards/{id}/move"
+        );
+        assert_eq!(
+            route_template(&format!("/v1/cards/{a}/blocks/{b}")),
+            "/v1/cards/{id}/blocks/{id}"
+        );
+        assert_eq!(route_template("/v1/boards"), "/v1/boards");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_send_json_mutation_maps_a_405_with_an_empty_body_to_unsupported_by_server() {
+        let (url, handle) = stub_once("405 Method Not Allowed", "").await;
+        let backend = HttpBackend::new(&url).unwrap();
+
+        let result: KanbanResult<DeleteResponse> = backend
+            .send_json_mutation::<(), DeleteResponse>(
+                Method::POST,
+                "/v1/cards/x/children/detach",
+                None,
+            )
+            .await;
+
+        let err = result.unwrap_err();
+        assert!(err.is_unsupported(), "got: {err:?}");
+        assert!(
+            err.to_string().contains("POST /v1/cards/x/children/detach"),
+            "got: {err}"
+        );
+
+        handle.await.unwrap();
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn test_send_json_mutation_attaches_the_client_id_header_valued_with_the_instance_id() {
         let (url, handle) = stub_once("200 OK", r#"{"invalidation":{"scope":"all"}}"#).await;
