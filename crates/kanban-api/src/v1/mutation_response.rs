@@ -35,7 +35,7 @@ impl DeleteResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::super::BoardResponse;
+    use super::super::{BoardResponse, InvalidationDto};
     use super::{DeleteResponse, MutationResponse};
     use kanban_domain::{Board, EntityIds, Invalidation};
     use std::collections::HashSet;
@@ -89,8 +89,24 @@ mod tests {
 
         let round_tripped: DeleteResponse = serde_json::from_value(value).unwrap();
         assert_eq!(round_tripped, delete_resp);
+    }
 
-        let empty: Result<DeleteResponse, _> = serde_json::from_value(serde_json::json!({}));
-        assert!(empty.is_err());
+    #[test]
+    fn test_mutation_response_without_invalidation_decodes_the_bare_entity_with_invalidation_all() {
+        let board = Board::new("B", Some("KAN"));
+        let resp = BoardResponse::from(&board);
+        let value = serde_json::to_value(&resp).unwrap();
+
+        let decoded: MutationResponse<BoardResponse> = serde_json::from_value(value).unwrap();
+
+        assert_eq!(decoded.entity, resp);
+        assert_eq!(decoded.invalidation, InvalidationDto::All);
+    }
+
+    #[test]
+    fn test_delete_response_from_an_empty_object_decodes_as_invalidation_all() {
+        let decoded: DeleteResponse = serde_json::from_value(serde_json::json!({})).unwrap();
+
+        assert_eq!(decoded.invalidation, InvalidationDto::All);
     }
 }

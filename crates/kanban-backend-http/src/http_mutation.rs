@@ -281,6 +281,24 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn test_send_json_mutation_with_an_empty_2xx_body_for_a_mutation_response_still_fails_with_serialization(
+    ) {
+        let (url, handle) = stub_once("200 OK", "").await;
+        let backend = HttpBackend::new(&url).unwrap();
+
+        let result: KanbanResult<MutationResponse<BoardResponse>> = backend
+            .send_json_mutation(Method::POST, "/v1/boards", None::<&()>)
+            .await;
+
+        assert!(
+            matches!(result, Err(KanbanError::Serialization(_))),
+            "got: {result:?}"
+        );
+
+        handle.await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_send_json_mutation_attaches_the_client_id_header_valued_with_the_instance_id() {
         let (url, handle) = stub_once("200 OK", r#"{"invalidation":{"scope":"all"}}"#).await;
         let backend = HttpBackend::new(&url).unwrap();
