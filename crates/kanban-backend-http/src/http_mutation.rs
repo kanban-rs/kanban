@@ -43,8 +43,15 @@ impl HttpBackend {
         if !status.is_success() {
             return Err(map_mutation_error(status, &body_text, &url));
         }
-        serde_json::from_str(&body_text).map_err(|e| KanbanError::Serialization(e.to_string()))
+        decode_mutation_body(&body_text)
     }
+}
+
+fn decode_mutation_body<T: DeserializeOwned>(body: &str) -> KanbanResult<T> {
+    // A pre-0.11 server answers its DELETEs with 204 and no body; `{}` decodes
+    // as a DeleteResponse carrying its Invalidation::All default.
+    let body = if body.trim().is_empty() { "{}" } else { body };
+    serde_json::from_str(body).map_err(|e| KanbanError::Serialization(e.to_string()))
 }
 
 fn map_mutation_error(status: StatusCode, body: &str, url: &str) -> KanbanError {

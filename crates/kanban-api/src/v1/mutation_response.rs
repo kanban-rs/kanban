@@ -1,3 +1,4 @@
+use crate::v1::invalidation::invalidation_all;
 use crate::InvalidationDto;
 use kanban_domain::Invalidation;
 use serde::{Deserialize, Serialize};
@@ -7,6 +8,7 @@ use serde::{Deserialize, Serialize};
 pub struct MutationResponse<T> {
     #[serde(flatten)]
     pub entity: T,
+    #[serde(default = "invalidation_all")]
     pub invalidation: InvalidationDto,
 }
 
@@ -22,6 +24,7 @@ impl<T> MutationResponse<T> {
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeleteResponse {
+    #[serde(default = "invalidation_all")]
     pub invalidation: InvalidationDto,
 }
 
