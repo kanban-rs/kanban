@@ -200,6 +200,29 @@ async fn test_detach_children_answered_405_by_an_old_server_returns_unsupported_
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_a_404_envelope_with_an_unknown_error_code_is_not_reported_as_an_unsupported_route(
+) -> KanbanResult<()> {
+    let stub = StubServer::start(|_, _| {
+        StubReply::json(
+            404,
+            r#"{"code":"SOME_FUTURE_CODE","message":"thing not found"}"#,
+        )
+    })
+    .await;
+    let backend = HttpBackend::new(&stub.base_url())?;
+    let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
+
+    let err = backend.block(a, b, Severity::High).unwrap_err();
+
+    assert!(!err.is_unsupported(), "got: {err:?}");
+    assert!(err.to_string().contains("thing not found"), "got: {err}");
+
+    drop(backend);
+    stub.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_a_404_with_a_not_found_envelope_still_maps_to_the_servers_not_found_error(
 ) -> KanbanResult<()> {
     let stub = StubServer::start(|_, _| {

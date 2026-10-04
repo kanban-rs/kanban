@@ -93,6 +93,22 @@ fn map_mutation_error(
     }
 }
 
+fn envelope_message(body: &str) -> Option<String> {
+    let object = serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| v.as_object().cloned())?;
+    match object.get("code")? {
+        serde_json::Value::String(_) => Some(
+            object
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or_default()
+                .to_string(),
+        ),
+        _ => None,
+    }
+}
+
 fn route_template(path: &str) -> String {
     let path = path.split_once('?').map_or(path, |(route, _)| route);
     path.split('/')
@@ -380,6 +396,51 @@ mod tests {
             err.to_string().contains("POST /v1/cards/x/children/detach"),
             "got: {err}"
         );
+
+        handle.await.unwrap();
+    }
+
+    #[test]
+    fn test_envelope_message_an_html_404_body_is_not_an_envelope() {
+        assert_eq!(envelope_message("<html>Not Found</html>"), None);
+    }
+
+    #[test]
+    fn test_envelope_message_a_json_array_body_is_not_an_envelope() {
+        assert_eq!(envelope_message(r#"["NOT_FOUND"]"#), None);
+    }
+
+    #[test]
+    fn test_envelope_message_an_object_without_a_code_field_is_not_an_envelope() {
+        assert_eq!(envelope_message(r#"{"message":"oops"}"#), None);
+    }
+
+    #[test]
+    fn test_envelope_message_an_object_with_an_unknown_string_code_is_an_envelope() {
+        assert_eq!(
+            envelope_message(r#"{"code":"SOME_FUTURE_CODE","message":"thing not found"}"#),
+            Some("thing not found".to_string())
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_send_json_mutation_with_a_404_envelope_carrying_an_unknown_code_is_not_unsupported(
+    ) {
+        let (url, handle) = stub_once(
+            "404 Not Found",
+            r#"{"code":"SOME_FUTURE_CODE","message":"thing not found"}"#,
+        )
+        .await;
+        let backend = HttpBackend::new(&url).unwrap();
+
+        let update = kanban_api::UpdateBoardRequest::default();
+        let result: KanbanResult<MutationResponse<BoardResponse>> = backend
+            .send_json_mutation(Method::PATCH, "/v1/boards/x", Some(&update))
+            .await;
+
+        let err = result.unwrap_err();
+        assert!(!err.is_unsupported(), "got: {err:?}");
+        assert!(err.to_string().contains("thing not found"), "got: {err}");
 
         handle.await.unwrap();
     }
