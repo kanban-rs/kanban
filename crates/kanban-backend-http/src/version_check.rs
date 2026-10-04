@@ -1,5 +1,3 @@
-use kanban_domain::{KanbanError, KanbanResult};
-
 fn minor_line(version: &str) -> Option<(u64, u64)> {
     let mut parts = version.split('.');
     let major = parts.next()?.parse().ok()?;
@@ -7,26 +5,27 @@ fn minor_line(version: &str) -> Option<(u64, u64)> {
     Some((major, minor))
 }
 
-pub(crate) fn check_server_version(
+use kanban_backend::CompatibilityNotice;
+
+pub(crate) fn compatibility_notice(
     base_url: &str,
     server_version: Option<&str>,
     client_version: &str,
-) -> KanbanResult<()> {
-    let compatible = match (
-        server_version.and_then(minor_line),
-        minor_line(client_version),
-    ) {
-        (Some(server), Some(client)) => server >= client,
-        _ => false,
-    };
-    if compatible {
-        return Ok(());
+) -> Option<CompatibilityNotice> {
+    let client = minor_line(client_version)?;
+    match server_version.map(|v| (v, minor_line(v))) {
+        Some((_, Some(server))) if server >= client => None,
+        Some((v, Some(_))) => Some(CompatibilityNotice::OlderServer {
+            url: base_url.to_string(),
+            server_version: v.to_string(),
+            client_version: client_version.to_string(),
+        }),
+        reported => Some(CompatibilityNotice::UnknownServerVersion {
+            url: base_url.to_string(),
+            reported: reported.map(|(v, _)| v.to_string()),
+            client_version: client_version.to_string(),
+        }),
     }
-    Err(KanbanError::UnsupportedServerVersion {
-        url: base_url.to_string(),
-        server_version: server_version.map(str::to_string),
-        client_version: client_version.to_string(),
-    })
 }
 
 #[cfg(test)]
