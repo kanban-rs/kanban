@@ -6,7 +6,7 @@
 
 mod stub_server;
 
-pub use stub_server::{StubReply, StubServer};
+pub use stub_server::{StubReply, StubServer, EMPTY_PAGE_BODY, PRE_HANDSHAKE_HEALTH_BODY};
 
 use crate::app;
 use crate::state::AppState;

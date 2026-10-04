@@ -109,3 +109,27 @@ impl Drop for StubServer {
         self.handle.abort();
     }
 }
+
+pub const PRE_HANDSHAKE_HEALTH_BODY: &str =
+    r#"{"status":"ok","instance_id":"550e8400-e29b-41d4-a716-446655440000"}"#;
+pub const EMPTY_PAGE_BODY: &str =
+    r#"{"items":[],"total":0,"page":1,"page_size":50,"total_pages":1}"#;
+
+impl StubServer {
+    /// Shaped like a v0.10.x server with no boards: `/health` without
+    /// `version`, the un-scoped collection GETs answered with an empty page,
+    /// everything else delegated to `respond`.
+    pub async fn pre_handshake<F>(respond: F) -> Self
+    where
+        F: Fn(&str, &str) -> StubReply + Send + Sync + 'static,
+    {
+        Self::start(move |method, path| match (method, path) {
+            ("GET", "/health") => StubReply::json(200, PRE_HANDSHAKE_HEALTH_BODY),
+            ("GET", "/v1/boards" | "/v1/archived-boards" | "/v1/prefixes") => {
+                StubReply::json(200, EMPTY_PAGE_BODY)
+            }
+            _ => respond(method, path),
+        })
+        .await
+    }
+}
