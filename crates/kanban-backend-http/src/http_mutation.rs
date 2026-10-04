@@ -2,8 +2,9 @@
 //! `Ok(None)` short-circuit for a mutation, unlike the read-side `get_json`.
 //! `CONFLICT_DETECTED` is remapped to `KanbanError::ConflictDetected`
 //! explicitly, because `From<ApiError>` otherwise classifies it as a plain
-//! validation error. No `If-Match` header is sent: v1 mutations are
-//! last-writer-wins.
+//! validation error. A 404 or 405 without an `ApiError` body is a route the
+//! server has no handler for, and becomes `KanbanError::UnsupportedByServer`.
+//! No `If-Match` header is sent: v1 mutations are last-writer-wins.
 
 use crate::HttpBackend;
 use kanban_api::{ApiError, ErrorCode, CLIENT_ID_HEADER};
@@ -24,6 +25,7 @@ impl HttpBackend {
         T: DeserializeOwned,
     {
         let url = format!("{}{}", self.base_url(), path);
+        let operation_method = method.clone();
         let mut request = self
             .client()
             .request(method, &url)
@@ -41,7 +43,13 @@ impl HttpBackend {
             .await
             .map_err(|e| KanbanError::Transport(e.to_string()))?;
         if !status.is_success() {
-            return Err(map_mutation_error(status, &body_text, &url));
+            return Err(map_mutation_error(
+                &operation_method,
+                path,
+                self.base_url(),
+                status,
+                &body_text,
+            ));
         }
         decode_mutation_body(&body_text)
     }
@@ -54,16 +62,49 @@ fn decode_mutation_body<T: DeserializeOwned>(body: &str) -> KanbanResult<T> {
     serde_json::from_str(body).map_err(|e| KanbanError::Serialization(e.to_string()))
 }
 
-fn map_mutation_error(status: StatusCode, body: &str, url: &str) -> KanbanError {
-    if let Ok(api_err) = serde_json::from_str::<ApiError>(body) {
-        if api_err.code == ErrorCode::ConflictDetected {
-            return KanbanError::ConflictDetected {
-                path: url.to_string(),
+fn map_mutation_error(
+    method: &Method,
+    path: &str,
+    base_url: &str,
+    status: StatusCode,
+    body: &str,
+) -> KanbanError {
+    match serde_json::from_str::<ApiError>(body) {
+        Ok(api_err) if api_err.code == ErrorCode::ConflictDetected => {
+            KanbanError::ConflictDetected {
+                path: format!("{base_url}{path}"),
                 source: None,
-            };
+            }
         }
+        Ok(_) => crate::http::map_error_response(status, body),
+        Err(_)
+            if matches!(
+                status,
+                StatusCode::NOT_FOUND | StatusCode::METHOD_NOT_ALLOWED
+            ) =>
+        {
+            KanbanError::unsupported_by_server(
+                format!("{method} {}", route_template(path)),
+                base_url,
+                kanban_core::KANBAN_VERSION,
+            )
+        }
+        Err(_) => crate::http::map_error_response(status, body),
     }
-    crate::http::map_error_response(status, body)
+}
+
+fn route_template(path: &str) -> String {
+    let path = path.split_once('?').map_or(path, |(route, _)| route);
+    path.split('/')
+        .map(|segment| {
+            if uuid::Uuid::parse_str(segment).is_ok() {
+                "{id}"
+            } else {
+                segment
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 #[cfg(test)]

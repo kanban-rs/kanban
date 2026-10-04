@@ -262,6 +262,18 @@ pub enum KanbanError {
         server_version: Option<String>,
         client_version: String,
     },
+
+    /// The remote server answered 404 or 405 without an `ApiError` body: it
+    /// has no route for this operation, so nothing was written.
+    #[error(
+        "kanban server at {url} does not support {operation}, so nothing was written. \
+         Upgrade the server to this client's version (v{client_version}) to use it."
+    )]
+    UnsupportedByServer {
+        operation: String,
+        url: String,
+        client_version: String,
+    },
 }
 
 fn describe_server_version(version: &Option<String>) -> String {
@@ -333,8 +345,23 @@ impl KanbanError {
         Self::Unsupported { operation }
     }
 
+    pub fn unsupported_by_server(
+        operation: impl Into<String>,
+        url: impl Into<String>,
+        client_version: impl Into<String>,
+    ) -> Self {
+        Self::UnsupportedByServer {
+            operation: operation.into(),
+            url: url.into(),
+            client_version: client_version.into(),
+        }
+    }
+
     pub fn is_unsupported(&self) -> bool {
-        matches!(self, KanbanError::Unsupported { .. })
+        matches!(
+            self,
+            KanbanError::Unsupported { .. } | KanbanError::UnsupportedByServer { .. }
+        )
     }
 
     pub fn is_transport(&self) -> bool {

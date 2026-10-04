@@ -43,7 +43,8 @@ impl From<&KanbanError> for ApiError {
             // A backend gap is a server fault, not a client error.
             KanbanError::Unsupported { .. } => ErrorCode::InternalError,
             KanbanError::UnsupportedFutureVersion { .. }
-            | KanbanError::UnsupportedServerVersion { .. } => ErrorCode::UnsupportedVersion,
+            | KanbanError::UnsupportedServerVersion { .. }
+            | KanbanError::UnsupportedByServer { .. } => ErrorCode::UnsupportedVersion,
         };
         // Public-message policy — exhaustive over `ErrorCode` so a new code must
         // declare whether it may expose the underlying error detail.
