@@ -200,6 +200,7 @@ async fn test_migrate_sprint_logs_over_http_declines_without_any_request() {
     let mut ctx = ctx_over(&server).await;
 
     let before = log.lock().unwrap().len();
+    assert!(before > 0, "the recorder saw nothing during open");
 
     let err = ctx.migrate_sprint_logs().unwrap_err();
 
