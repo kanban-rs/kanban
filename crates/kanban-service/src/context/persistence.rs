@@ -1,5 +1,5 @@
 use super::KanbanContext;
-use kanban_domain::{EntityIds, Invalidation, KanbanResult};
+use kanban_domain::{EntityIds, Invalidation, KanbanError, KanbanResult};
 
 impl KanbanContext {
     /// Backfill `sprint_logs` for cards that have a `sprint_id` but empty logs.
@@ -14,8 +14,14 @@ impl KanbanContext {
     /// function — they are reference data only, never mutated, so the
     /// persist loop correctly iterates `cards` alone.
     ///
+    /// Over a remote backend, returns `KanbanError::unsupported` before
+    /// performing any of the reads below.
+    ///
     /// Returns the number of cards that received a backfilled log.
     pub fn migrate_sprint_logs(&mut self) -> KanbanResult<(usize, Option<Invalidation>)> {
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("migrate_sprint_logs"));
+        }
         // C3b FIDELITY: raw reads — sprint-log migration must touch ALL cards.
         let mut cards = self.backend.list_all_cards()?;
         let sprints = self.backend.list_all_sprints()?;
