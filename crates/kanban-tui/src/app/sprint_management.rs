@@ -5,7 +5,7 @@ impl App {
         match self.ctx.migrate_sprint_logs() {
             Ok(n) => n,
             Err(e) if e.is_unsupported() => {
-                tracing::debug!("Sprint log migration skipped: backend declined a read: {e}");
+                tracing::debug!("Sprint log migration skipped: {e}");
                 0
             }
             Err(e) => {
