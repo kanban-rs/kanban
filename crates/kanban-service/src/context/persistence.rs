@@ -64,3 +64,42 @@ impl KanbanContext {
         self.backend.flush().await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend_test_support::{MockBackend, MockRemoteWritesImpl};
+    use kanban_core::AppConfig;
+    use kanban_domain::{Board, Card, DataStore, KanbanError, Sprint};
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn test_migrate_sprint_logs_on_a_remote_backend_declines_before_any_read() {
+        let backend = Arc::new(MockBackend::with_remote_writes(Arc::new(
+            MockRemoteWritesImpl,
+        )));
+
+        let board = Board::new("Roadmap", None::<String>);
+        backend.upsert_board(board.clone()).unwrap();
+        let sprint = Sprint::new(board.id, 1, None, None::<String>);
+        backend.upsert_sprint(sprint.clone()).unwrap();
+        let mut card = Card::new(board.id, uuid::Uuid::new_v4(), "Do the thing", 0);
+        card.sprint_id = Some(sprint.id);
+        backend.upsert_card(card.clone()).unwrap();
+
+        let mut ctx = KanbanContext::open(backend.clone(), AppConfig::default())
+            .await
+            .unwrap();
+
+        let err = ctx.migrate_sprint_logs().unwrap_err();
+
+        assert!(err.is_unsupported(), "got: {err:?}");
+        assert_eq!(
+            err.to_string(),
+            KanbanError::unsupported("migrate_sprint_logs").to_string()
+        );
+
+        let readback = backend.get_card(card.id).unwrap().unwrap();
+        assert_eq!(readback, card);
+    }
+}

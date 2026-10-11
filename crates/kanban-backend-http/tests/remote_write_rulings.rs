@@ -193,3 +193,22 @@ async fn test_undo_over_http_declines_instead_of_reporting_empty() {
 
     server.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_migrate_sprint_logs_over_http_declines_without_any_request() {
+    let (server, log) = TestServer::start_recording(|_| {}).await;
+    let mut ctx = ctx_over(&server).await;
+
+    let before = log.lock().unwrap().len();
+
+    let err = ctx.migrate_sprint_logs().unwrap_err();
+
+    assert!(err.is_unsupported(), "got: {err:?}");
+    assert_eq!(
+        err.to_string(),
+        kanban_domain::KanbanError::unsupported("migrate_sprint_logs").to_string()
+    );
+    assert_eq!(log.lock().unwrap().len(), before);
+
+    server.shutdown().await;
+}
