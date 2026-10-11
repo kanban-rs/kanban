@@ -15,7 +15,7 @@ impl KanbanContext {
     /// persist loop correctly iterates `cards` alone.
     ///
     /// Over a remote backend, returns `KanbanError::unsupported` before
-    /// performing any of the reads below.
+    /// reading the store.
     ///
     /// Returns the number of cards that received a backfilled log.
     pub fn migrate_sprint_logs(&mut self) -> KanbanResult<(usize, Option<Invalidation>)> {
