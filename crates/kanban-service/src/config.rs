@@ -1,5 +1,5 @@
 use kanban_core::{
-    AppConfig, CoreResult, Editable, DEFAULT_JSON_FILENAME, DEFAULT_SERVER_ADDR,
+    AppConfig, CoreResult, Editable, HexColor, DEFAULT_JSON_FILENAME, DEFAULT_SERVER_ADDR,
     DEFAULT_SQLITE_FILENAME, DEFAULT_STORAGE_BACKEND,
 };
 use serde::{Deserialize, Serialize};
@@ -352,6 +352,8 @@ pub fn strip_defaults(config: &mut AppConfig) {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfigDto {
+    /// `#RRGGBB`; empty or absent means the default highlight.
+    pub background_highlight: Option<String>,
     pub configuration_format: Option<String>,
     pub configuration_location: Option<String>,
     pub default_card_prefix: Option<String>,
@@ -374,6 +376,12 @@ impl AppConfigDto {
             (None, None)
         };
         Self {
+            background_highlight: Some(
+                entity
+                    .background_highlight_color()
+                    .map(|c| c.to_string())
+                    .unwrap_or_default(),
+            ),
             default_card_prefix: Some(entity.effective_default_card_prefix().to_string()),
             default_sprint_prefix: Some(entity.effective_default_sprint_prefix().to_string()),
             storage_backend,
@@ -385,6 +393,7 @@ impl AppConfigDto {
     }
 
     pub fn validate_and_apply(self, entity: &mut AppConfig) -> CoreResult<()> {
+        validate_background_highlight(self.background_highlight.as_deref())?;
         self.apply_to(entity);
         validate(entity)?;
         Ok(())
@@ -404,6 +413,7 @@ impl Editable<AppConfig> for AppConfigDto {
     /// diffing) should copy the config before calling this method.
     fn apply_to(self, entity: &mut AppConfig) {
         let old_format = entity.effective_configuration_format().to_string();
+        entity.background_highlight = normalize_background_highlight(self.background_highlight);
         entity.default_card_prefix = self.default_card_prefix;
         entity.default_sprint_prefix = self.default_sprint_prefix;
         if let Some(backend) = self.storage_backend {
@@ -426,6 +436,30 @@ impl Editable<AppConfig> for AppConfigDto {
         }
 
         strip_defaults(entity);
+    }
+}
+
+fn validate_background_highlight(raw: Option<&str>) -> CoreResult<()> {
+    match raw {
+        None | Some("") => Ok(()),
+        Some(value) => value.parse::<HexColor>().map(|_| ()).map_err(|_| {
+            kanban_core::CoreError::Validation(format!(
+                "Invalid background_highlight '{}': must be #RRGGBB (e.g. #2E3440), or empty for the default",
+                value
+            ))
+        }),
+    }
+}
+
+fn normalize_background_highlight(raw: Option<String>) -> Option<String> {
+    match raw.as_deref() {
+        None | Some("") => None,
+        Some(value) => Some(
+            value
+                .parse::<HexColor>()
+                .map(|c| c.to_string())
+                .unwrap_or_else(|_| value.to_string()),
+        ),
     }
 }
 
@@ -696,6 +730,7 @@ mod tests {
     #[test]
     fn test_app_config_dto_serialization_has_expected_keys() {
         let dto = AppConfigDto {
+            background_highlight: None,
             default_card_prefix: Some("sprint".into()),
             default_sprint_prefix: Some("iter".into()),
             storage_backend: Some("json".into()),
@@ -722,6 +757,7 @@ mod tests {
         };
 
         let dto = AppConfigDto {
+            background_highlight: None,
             default_card_prefix: None,
             default_sprint_prefix: None,
             storage_backend: None,
@@ -833,6 +869,7 @@ mod tests {
         };
 
         let dto = AppConfigDto {
+            background_highlight: None,
             default_card_prefix: Some("feat".into()),
             default_sprint_prefix: None,
             storage_backend: None,
@@ -994,6 +1031,7 @@ mod tests {
     #[test]
     fn test_apply_to_strips_default_values() {
         let dto = AppConfigDto {
+            background_highlight: None,
             default_card_prefix: Some("task".into()),
             default_sprint_prefix: Some("sprint".into()),
             storage_backend: Some("sqlite".into()),
@@ -1034,6 +1072,7 @@ mod tests {
     #[test]
     fn test_apply_to_rejects_invalid_storage_backend() {
         let dto = AppConfigDto {
+            background_highlight: None,
             default_card_prefix: Some("task".into()),
             default_sprint_prefix: Some("sprint".into()),
             storage_backend: Some("yaml".into()),
@@ -1050,6 +1089,7 @@ mod tests {
     #[test]
     fn test_app_config_dto_serializes_keys_in_alphabetical_order() {
         let dto = AppConfigDto {
+            background_highlight: Some("#2E3440".into()),
             configuration_format: Some("toml".into()),
             configuration_location: Some("/tmp/test.toml".into()),
             default_card_prefix: Some("feat".into()),
@@ -1480,5 +1520,179 @@ mod tests {
                 save_background_highlight(&config, Some("#2e3440".parse().unwrap())).unwrap_err();
             assert!(err.to_string().contains("No configuration location"));
         }
+    }
+
+    #[test]
+    fn test_dto_from_config_shows_background_highlight_as_uppercase_hex() {
+        let entity = AppConfig {
+            background_highlight: Some("#2e3440".into()),
+            ..Default::default()
+        };
+        let dto = AppConfigDto::from_config(&entity, false);
+        assert_eq!(dto.background_highlight.as_deref(), Some("#2E3440"));
+    }
+
+    #[test]
+    fn test_dto_from_config_shows_an_empty_background_highlight_when_unset() {
+        let entity = AppConfig::default();
+        let dto = AppConfigDto::from_config(&entity, false);
+        assert_eq!(dto.background_highlight.as_deref(), Some(""));
+        assert!(toml::to_string_pretty(&dto)
+            .unwrap()
+            .contains("background_highlight = \"\""));
+    }
+
+    #[test]
+    fn test_dto_from_config_shows_an_empty_background_highlight_for_an_invalid_value() {
+        let entity = AppConfig {
+            background_highlight: Some("blue".into()),
+            ..Default::default()
+        };
+        let dto = AppConfigDto::from_config(&entity, false);
+        assert_eq!(dto.background_highlight.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn test_dto_round_trip_on_a_legacy_file_adds_background_highlight_when_edited() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "default_card_prefix = \"feat\"\n").unwrap();
+
+        let loaded = load_from(&path);
+        let dto = AppConfigDto::from_config(&loaded, false);
+        let serialized = toml::to_string_pretty(&dto).unwrap();
+        assert!(serialized.contains("background_highlight = \"\""));
+
+        let edited = serialized.replace(
+            "background_highlight = \"\"",
+            "background_highlight = \"#2e3440\"",
+        );
+        let updated_dto: AppConfigDto = toml::from_str(&edited).unwrap();
+        let mut loaded_clone = loaded.clone();
+        updated_dto.validate_and_apply(&mut loaded_clone).unwrap();
+        save_to(&loaded_clone, &path).unwrap();
+
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(saved.contains("background_highlight = \"#2E3440\""));
+        assert!(saved.contains("default_card_prefix = \"feat\""));
+    }
+
+    #[test]
+    fn test_dto_round_trip_on_a_legacy_file_left_unedited_writes_no_background_highlight() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "default_card_prefix = \"feat\"\n").unwrap();
+
+        let loaded = load_from(&path);
+        let dto = AppConfigDto::from_config(&loaded, false);
+        let mut loaded_clone = loaded.clone();
+        dto.validate_and_apply(&mut loaded_clone).unwrap();
+        save_to(&loaded_clone, &path).unwrap();
+
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(!saved.contains("background_highlight"));
+    }
+
+    #[test]
+    fn test_dto_round_trip_on_a_file_holding_only_the_key_keeps_it_non_default() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "background_highlight = \"#2E3440\"\n").unwrap();
+
+        let loaded = load_from(&path);
+        let dto = AppConfigDto::from_config(&loaded, false);
+        let serialized = serde_json::to_string_pretty(&dto).unwrap();
+        let updated_dto: AppConfigDto = serde_json::from_str(&serialized).unwrap();
+        let mut loaded_clone = loaded.clone();
+        updated_dto.validate_and_apply(&mut loaded_clone).unwrap();
+
+        assert!(loaded_clone.configuration_location.is_none());
+        assert!(has_non_default_values(&loaded_clone));
+
+        save_to(&loaded_clone, &path).unwrap();
+        let reloaded = load_from(&path);
+        assert_eq!(reloaded.background_highlight.as_deref(), Some("#2E3440"));
+    }
+
+    #[test]
+    fn test_dto_validate_and_apply_rejects_a_malformed_background_highlight_naming_the_field() {
+        for bad in ["#2E3", "2E3440", "blue", "#GGGGGG", " #2E3440", "default"] {
+            let dto = AppConfigDto {
+                background_highlight: Some(bad.to_string()),
+                ..AppConfigDto::from_config(&AppConfig::default(), false)
+            };
+            let mut entity = AppConfig {
+                default_card_prefix: Some("feat".into()),
+                background_highlight: Some("#2E3440".into()),
+                ..Default::default()
+            };
+            let err = dto.validate_and_apply(&mut entity).unwrap_err();
+            let message = err.to_string();
+            assert!(
+                message.contains("background_highlight"),
+                "message: {message}"
+            );
+            assert!(message.contains(bad), "message: {message}");
+            assert!(message.contains("#RRGGBB"), "message: {message}");
+            assert_eq!(entity.default_card_prefix.as_deref(), Some("feat"));
+            assert_eq!(entity.background_highlight.as_deref(), Some("#2E3440"));
+        }
+    }
+
+    #[test]
+    fn test_dto_apply_maps_an_empty_or_missing_background_highlight_to_none() {
+        let mut entity = AppConfig {
+            background_highlight: Some("#2E3440".into()),
+            ..Default::default()
+        };
+        let dto = AppConfigDto {
+            background_highlight: Some(String::new()),
+            ..AppConfigDto::from_config(&AppConfig::default(), false)
+        };
+        dto.clone().apply_to(&mut entity);
+        assert!(entity.background_highlight.is_none());
+
+        let mut entity = AppConfig {
+            background_highlight: Some("#2E3440".into()),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&dto).unwrap();
+        let no_key_json: serde_json::Value = {
+            let mut v: serde_json::Value = serde_json::from_str(&json).unwrap();
+            v.as_object_mut().unwrap().remove("background_highlight");
+            v
+        };
+        let missing_key_dto: AppConfigDto = serde_json::from_value(no_key_json).unwrap();
+        missing_key_dto.apply_to(&mut entity);
+        assert!(entity.background_highlight.is_none());
+
+        let mut entity = AppConfig {
+            background_highlight: Some("#2E3440".into()),
+            ..Default::default()
+        };
+        let null_json = json.replace("\"\"", "null");
+        let null_dto: AppConfigDto = serde_json::from_str(&null_json).unwrap();
+        null_dto.apply_to(&mut entity);
+        assert!(entity.background_highlight.is_none());
+    }
+
+    #[test]
+    fn test_dto_apply_canonicalises_a_lowercase_background_highlight() {
+        let mut entity = AppConfig::default();
+        let dto = AppConfigDto {
+            background_highlight: Some("#2e3440".into()),
+            ..AppConfigDto::from_config(&AppConfig::default(), false)
+        };
+        dto.apply_to(&mut entity);
+        assert_eq!(entity.background_highlight.as_deref(), Some("#2E3440"));
+    }
+
+    #[test]
+    fn test_config_validate_still_accepts_an_invalid_background_highlight_on_the_entity() {
+        let config = AppConfig {
+            background_highlight: Some("blue".into()),
+            ..Default::default()
+        };
+        assert!(validate(&config).is_ok());
     }
 }

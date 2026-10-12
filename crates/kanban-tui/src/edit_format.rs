@@ -348,6 +348,7 @@ mod tests {
     #[test]
     fn test_edit_format_json_serialize_round_trip() {
         let dto = AppConfigDto {
+            background_highlight: Some("#2E3440".into()),
             default_card_prefix: Some("feat".into()),
             default_sprint_prefix: Some("sprint".into()),
             storage_backend: Some("sqlite".into()),
@@ -361,11 +362,16 @@ mod tests {
         assert_eq!(deserialized.default_card_prefix.as_deref(), Some("feat"));
         assert_eq!(deserialized.storage_backend.as_deref(), Some("sqlite"));
         assert_eq!(deserialized.editing_format.as_deref(), Some("json"));
+        assert_eq!(
+            deserialized.background_highlight.as_deref(),
+            Some("#2E3440")
+        );
     }
 
     #[test]
     fn test_edit_format_toml_serialize_round_trip() {
         let dto = AppConfigDto {
+            background_highlight: Some("#2E3440".into()),
             default_card_prefix: Some("feat".into()),
             default_sprint_prefix: Some("sprint".into()),
             storage_backend: Some("sqlite".into()),
@@ -379,5 +385,9 @@ mod tests {
         assert_eq!(deserialized.default_card_prefix.as_deref(), Some("feat"));
         assert_eq!(deserialized.storage_backend.as_deref(), Some("sqlite"));
         assert_eq!(deserialized.editing_format.as_deref(), Some("toml"));
+        assert_eq!(
+            deserialized.background_highlight.as_deref(),
+            Some("#2E3440")
+        );
     }
 }
