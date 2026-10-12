@@ -1,5 +1,5 @@
 use kanban_core::{
-    AppConfig, CoreResult, Editable, DEFAULT_JSON_FILENAME, DEFAULT_SERVER_ADDR,
+    AppConfig, CoreResult, Editable, HexColor, DEFAULT_JSON_FILENAME, DEFAULT_SERVER_ADDR,
     DEFAULT_SQLITE_FILENAME, DEFAULT_STORAGE_BACKEND,
 };
 use serde::{Deserialize, Serialize};
@@ -376,7 +376,12 @@ impl AppConfigDto {
             (None, None)
         };
         Self {
-            background_highlight: None,
+            background_highlight: Some(
+                entity
+                    .background_highlight_color()
+                    .map(|c| c.to_string())
+                    .unwrap_or_default(),
+            ),
             default_card_prefix: Some(entity.effective_default_card_prefix().to_string()),
             default_sprint_prefix: Some(entity.effective_default_sprint_prefix().to_string()),
             storage_backend,
@@ -388,6 +393,7 @@ impl AppConfigDto {
     }
 
     pub fn validate_and_apply(self, entity: &mut AppConfig) -> CoreResult<()> {
+        validate_background_highlight(self.background_highlight.as_deref())?;
         self.apply_to(entity);
         validate(entity)?;
         Ok(())
@@ -407,6 +413,7 @@ impl Editable<AppConfig> for AppConfigDto {
     /// diffing) should copy the config before calling this method.
     fn apply_to(self, entity: &mut AppConfig) {
         let old_format = entity.effective_configuration_format().to_string();
+        entity.background_highlight = normalize_background_highlight(self.background_highlight);
         entity.default_card_prefix = self.default_card_prefix;
         entity.default_sprint_prefix = self.default_sprint_prefix;
         if let Some(backend) = self.storage_backend {
@@ -429,6 +436,30 @@ impl Editable<AppConfig> for AppConfigDto {
         }
 
         strip_defaults(entity);
+    }
+}
+
+fn validate_background_highlight(raw: Option<&str>) -> CoreResult<()> {
+    match raw {
+        None | Some("") => Ok(()),
+        Some(value) => value.parse::<HexColor>().map(|_| ()).map_err(|_| {
+            kanban_core::CoreError::Validation(format!(
+                "Invalid background_highlight '{}': must be #RRGGBB (e.g. #2E3440), or empty for the default",
+                value
+            ))
+        }),
+    }
+}
+
+fn normalize_background_highlight(raw: Option<String>) -> Option<String> {
+    match raw.as_deref() {
+        None | Some("") => None,
+        Some(value) => Some(
+            value
+                .parse::<HexColor>()
+                .map(|c| c.to_string())
+                .unwrap_or_else(|_| value.to_string()),
+        ),
     }
 }
 
