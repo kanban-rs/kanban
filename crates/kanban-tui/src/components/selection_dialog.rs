@@ -377,6 +377,7 @@ impl SelectionDialog for SprintAssignDialog {
                     sprints,
                     board,
                     chrono::Utc::now(),
+                    app.highlight_bg(),
                 );
             }
             other => render_unavailable_panel(frame, chunks[1], "Sprint", &other),
