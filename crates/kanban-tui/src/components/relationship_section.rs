@@ -3,6 +3,7 @@ use crate::theme::*;
 use kanban_domain::Card;
 use kanban_domain::Model;
 use kanban_view::ListComponent;
+use ratatui::style::Color;
 use ratatui::text::{Line, Span};
 use uuid::Uuid;
 
@@ -24,6 +25,7 @@ pub fn render_relationship_section(
     is_focused: bool,
     list_component: &ListComponent,
     viewport_height: usize,
+    highlight_bg: Color,
 ) -> Vec<Line<'static>> {
     let mut lines: Vec<Line> = Vec::new();
 
@@ -52,7 +54,7 @@ pub fn render_relationship_section(
                 if let Some(card) = cards.iter().find(|c| c.id == card_id) {
                     let is_selected = list_component.selection.get() == Some(idx);
 
-                    let config = ListItemConfig::new()
+                    let config = ListItemConfig::new(highlight_bg)
                         .selected(is_selected)
                         .focused(is_selected && is_focused);
 

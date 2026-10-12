@@ -156,6 +156,7 @@ impl SelectionDialog for SortFieldDialog {
             active_idx,
             60,
             50,
+            app.highlight_bg(),
         );
     }
 }
@@ -209,6 +210,7 @@ impl SelectionDialog for BoardSortFieldDialog {
             active_idx,
             60,
             50,
+            app.highlight_bg(),
         );
     }
 }

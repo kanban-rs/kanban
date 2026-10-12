@@ -215,9 +215,10 @@ pub(crate) fn render_import_board_popup(app: &App, frame: &mut Frame) {
             Paragraph::new("No JSON files found in current directory").style(label_text());
         frame.render_widget(empty_msg, chunks[1]);
     } else {
+        let highlight_bg = app.highlight_bg();
         let mut lines = vec![];
         for (idx, filename) in app.dialog_input.import_files.iter().enumerate() {
-            let config = ListItemConfig::new()
+            let config = ListItemConfig::new(highlight_bg)
                 .selected(app.dialog_input.import_selection.get() == Some(idx))
                 .focused(true);
             lines.push(styled_list_item(filename, &config));

@@ -1,6 +1,6 @@
-use crate::theme::{active_item, normal_text, selected_item};
+use crate::theme::{active_item, normal_text};
 use ratatui::{
-    style::Style,
+    style::{Color, Style},
     text::{Line, Span},
 };
 
@@ -9,15 +9,17 @@ pub struct ListItemConfig {
     pub is_focused: bool,
     pub is_active: bool,
     pub is_multi_selected: bool,
+    pub highlight_bg: Color,
 }
 
 impl ListItemConfig {
-    pub fn new() -> Self {
+    pub fn new(highlight_bg: Color) -> Self {
         Self {
             is_selected: false,
             is_focused: false,
             is_active: false,
             is_multi_selected: false,
+            highlight_bg,
         }
     }
 
@@ -49,7 +51,7 @@ impl ListItemConfig {
         }
 
         if self.is_selected && self.is_focused {
-            style = style.bg(selected_item(true).bg.unwrap());
+            style = style.bg(self.highlight_bg);
         }
 
         style
@@ -63,12 +65,6 @@ impl ListItemConfig {
         } else {
             "  "
         }
-    }
-}
-
-impl Default for ListItemConfig {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

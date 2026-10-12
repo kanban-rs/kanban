@@ -56,6 +56,7 @@ pub(super) fn render_relationship_boxes(
     let viewport_height =
         area.height
             .saturating_sub(RELATIONSHIP_VIEWPORT_BORDER_HEIGHT as u16) as usize;
+    let highlight_bg = app.highlight_bg();
 
     // Render Parents section
     let parents_config = FieldSectionConfig::new("Parents")
@@ -70,6 +71,7 @@ pub(super) fn render_relationship_boxes(
         app.focus.card_focus == CardFocus::Parents,
         &app.relationship.parents_list,
         viewport_height,
+        highlight_bg,
     );
     let parents_widget = Paragraph::new(parents_lines).block(parents_config.block());
     frame.render_widget(parents_widget, relationship_chunks[0]);
@@ -87,6 +89,7 @@ pub(super) fn render_relationship_boxes(
         app.focus.card_focus == CardFocus::Children,
         &app.relationship.children_list,
         viewport_height,
+        highlight_bg,
     );
     let children_widget = Paragraph::new(children_lines).block(children_config.block());
     frame.render_widget(children_widget, relationship_chunks[1]);
