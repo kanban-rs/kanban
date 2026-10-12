@@ -51,7 +51,7 @@ impl KeybindingProvider for SettingsViewProvider {
                 bindings.push(Keybinding::new(
                     "e/Enter",
                     "edit",
-                    "Edit configuration in external editor",
+                    "Edit configuration in external editor (Enter on Background Highlight edits it inline)",
                     KeybindingAction::EditCard,
                 ));
             }

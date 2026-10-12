@@ -1,5 +1,6 @@
-use crate::app::App;
-use crate::theme::normal_text;
+use crate::app::{App, AppMode, DialogMode};
+use crate::theme::{default_highlight_background, error_text, label_text, normal_text, to_color};
+use kanban_core::HexColor;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
@@ -16,11 +17,17 @@ fn background_highlight_line(
     selected: bool,
     highlight_bg: Color,
     preview_bg: Color,
+    value_style: Style,
 ) -> Line<'static> {
-    use crate::components::detail_view::metadata_line_selectable;
-
-    let mut line =
-        metadata_line_selectable(BACKGROUND_HIGHLIGHT_LABEL, value, selected, highlight_bg);
+    let label_style = if selected {
+        label_text().bg(highlight_bg)
+    } else {
+        label_text()
+    };
+    let mut line = Line::from(vec![
+        Span::styled(format!("{BACKGROUND_HIGHLIGHT_LABEL}: "), label_style),
+        Span::styled(value, value_style),
+    ]);
     line.spans.push(Span::raw(" "));
     line.spans.push(Span::styled(
         HIGHLIGHT_PREVIEW_SAMPLE,
@@ -58,9 +65,57 @@ fn render_settings_configuration(app: &App, frame: &mut Frame, area: Rect, confi
         .with_focus_indicator(" Configuration [1] ")
         .focused(config_focused);
     let config_block = config_section.block();
+    let config_block_inner = config_block.inner(area);
     let is_config_selected =
         |i: usize| config_focused && app.selection.settings_config.is_selected(i);
     let highlight_bg = app.highlight_bg();
+    let is_editing_highlight = app.mode == AppMode::Dialog(DialogMode::EditBackgroundHighlight);
+    let highlight_row_selected =
+        is_config_selected(crate::handlers::settings_handlers::BACKGROUND_HIGHLIGHT_CONFIG_INDEX);
+    let background_highlight_row = if is_editing_highlight {
+        let typed = app.input.as_str();
+        let parsed = if typed.is_empty() {
+            None
+        } else {
+            typed.parse::<HexColor>().ok()
+        };
+        let is_valid_or_empty = typed.is_empty() || parsed.is_some();
+        let value_style = if is_valid_or_empty {
+            normal_text().bg(highlight_bg)
+        } else {
+            error_text().bg(highlight_bg)
+        };
+        let preview_bg = match parsed {
+            Some(color) => to_color(color),
+            None if typed.is_empty() => default_highlight_background(),
+            None => highlight_bg,
+        };
+        background_highlight_line(
+            format!("{typed:<7}"),
+            highlight_row_selected,
+            highlight_bg,
+            preview_bg,
+            value_style,
+        )
+    } else {
+        let value = app
+            .app_config
+            .background_highlight_color()
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "default".to_string());
+        let value_style = if highlight_row_selected {
+            normal_text().bg(highlight_bg)
+        } else {
+            normal_text()
+        };
+        background_highlight_line(
+            value,
+            highlight_row_selected,
+            highlight_bg,
+            highlight_bg,
+            value_style,
+        )
+    };
     let mut config_lines = vec![
         metadata_line_selectable(
             "Configuration Format",
@@ -92,17 +147,7 @@ fn render_settings_configuration(app: &App, frame: &mut Frame, area: Rect, confi
             is_config_selected(4),
             highlight_bg,
         ),
-        background_highlight_line(
-            app.app_config
-                .background_highlight_color()
-                .map(|c| c.to_string())
-                .unwrap_or_else(|| "default".to_string()),
-            is_config_selected(
-                crate::handlers::settings_handlers::BACKGROUND_HIGHLIGHT_CONFIG_INDEX,
-            ),
-            highlight_bg,
-            highlight_bg,
-        ),
+        background_highlight_row,
     ];
     if app.has_data_file {
         let active_storage_location =
@@ -164,6 +209,13 @@ fn render_settings_configuration(app: &App, frame: &mut Frame, area: Rect, confi
     }
     let config_paragraph = Paragraph::new(config_lines).block(config_block);
     frame.render_widget(config_paragraph, area);
+    if is_editing_highlight {
+        let cursor_col = app.input.cursor_byte_offset() as u16;
+        frame.set_cursor_position((
+            config_block_inner.x + 22 + cursor_col,
+            config_block_inner.y + 5,
+        ));
+    }
 }
 
 fn render_settings_config_file(app: &App, frame: &mut Frame, area: Rect, config_location: &str) {

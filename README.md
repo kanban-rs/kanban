@@ -148,6 +148,16 @@ VS Code is known not to work in the current implementation.
 
 ---
 
+## Highlight colour
+
+The selection highlight defaults to your terminal's blue. If that is hard to read in your theme, set your own background in the kanban config file (`~/.config/kanban/config.toml` on macOS; on Linux `$XDG_CONFIG_HOME/kanban/config.toml`, usually `~/.config/kanban/config.toml`; `KANBAN_CONFIG` overrides the path):
+
+    background_highlight = "#2E3440"
+
+Or open Settings (`S`), select **Background Highlight**, press Enter and type a colour: the swatch on that row previews it. Enter applies and saves it, Esc cancels, and an empty value restores the default. Only the full `#RRGGBB` form is accepted (either case). The text colour on the highlight does not change. The colour is sent as 24-bit RGB, so use a terminal with truecolor support. An invalid value in the file is ignored with a warning in the error log (F12).
+
+---
+
 ## Features
 
 ### Boards & Cards
