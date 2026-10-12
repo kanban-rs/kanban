@@ -127,6 +127,9 @@ impl KeybindingRegistry {
                 DialogMode::DeletePermanentBoardConfirm => {
                     Box::new(DeleteConfirmProvider::new("Project (Permanent)"))
                 }
+                DialogMode::EditBackgroundHighlight => {
+                    Box::new(DialogInputProvider::new("Background Highlight"))
+                }
             },
             AppMode::ErrorLog => Box::new(ErrorLogProvider),
         }

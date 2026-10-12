@@ -33,6 +33,7 @@ pub enum DialogMode {
     ExportBoards,
     ChooseStorageFile,
     DeletePermanentBoardConfirm,
+    EditBackgroundHighlight,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

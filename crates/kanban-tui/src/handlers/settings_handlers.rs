@@ -375,6 +375,10 @@ impl App {
         event_handler: &EventHandler,
     ) -> bool {
         match key {
+            KeyCode::Enter if self.settings_background_highlight_row_selected() => {
+                self.open_background_highlight_editor();
+                false
+            }
             KeyCode::Enter if self.focus.settings_focus == SettingsFocus::Configuration => {
                 self.open_config_editor(terminal, event_handler)
             }

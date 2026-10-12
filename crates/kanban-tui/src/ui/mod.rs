@@ -152,6 +152,8 @@ pub fn render(app: &mut App, frame: &mut Frame) {
                 DialogMode::DeletePermanentBoardConfirm => {
                     dialogs::render_delete_permanent_board_confirm_popup(app, frame)
                 }
+                // Edited inline on the settings row by render_settings_view, not a popup.
+                DialogMode::EditBackgroundHighlight => {}
             }
         }
     } else {
