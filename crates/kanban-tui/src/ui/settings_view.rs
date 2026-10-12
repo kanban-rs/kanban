@@ -38,31 +38,37 @@ fn render_settings_configuration(app: &App, frame: &mut Frame, area: Rect, confi
     let config_block = config_section.block();
     let is_config_selected =
         |i: usize| config_focused && app.selection.settings_config.is_selected(i);
+    let highlight_bg = app.highlight_bg();
     let mut config_lines = vec![
         metadata_line_selectable(
             "Configuration Format",
             app.app_config.effective_configuration_format(),
             is_config_selected(0),
+            highlight_bg,
         ),
         metadata_line_selectable(
             "Configuration Location",
             config_location,
             is_config_selected(1),
+            highlight_bg,
         ),
         metadata_line_selectable(
             "Default Card Prefix",
             app.app_config.effective_default_card_prefix(),
             is_config_selected(2),
+            highlight_bg,
         ),
         metadata_line_selectable(
             "Default Sprint Prefix",
             app.app_config.effective_default_sprint_prefix(),
             is_config_selected(3),
+            highlight_bg,
         ),
         metadata_line_selectable(
             "Editing Format",
             app.app_config.effective_editing_format(),
             is_config_selected(4),
+            highlight_bg,
         ),
     ];
     if app.has_data_file {
@@ -87,33 +93,39 @@ fn render_settings_configuration(app: &App, frame: &mut Frame, area: Rect, confi
                 "Active Storage Backend",
                 app.app_config.effective_storage_backend(),
                 is_config_selected(7),
+                highlight_bg,
             ));
             config_lines.push(metadata_line_selectable(
                 "Active Storage Location",
                 &active_storage_location,
                 is_config_selected(8),
+                highlight_bg,
             ));
         } else if app.cli_file_provided {
             config_lines.push(metadata_line_selectable(
                 "Active Storage Backend",
                 app.app_config.effective_storage_backend(),
                 is_config_selected(5),
+                highlight_bg,
             ));
             config_lines.push(metadata_line_selectable(
                 "Active Storage Location",
                 &active_storage_location,
                 is_config_selected(6),
+                highlight_bg,
             ));
         } else {
             config_lines.push(metadata_line_selectable(
                 "Storage Backend",
                 app.app_config.effective_storage_backend(),
                 is_config_selected(5),
+                highlight_bg,
             ));
             config_lines.push(metadata_line_selectable(
                 "Storage Location",
                 &active_storage_location,
                 is_config_selected(6),
+                highlight_bg,
             ));
         }
     }
@@ -132,6 +144,7 @@ fn render_settings_config_file(app: &App, frame: &mut Frame, area: Rect, config_
     let config_file_block = config_file_section.block();
     let is_cf_selected =
         |i: usize| config_file_focused && app.selection.settings_config_file.is_selected(i);
+    let highlight_bg = app.highlight_bg();
     let config_path_display = if config_location.is_empty() {
         "(unknown)".to_string()
     } else {
@@ -142,9 +155,19 @@ fn render_settings_config_file(app: &App, frame: &mut Frame, area: Rect, config_
     let status = if config_exists { "Loaded" } else { "Not found" };
     let config_format = app.app_config.effective_configuration_format();
     let config_file_lines = vec![
-        metadata_line_selectable("Path", &config_path_display, is_cf_selected(0)),
-        metadata_line_selectable("Status", status, is_cf_selected(1)),
-        metadata_line_selectable("Configuration Format", config_format, is_cf_selected(2)),
+        metadata_line_selectable(
+            "Path",
+            &config_path_display,
+            is_cf_selected(0),
+            highlight_bg,
+        ),
+        metadata_line_selectable("Status", status, is_cf_selected(1), highlight_bg),
+        metadata_line_selectable(
+            "Configuration Format",
+            config_format,
+            is_cf_selected(2),
+            highlight_bg,
+        ),
     ];
     let config_file_paragraph = Paragraph::new(config_file_lines).block(config_file_block);
     frame.render_widget(config_file_paragraph, area);
@@ -153,7 +176,6 @@ fn render_settings_config_file(app: &App, frame: &mut Frame, area: Rect, config_
 fn render_settings_storage(app: &App, frame: &mut Frame, area: Rect) {
     use crate::app::SettingsFocus;
     use crate::components::detail_view::{metadata_line_selectable, FieldSectionConfig};
-    use crate::theme::colors::SELECTED_BG;
 
     let storage_focused = app.focus.settings_focus == SettingsFocus::Storage;
     let storage_section = FieldSectionConfig::new(" Storage ")
@@ -162,6 +184,7 @@ fn render_settings_storage(app: &App, frame: &mut Frame, area: Rect) {
     let storage_block = storage_section.block();
     let is_storage_selected =
         |i: usize| storage_focused && app.selection.settings_storage.is_selected(i);
+    let highlight_bg = app.highlight_bg();
     let file_path = app.persistence.save_file.as_deref().unwrap_or("(none)");
     let backend = if app.persistence.save_file.is_some() {
         app.app_config.effective_storage_backend()
@@ -171,19 +194,24 @@ fn render_settings_storage(app: &App, frame: &mut Frame, area: Rect) {
     let instance_id = app.ctx.backend().instance_id().to_string();
     let export_selected = is_storage_selected(3);
     let export_checkbox_style = if export_selected {
-        Style::default().fg(Color::Yellow).bg(SELECTED_BG)
+        Style::default().fg(Color::Yellow).bg(highlight_bg)
     } else {
         Style::default().fg(Color::Yellow)
     };
     let export_text_style = if export_selected {
-        Style::default().fg(Color::White).bg(SELECTED_BG)
+        Style::default().fg(Color::White).bg(highlight_bg)
     } else {
         Style::default().fg(Color::White)
     };
     let storage_lines = vec![
-        metadata_line_selectable("File", file_path, is_storage_selected(0)),
-        metadata_line_selectable("Backend", backend, is_storage_selected(1)),
-        metadata_line_selectable("Instance ID", &instance_id, is_storage_selected(2)),
+        metadata_line_selectable("File", file_path, is_storage_selected(0), highlight_bg),
+        metadata_line_selectable("Backend", backend, is_storage_selected(1), highlight_bg),
+        metadata_line_selectable(
+            "Instance ID",
+            &instance_id,
+            is_storage_selected(2),
+            highlight_bg,
+        ),
         Line::from(""),
         Line::from(vec![
             Span::styled("  [x] ", export_checkbox_style),

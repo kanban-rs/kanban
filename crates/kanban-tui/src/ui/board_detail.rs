@@ -146,7 +146,7 @@ fn render_board_sprints_list(
     frame: &mut Frame,
     area: Rect,
 ) {
-    use crate::theme::colors::SELECTED_BG;
+    let highlight_bg = app.highlight_bg();
 
     let sprints_config = FieldSectionConfig::new("Sprints")
         .with_focus_indicator("Sprints [4]")
@@ -187,7 +187,7 @@ fn render_board_sprints_list(
 
                     let mut base_style = normal_text();
                     if is_selected && is_focused {
-                        base_style = base_style.bg(SELECTED_BG);
+                        base_style = base_style.bg(highlight_bg);
                     }
 
                     let mut spans = vec![
@@ -202,7 +202,7 @@ fn render_board_sprints_list(
                     if is_active_sprint {
                         let mut active_style = active_item();
                         if is_selected && is_focused {
-                            active_style = active_style.bg(SELECTED_BG);
+                            active_style = active_style.bg(highlight_bg);
                         }
                         spans.push(Span::styled(" Active", active_style));
                     }
@@ -210,7 +210,7 @@ fn render_board_sprints_list(
                     if is_ended {
                         let mut ended_style = ended_marker();
                         if is_selected && is_focused {
-                            ended_style = ended_style.bg(SELECTED_BG);
+                            ended_style = ended_style.bg(highlight_bg);
                         }
                         spans.push(Span::styled(" Ended", ended_style));
                     }
@@ -245,7 +245,7 @@ fn render_board_columns_list(
     frame: &mut Frame,
     area: Rect,
 ) {
-    use crate::theme::colors::SELECTED_BG;
+    let highlight_bg = app.highlight_bg();
 
     let columns_config = FieldSectionConfig::new("Columns")
         .with_focus_indicator("Columns [5]")
@@ -304,7 +304,7 @@ fn render_board_columns_list(
 
                     let mut base_style = normal_text();
                     if is_selected && is_focused {
-                        base_style = base_style.bg(SELECTED_BG);
+                        base_style = base_style.bg(highlight_bg);
                     }
 
                     let mut spans = vec![
