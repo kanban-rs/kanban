@@ -117,6 +117,14 @@ async fn test_typing_a_valid_hex_previews_it_on_the_row_without_applying_it_else
         assert_eq!(cell.fg, Color::White);
     }
 
+    let label = buffer.cell((1, ROW_Y)).unwrap();
+    assert_eq!(label.symbol(), "B");
+    assert_eq!(
+        label.bg,
+        Color::Blue,
+        "the row's own selection stays on the saved highlight while typing"
+    );
+
     assert_eq!(app.app_config.background_highlight, None);
     assert_eq!(app.highlight_bg(), Color::Blue);
     assert!(!dir.path().join("config.toml").exists());
@@ -125,15 +133,19 @@ async fn test_typing_a_valid_hex_previews_it_on_the_row_without_applying_it_else
 #[tokio::test]
 async fn test_typing_a_partial_hex_keeps_the_committed_swatch_and_marks_the_value_invalid() {
     let mut app = settings_app_with_highlight_row_selected();
+    app.app_config.background_highlight = Some("#2E3440".to_string());
     let mut terminal = headless_terminal();
     let events = EventHandler::new();
 
     press(&mut app, &mut terminal, &events, KeyCode::Enter);
+    for _ in 0.."#2E3440".len() {
+        press(&mut app, &mut terminal, &events, KeyCode::Backspace);
+    }
     type_str(&mut app, &mut terminal, &events, "#2E3");
 
     let buffer = render_buffer(&mut app);
     let swatch = buffer.cell((SAMPLE_FIRST_LETTER_X, ROW_Y)).unwrap();
-    assert_eq!(swatch.bg, Color::Blue);
+    assert_eq!(swatch.bg, Color::Rgb(0x2E, 0x34, 0x40));
     let first_value_cell = buffer.cell((VALUE_X, ROW_Y)).unwrap();
     assert_eq!(first_value_cell.fg, Color::Red);
 }
