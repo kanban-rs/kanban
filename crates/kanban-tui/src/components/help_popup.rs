@@ -69,6 +69,7 @@ pub fn render_help_popup(app: &App, frame: &mut Frame) {
     let raw_height = help_popup_viewport_height(frame.area());
 
     let selected_idx = app.ui_state.help_list.get_selected_index();
+    let highlight_bg = app.highlight_bg();
 
     let adjusted_height = app
         .ui_state
@@ -90,7 +91,9 @@ pub fn render_help_popup(app: &App, frame: &mut Frame) {
         .filter_map(|&i| {
             let binding = context.bindings.get(i)?;
             let is_selected = selected_idx == Some(i);
-            let config = ListItemConfig::new().selected(is_selected).focused(true);
+            let config = ListItemConfig::new(highlight_bg)
+                .selected(is_selected)
+                .focused(true);
             let prefix = config.item_prefix();
             let style = config.item_style();
             Some(Line::from(vec![

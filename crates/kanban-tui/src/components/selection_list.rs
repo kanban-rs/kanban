@@ -2,6 +2,7 @@ use crate::components::{centered_rect, render_popup_with_block, styled_list_item
 use crate::theme::*;
 use ratatui::{
     layout::{Constraint, Direction, Layout},
+    style::Color,
     widgets::{List, ListItem, Paragraph},
     Frame,
 };
@@ -36,6 +37,7 @@ pub fn render_selection_popup_with_lines<'a, I, F>(
     active_idx: Option<usize>,
     width: u16,
     height: u16,
+    highlight_bg: Color,
 ) where
     I: IntoIterator,
     I::Item: 'a,
@@ -74,7 +76,7 @@ pub fn render_selection_popup_with_lines<'a, I, F>(
         let is_active = active_idx == Some(idx);
         let (text, suffix) = format_fn(idx, &item, is_selected, is_active);
 
-        let config = ListItemConfig::new()
+        let config = ListItemConfig::new(highlight_bg)
             .selected(is_selected)
             .focused(true)
             .active(is_active);

@@ -62,6 +62,7 @@ pub(super) fn render_projects_panel(app: &App, frame: &mut Frame, area: Rect) {
             .get_adjusted_viewport_height(viewport_height);
         let render_info = app.board_list.get_render_info(adjusted_viewport_height);
         let selected_idx = app.board_list.get_selected_index();
+        let highlight_bg = app.highlight_bg();
 
         lines.extend(crate::scroll_indicators::render_above_indicator(
             render_info.show_above_indicator,
@@ -71,7 +72,7 @@ pub(super) fn render_projects_panel(app: &App, frame: &mut Frame, area: Rect) {
 
         for idx in &render_info.visible_indices {
             if let Some(board) = boards.get(*idx) {
-                let config = ListItemConfig::new()
+                let config = ListItemConfig::new(highlight_bg)
                     .selected(selected_idx == Some(*idx))
                     .focused(app.focus.active == Focus::Boards)
                     .active(app.selection.active_board_id == Some(board.id));
