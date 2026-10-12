@@ -115,6 +115,13 @@ pub fn save_board_sort(
     save_to(&persisted, &path)
 }
 
+pub fn save_background_highlight(
+    _config: &AppConfig,
+    _color: Option<kanban_core::HexColor>,
+) -> CoreResult<()> {
+    Ok(())
+}
+
 pub fn move_config(old_path: &Path, new_path: &Path) -> CoreResult<()> {
     if old_path == new_path || !old_path.exists() {
         return Ok(());
@@ -1307,5 +1314,156 @@ mod tests {
             Some("0.0.0.0:5175"),
             "non-default server_addr should be preserved"
         );
+    }
+
+    #[test]
+    fn test_has_non_default_values_true_for_background_highlight_only() {
+        let config = AppConfig {
+            background_highlight: Some("#2E3440".into()),
+            ..Default::default()
+        };
+        assert!(
+            has_non_default_values(&config),
+            "a config with only background_highlight set should be non-default"
+        );
+    }
+
+    #[test]
+    fn test_has_non_default_values_still_false_for_an_empty_config() {
+        let config = AppConfig::default();
+        assert!(!has_non_default_values(&config));
+    }
+
+    #[test]
+    fn test_load_legacy_config_without_background_highlight_loads_as_none() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "default_card_prefix = \"feat\"\n").unwrap();
+
+        let config = load_from(&path);
+        assert_eq!(config.background_highlight, None);
+        assert_eq!(config.background_highlight_color(), None);
+    }
+
+    #[test]
+    fn test_load_config_with_invalid_background_highlight_keeps_other_keys() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            "background_highlight = \"blue\"\ndefault_card_prefix = \"feat\"\n",
+        )
+        .unwrap();
+
+        let config = load_from(&path);
+        assert_eq!(config.default_card_prefix.as_deref(), Some("feat"));
+        assert_eq!(config.background_highlight.as_deref(), Some("blue"));
+        assert_eq!(config.background_highlight_color(), None);
+    }
+
+    #[test]
+    fn test_save_background_highlight_writes_the_key_into_a_new_file() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+        let config = AppConfig {
+            configuration_location: Some(path.display().to_string()),
+            ..Default::default()
+        };
+
+        save_background_highlight(&config, Some("#2e3440".parse().unwrap())).unwrap();
+
+        let loaded = load_from(&path);
+        assert_eq!(loaded.background_highlight.as_deref(), Some("#2E3440"));
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(raw.contains("background_highlight = \"#2E3440\""));
+    }
+
+    #[test]
+    fn test_save_background_highlight_preserves_other_keys() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            "default_card_prefix = \"feat\"\nboard_sort_field = \"Name\"\n",
+        )
+        .unwrap();
+        let config = AppConfig {
+            configuration_location: Some(path.display().to_string()),
+            ..Default::default()
+        };
+
+        save_background_highlight(&config, Some("#2e3440".parse().unwrap())).unwrap();
+
+        let loaded = load_from(&path);
+        assert_eq!(loaded.default_card_prefix.as_deref(), Some("feat"));
+        assert_eq!(loaded.board_sort_field.as_deref(), Some("Name"));
+        assert_eq!(loaded.background_highlight.as_deref(), Some("#2E3440"));
+    }
+
+    #[test]
+    fn test_save_background_highlight_none_removes_the_key() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            "default_card_prefix = \"feat\"\nbackground_highlight = \"#2E3440\"\n",
+        )
+        .unwrap();
+        let config = AppConfig {
+            configuration_location: Some(path.display().to_string()),
+            ..Default::default()
+        };
+
+        save_background_highlight(&config, None).unwrap();
+
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(!raw.contains("background_highlight"));
+        assert!(raw.contains("feat"));
+    }
+
+    #[test]
+    fn test_save_background_highlight_refuses_to_overwrite_an_unparseable_file() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "not = [valid").unwrap();
+        let before = std::fs::read_to_string(&path).unwrap();
+        let config = AppConfig {
+            configuration_location: Some(path.display().to_string()),
+            ..Default::default()
+        };
+
+        let result = save_background_highlight(&config, Some("#2e3440".parse().unwrap()));
+
+        assert!(result.is_err());
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(before, after, "the unparseable file must be left untouched");
+    }
+
+    #[test]
+    fn test_save_background_highlight_json_round_trip() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.json");
+        let config = AppConfig {
+            configuration_location: Some(path.display().to_string()),
+            ..Default::default()
+        };
+
+        save_background_highlight(&config, Some("#2e3440".parse().unwrap())).unwrap();
+
+        let loaded = load_from(&path);
+        assert_eq!(loaded.background_highlight.as_deref(), Some("#2E3440"));
+    }
+
+    #[test]
+    fn test_save_background_highlight_errors_without_a_configuration_location() {
+        let config = AppConfig {
+            configuration_location: Some(String::new()),
+            ..Default::default()
+        };
+        if effective_configuration_location(&config).is_empty() {
+            let err =
+                save_background_highlight(&config, Some("#2e3440".parse().unwrap())).unwrap_err();
+            assert!(err.to_string().contains("No configuration location"));
+        }
     }
 }
