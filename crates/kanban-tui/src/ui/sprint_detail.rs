@@ -230,6 +230,7 @@ pub(super) fn render_sprint_task_panel_with_selection(
 ) {
     let mut lines = vec![];
     let selected_idx = task_list.get_selected_index();
+    let highlight_bg = app.highlight_bg();
 
     if task_list.is_empty() {
         lines.push(Line::from(Span::styled("  (no tasks)", label_text())));
@@ -263,6 +264,7 @@ pub(super) fn render_sprint_task_panel_with_selection(
                         sprints_tier,
                         is_selected,
                         is_focused,
+                        highlight_bg,
                         is_multi_selected: false,
                         show_sprint_name: false,
                         animation_type,
