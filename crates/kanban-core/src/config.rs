@@ -52,6 +52,8 @@ pub struct AppConfig {
     pub board_sort_order: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub server_addr: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background_highlight: Option<String>,
 }
 
 impl AppConfig {
@@ -89,6 +91,10 @@ impl AppConfig {
 
     pub fn effective_server_addr(&self) -> &str {
         self.server_addr.as_deref().unwrap_or(DEFAULT_SERVER_ADDR)
+    }
+
+    pub fn background_highlight_color(&self) -> Option<crate::HexColor> {
+        None
     }
 
     pub fn validate_values(&self) -> CoreResult<()> {
@@ -448,6 +454,53 @@ mod tests {
         let err = config.validate_values().unwrap_err();
         assert!(err.to_string().contains("server_addr"));
         assert!(err.to_string().contains("not-an-addr"));
+    }
+
+    #[test]
+    fn test_background_highlight_color_is_none_when_unset() {
+        let config = AppConfig::default();
+        assert_eq!(config.background_highlight_color(), None);
+    }
+
+    #[test]
+    fn test_background_highlight_color_parses_a_valid_value() {
+        let config = AppConfig {
+            background_highlight: Some("#2E3440".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            config.background_highlight_color(),
+            Some(crate::HexColor {
+                r: 46,
+                g: 52,
+                b: 64
+            })
+        );
+    }
+
+    #[test]
+    fn test_background_highlight_color_is_none_for_an_invalid_value() {
+        let config = AppConfig {
+            background_highlight: Some("blue".into()),
+            ..Default::default()
+        };
+        assert_eq!(config.background_highlight_color(), None);
+    }
+
+    #[test]
+    fn test_appconfig_omits_background_highlight_when_none() {
+        let config = AppConfig::default();
+        let serialized = serde_json::to_string(&config).unwrap();
+        assert!(!serialized.contains("background_highlight"));
+    }
+
+    #[test]
+    fn test_appconfig_deserializes_an_invalid_background_highlight_without_losing_other_keys() {
+        let deserialized: AppConfig =
+            serde_json::from_str(r#"{"background_highlight":"blue","default_card_prefix":"feat"}"#)
+                .unwrap();
+        assert_eq!(deserialized.default_card_prefix, Some("feat".into()));
+        assert_eq!(deserialized.background_highlight, Some("blue".into()));
     }
 
     #[test]
