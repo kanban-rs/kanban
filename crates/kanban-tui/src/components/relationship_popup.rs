@@ -76,6 +76,7 @@ fn render_relationship_search_box(app: &App, frame: &mut Frame, area: ratatui::l
 }
 
 fn render_relationship_card_list(app: &App, frame: &mut Frame, area: ratatui::layout::Rect) {
+    let highlight_bg = app.highlight_bg();
     let filtered_cards: Vec<_> = if app.relationship.search.is_empty() {
         app.relationship.card_ids.clone()
     } else {
@@ -104,7 +105,7 @@ fn render_relationship_card_list(app: &App, frame: &mut Frame, area: ratatui::la
             let checkbox = if is_checked { "[✓]" } else { "[ ]" };
 
             let style = if is_selected {
-                Style::default().fg(Color::White).bg(Color::Blue)
+                Style::default().fg(Color::White).bg(highlight_bg)
             } else if is_checked {
                 Style::default().fg(Color::Green)
             } else {

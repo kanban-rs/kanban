@@ -101,7 +101,7 @@ fn render_picker_to_string(picker: &SprintPickerView<'_>, selected: Option<usize
     terminal
         .draw(|frame| {
             let area = Rect::new(0, 0, TEST_W, TEST_H);
-            picker.render(frame, area, selected);
+            picker.render(frame, area, selected, kanban_tui::theme::SELECTED_BG);
         })
         .unwrap();
     let buffer = terminal.backend().buffer().clone();
@@ -124,7 +124,7 @@ fn render_picker_with_colors(
     terminal
         .draw(|frame| {
             let area = Rect::new(0, 0, TEST_W, TEST_H);
-            picker.render(frame, area, selected);
+            picker.render(frame, area, selected, kanban_tui::theme::SELECTED_BG);
         })
         .unwrap();
     let buffer = terminal.backend().buffer().clone();
@@ -136,6 +136,49 @@ fn render_picker_with_colors(
         }
     }
     result
+}
+
+fn render_picker_with_bg(
+    picker: &SprintPickerView<'_>,
+    selected: Option<usize>,
+    highlight_bg: Color,
+) -> Vec<(String, Option<Color>, Option<Color>)> {
+    let backend = TestBackend::new(TEST_W, TEST_H);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|frame| {
+            let area = Rect::new(0, 0, TEST_W, TEST_H);
+            picker.render(frame, area, selected, highlight_bg);
+        })
+        .unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    let mut result = Vec::new();
+    for y in 0..buffer.area.height {
+        for x in 0..buffer.area.width {
+            let cell = buffer.cell((x, y)).unwrap();
+            result.push((cell.symbol().to_string(), cell.style().fg, cell.style().bg));
+        }
+    }
+    result
+}
+
+fn cell_style_at(
+    grid: &[(String, Option<Color>, Option<Color>)],
+    substring: &str,
+) -> (Option<Color>, Option<Color>) {
+    let width = TEST_W as usize;
+    let height = grid.len() / width;
+    for y in 0..height {
+        let line: String = (0..width)
+            .map(|x| grid[y * width + x].0.clone())
+            .collect::<Vec<_>>()
+            .join("");
+        if let Some(start) = line.find(substring) {
+            let (_, fg, bg) = &grid[y * width + start];
+            return (*fg, *bg);
+        }
+    }
+    (None, None)
 }
 
 fn line_color(grid: &[(String, Option<Color>)], substring: &str) -> Option<Color> {
@@ -665,4 +708,65 @@ fn test_render_with_out_of_bounds_selected_does_not_panic() {
     let out_of_bounds = picker.len() + 100;
     // Test passes if this render call returns instead of panicking.
     let _ = render_picker_to_string(&picker, Some(out_of_bounds));
+}
+
+#[test]
+fn test_sprint_picker_cursor_row_uses_the_given_highlight_background() {
+    let (mut app, board_id, _col) = make_app_with_board();
+    add_active_sprint(&mut app, board_id);
+    add_planning_sprint(&mut app, board_id);
+    let now = Utc::now();
+    let board = app
+        .model
+        .boards_state()
+        .loaded_or_empty()
+        .iter()
+        .find(|b| b.id == board_id)
+        .cloned()
+        .unwrap();
+    let picker = SprintPickerView::for_card_assignment(
+        app.model
+            .board_sprints_state(board_id)
+            .loaded()
+            .copied()
+            .unwrap_or(&[]),
+        &board,
+        None,
+        now,
+    );
+    let highlight = Color::Rgb(0x2E, 0x34, 0x40);
+    let grid = render_picker_with_bg(&picker, Some(0), highlight);
+    let (fg, bg) = cell_style_at(&grid, "(None)");
+    assert_eq!(bg, Some(highlight));
+    assert_eq!(fg, Some(Color::White));
+}
+
+#[test]
+fn test_sprint_picker_cursor_row_defaults_to_terminal_blue() {
+    let (mut app, board_id, _col) = make_app_with_board();
+    add_active_sprint(&mut app, board_id);
+    add_planning_sprint(&mut app, board_id);
+    let now = Utc::now();
+    let board = app
+        .model
+        .boards_state()
+        .loaded_or_empty()
+        .iter()
+        .find(|b| b.id == board_id)
+        .cloned()
+        .unwrap();
+    let picker = SprintPickerView::for_card_assignment(
+        app.model
+            .board_sprints_state(board_id)
+            .loaded()
+            .copied()
+            .unwrap_or(&[]),
+        &board,
+        None,
+        now,
+    );
+    let grid = render_picker_with_bg(&picker, Some(0), kanban_tui::theme::SELECTED_BG);
+    let (fg, bg) = cell_style_at(&grid, "(None)");
+    assert_eq!(bg, Some(Color::Blue));
+    assert_eq!(fg, Some(Color::White));
 }

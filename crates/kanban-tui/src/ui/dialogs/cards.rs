@@ -152,6 +152,7 @@ pub(crate) fn render_create_card_popup(app: &App, frame: &mut Frame) {
                     sprints,
                     board,
                     chrono::Utc::now(),
+                    app.highlight_bg(),
                 );
             }
             other => render_unavailable_panel(frame, picker_inner, "Sprint", &other),
@@ -238,6 +239,7 @@ pub(crate) fn render_assign_multiple_cards_popup(app: &App, frame: &mut Frame) {
                 sprints,
                 board,
                 chrono::Utc::now(),
+                app.highlight_bg(),
             );
         }
         other => render_unavailable_panel(frame, chunks[1], "Sprint", &other),

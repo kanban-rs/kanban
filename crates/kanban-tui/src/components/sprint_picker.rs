@@ -6,7 +6,7 @@ use kanban_view::sprint_assign_list::{
     build_entries, build_entries_active_only, next_selectable, prev_selectable, sprint_id_of,
     SprintAssignEntry,
 };
-use ratatui::{layout::Rect, Frame};
+use ratatui::{layout::Rect, style::Color, Frame};
 use uuid::Uuid;
 
 /// What the picker currently has selected. Stored as an identity, not as
@@ -265,6 +265,7 @@ impl SprintPicker {
         sprints: &[Sprint],
         board: &Board,
         now: DateTime<Utc>,
+        highlight_bg: Color,
     ) {
         let view = self.build_view(sprints, board, now);
         let checked = match self.selection {
@@ -276,7 +277,7 @@ impl SprintPicker {
             Cursor::NoSprint => view.index_of_sprint(None),
             Cursor::Sprint(id) => view.index_of_sprint(Some(id)),
         };
-        view.render_with_cursor(frame, area, checked, cursor);
+        view.render_with_cursor(frame, area, checked, cursor, highlight_bg);
     }
 
     fn build_entries<'a>(
