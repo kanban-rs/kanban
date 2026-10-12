@@ -16,7 +16,7 @@ pub fn render_entry_line(
     is_focused: bool,
     current_sprint_id: Option<Uuid>,
     board: &Board,
-    _highlight_bg: Color,
+    highlight_bg: Color,
 ) -> Line<'static> {
     match entry {
         SprintAssignEntry::Header(label) => Line::from(Span::styled(
@@ -30,7 +30,7 @@ pub fn render_entry_line(
             let prefix = if is_checked { "[x] " } else { "[ ] " };
             let suffix = if is_current { " (current)" } else { "" };
             let style = if is_focused {
-                Style::default().fg(Color::White).bg(Color::Blue)
+                Style::default().fg(Color::White).bg(highlight_bg)
             } else if is_current {
                 Style::default()
                     .fg(Color::Green)
@@ -45,7 +45,7 @@ pub fn render_entry_line(
             let prefix = if is_checked { "[x] " } else { "[ ] " };
             let suffix = if is_current { " (current)" } else { "" };
             let style = if is_focused {
-                Style::default().fg(Color::White).bg(Color::Blue)
+                Style::default().fg(Color::White).bg(highlight_bg)
             } else if is_current {
                 Style::default()
                     .fg(Color::Green)
@@ -68,7 +68,7 @@ pub fn render_entry_line(
                 Color::Red
             };
             let style = if is_focused {
-                Style::default().fg(Color::White).bg(Color::Blue)
+                Style::default().fg(Color::White).bg(highlight_bg)
             } else {
                 Style::default().fg(status_color)
             };

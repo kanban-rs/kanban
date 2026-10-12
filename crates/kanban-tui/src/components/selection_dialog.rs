@@ -253,6 +253,7 @@ impl SelectionDialog for CarryOverSprintDialog {
             widgets::{Block, Borders, Clear, Paragraph},
         };
 
+        let highlight_bg = app.highlight_bg();
         let area = centered_rect(60, 50, frame.area());
         frame.render_widget(Clear, area);
 
@@ -290,7 +291,7 @@ impl SelectionDialog for CarryOverSprintDialog {
                             app.dialog_input.carry_over_sprint_selection.get() == Some(idx);
 
                         let style = if is_selected {
-                            Style::default().fg(Color::White).bg(Color::Blue)
+                            Style::default().fg(Color::White).bg(highlight_bg)
                         } else {
                             Style::default().fg(Color::White)
                         };
