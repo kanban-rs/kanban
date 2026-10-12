@@ -83,6 +83,23 @@ async fn test_enter_on_the_background_highlight_row_opens_the_inline_hex_input()
 }
 
 #[tokio::test]
+async fn test_edit_field_shows_the_default_hex_placeholder_when_unset() {
+    let mut app = settings_app_with_highlight_row_selected();
+    let mut terminal = headless_terminal();
+    let events = EventHandler::new();
+
+    press(&mut app, &mut terminal, &events, KeyCode::Enter);
+
+    let buffer = render_buffer(&mut app);
+    let mut cells = String::new();
+    for x in VALUE_X..VALUE_X + 7 {
+        cells.push_str(buffer.cell((x, ROW_Y)).unwrap().symbol());
+    }
+    assert_eq!(cells, "#0000FF");
+    assert_eq!(app.input.as_str(), "");
+}
+
+#[tokio::test]
 async fn test_enter_prefills_the_input_with_the_current_hex() {
     let mut app = settings_app_with_highlight_row_selected();
     app.app_config.background_highlight = Some("#2e3440".to_string());

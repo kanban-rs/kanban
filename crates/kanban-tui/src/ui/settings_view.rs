@@ -1,5 +1,8 @@
 use crate::app::{App, AppMode, DialogMode};
-use crate::theme::{default_highlight_background, error_text, label_text, normal_text, to_color};
+use crate::theme::{
+    default_highlight_background, error_text, label_text, normal_text, to_color,
+    DEFAULT_HIGHLIGHT_HEX,
+};
 use kanban_core::HexColor;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -90,8 +93,13 @@ fn render_settings_configuration(app: &App, frame: &mut Frame, area: Rect, confi
             None if typed.is_empty() => default_highlight_background(),
             None => highlight_bg,
         };
+        let value = if typed.is_empty() {
+            DEFAULT_HIGHLIGHT_HEX
+        } else {
+            typed
+        };
         background_highlight_line(
-            format!("{typed:<7}"),
+            format!("{value:<7}"),
             highlight_row_selected,
             highlight_bg,
             preview_bg,
@@ -102,7 +110,7 @@ fn render_settings_configuration(app: &App, frame: &mut Frame, area: Rect, confi
             .app_config
             .background_highlight_color()
             .map(|c| c.to_string())
-            .unwrap_or_else(|| "default".to_string());
+            .unwrap_or_else(|| format!("default ({DEFAULT_HIGHLIGHT_HEX})"));
         let value_style = if highlight_row_selected {
             normal_text().bg(highlight_bg)
         } else {

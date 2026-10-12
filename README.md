@@ -154,7 +154,7 @@ The selection highlight defaults to your terminal's blue. If that is hard to rea
 
     background_highlight = "#2E3440"
 
-Or open Settings (`S`), select **Background Highlight**, press Enter and type a colour: the swatch on that row previews it. Enter applies and saves it, Esc cancels, and an empty value restores the default. Only the full `#RRGGBB` form is accepted (either case). The text colour on the highlight does not change. The colour is sent as 24-bit RGB, so use a terminal with truecolor support. An invalid value in the file is ignored with a warning in the error log (F12).
+Or open Settings (`S`), select **Background Highlight**, press Enter and type a colour: the swatch on that row previews it. Enter applies and saves it, Esc cancels, and an empty value restores the default. When the default is active, the row shows `default (#0000FF)` and the empty edit field shows the placeholder `#0000FF`; typing replaces the placeholder, and confirming an empty field keeps the default. Only the full `#RRGGBB` form is accepted (either case). The text colour on the highlight does not change. The colour is sent as 24-bit RGB, so use a terminal with truecolor support. An invalid value in the file is ignored with a warning in the error log (F12).
 
 You can also change it in the configuration editor (Settings, then `e`). The `background_highlight` field shows the current colour, or `""` for the default. Enter a `#RRGGBB` value, or empty the field or delete the line to go back to the default. The new colour applies as soon as you close the editor. An invalid value is rejected with an error and nothing is saved. An invalid value already in the file shows as `""` and is removed the next time you save a change from the editor.
 

@@ -255,7 +255,7 @@ fn test_editor_edit_emptying_the_value_returns_the_highlight_to_default() {
     assert_eq!(app.highlight_bg(), Color::Blue);
 
     let buf = render(&mut app);
-    find(&buf, "Background Highlight: default");
+    find(&buf, "Background Highlight: default (#0000FF)");
     let (x, y) = find(&buf, "Configuration Format: ");
     assert_eq!(buf.cell((x, y)).unwrap().bg, Color::Blue);
 }
