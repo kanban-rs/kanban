@@ -12,3 +12,7 @@ pub fn highlight_background(config: &AppConfig) -> Color {
         .map(to_color)
         .unwrap_or(SELECTED_BG)
 }
+
+pub fn default_highlight_background() -> Color {
+    SELECTED_BG
+}
