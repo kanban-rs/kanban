@@ -15,14 +15,24 @@ pub struct ParseHexColorError(pub String);
 impl FromStr for HexColor {
     type Err = ParseHexColorError;
 
-    fn from_str(_s: &str) -> Result<Self, Self::Err> {
-        Ok(Self { r: 0, g: 0, b: 0 })
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let err = || ParseHexColorError(s.to_string());
+        let digits = s.strip_prefix('#').ok_or_else(err)?;
+        if digits.len() != 6 || !digits.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(err());
+        }
+        let channel = |i: usize| u8::from_str_radix(&digits[i..i + 2], 16).map_err(|_| err());
+        Ok(Self {
+            r: channel(0)?,
+            g: channel(2)?,
+            b: channel(4)?,
+        })
     }
 }
 
 impl fmt::Display for HexColor {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "")
+        write!(f, "#{:02X}{:02X}{:02X}", self.r, self.g, self.b)
     }
 }
 

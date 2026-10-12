@@ -93,8 +93,12 @@ impl AppConfig {
         self.server_addr.as_deref().unwrap_or(DEFAULT_SERVER_ADDR)
     }
 
+    /// `None` when unset or when the stored string is not `#RRGGBB`; an invalid
+    /// value never fails deserialization of the rest of the file.
     pub fn background_highlight_color(&self) -> Option<crate::HexColor> {
-        None
+        self.background_highlight
+            .as_deref()
+            .and_then(|raw| raw.parse().ok())
     }
 
     pub fn validate_values(&self) -> CoreResult<()> {
