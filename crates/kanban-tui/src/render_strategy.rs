@@ -63,6 +63,7 @@ impl SinglePanelRenderer {
 impl RenderStrategy for SinglePanelRenderer {
     fn render(&self, app: &App, frame: &mut Frame, area: Rect) {
         let mut lines = vec![];
+        let highlight_bg = app.highlight_bg();
 
         if let Some(board) = app.board_in_context() {
             {
@@ -194,6 +195,7 @@ impl RenderStrategy for SinglePanelRenderer {
                                             is_selected,
                                             is_focused: app.focus.active
                                                 == crate::app::Focus::Cards,
+                                            highlight_bg,
                                             is_multi_selected: app
                                                 .multi_select
                                                 .selected_cards
@@ -293,6 +295,7 @@ impl RenderStrategy for SinglePanelRenderer {
                                         is_selected: task_list.get_selected_index()
                                             == Some(*card_idx),
                                         is_focused: app.focus.active == crate::app::Focus::Cards,
+                                        highlight_bg,
                                         is_multi_selected: app
                                             .multi_select
                                             .selected_cards
@@ -345,6 +348,7 @@ pub struct MultiPanelRenderer;
 
 impl RenderStrategy for MultiPanelRenderer {
     fn render(&self, app: &App, frame: &mut Frame, area: Rect) {
+        let highlight_bg = app.highlight_bg();
         if let Some(board) = app.board_in_context() {
             {
                 let task_lists = app.view.strategy.get_all_task_lists();
@@ -443,6 +447,7 @@ impl RenderStrategy for MultiPanelRenderer {
                                         is_selected,
                                         is_focused: app.focus.active == crate::app::Focus::Cards
                                             && is_focused_column,
+                                        highlight_bg,
                                         is_multi_selected: app
                                             .multi_select
                                             .selected_cards

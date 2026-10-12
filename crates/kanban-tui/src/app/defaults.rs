@@ -40,6 +40,10 @@ impl App {
         self.app_config = config;
     }
 
+    pub fn highlight_bg(&self) -> ratatui::style::Color {
+        crate::theme::highlight_background(&self.app_config)
+    }
+
     #[doc(hidden)]
     pub fn test_default() -> Self {
         // Leaving configuration_location unset here would make

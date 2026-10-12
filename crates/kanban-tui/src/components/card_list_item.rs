@@ -3,7 +3,7 @@ use kanban_domain::AnimationType;
 use kanban_domain::LoadState;
 use kanban_domain::{Board, Card, CardStatus, Sprint};
 use ratatui::{
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
 };
 
@@ -31,6 +31,7 @@ pub struct CardListItemConfig<'a> {
     pub sprints_tier: SprintTier,
     pub is_selected: bool,
     pub is_focused: bool,
+    pub highlight_bg: Color,
     pub is_multi_selected: bool,
     pub show_sprint_name: bool,
     pub animation_type: Option<AnimationType>,
@@ -62,8 +63,8 @@ pub fn render_card_list_item(config: CardListItemConfig) -> Line<'static> {
         base_style = base_style.bg(flash_bg);
         title_style = title_style.bg(flash_bg);
     } else if config.is_selected && config.is_focused {
-        base_style = base_style.bg(SELECTED_BG);
-        title_style = title_style.bg(SELECTED_BG);
+        base_style = base_style.bg(config.highlight_bg);
+        title_style = title_style.bg(config.highlight_bg);
     }
 
     let suffix_text = if config.show_sprint_name {
@@ -96,12 +97,12 @@ pub fn render_card_list_item(config: CardListItemConfig) -> Line<'static> {
     };
 
     if config.is_selected && config.is_focused {
-        points_style = points_style.bg(SELECTED_BG);
+        points_style = points_style.bg(config.highlight_bg);
     }
 
     let mut priority_style_val = priority_style(config.card.priority);
     if config.is_selected && config.is_focused {
-        priority_style_val = priority_style_val.bg(SELECTED_BG);
+        priority_style_val = priority_style_val.bg(config.highlight_bg);
     }
 
     let points_text = config
@@ -123,7 +124,7 @@ pub fn render_card_list_item(config: CardListItemConfig) -> Line<'static> {
     if !suffix_text.is_empty() {
         let mut suffix_style = label_text();
         if config.is_selected && config.is_focused {
-            suffix_style = suffix_style.bg(SELECTED_BG);
+            suffix_style = suffix_style.bg(config.highlight_bg);
         }
         spans.push(Span::styled(suffix_text, suffix_style));
     }
@@ -225,7 +226,7 @@ mod tests {
         build_title_spans, card_identifier_suffix, render_card_list_item, CardListItemConfig,
         SprintTier,
     };
-    use crate::theme::HIGHLIGHT_TEXT;
+    use crate::theme::{HIGHLIGHT_TEXT, SELECTED_BG};
     use kanban_domain::{Board, Card, Column};
     use ratatui::style::{Modifier, Style};
 
@@ -384,6 +385,7 @@ mod tests {
             sprints_tier: SprintTier::Pending,
             is_selected: false,
             is_focused: false,
+            highlight_bg: SELECTED_BG,
             is_multi_selected: false,
             show_sprint_name: true,
             animation_type: None,
@@ -412,6 +414,7 @@ mod tests {
             sprints_tier: SprintTier::Unavailable,
             is_selected: false,
             is_focused: false,
+            highlight_bg: SELECTED_BG,
             is_multi_selected: false,
             show_sprint_name: true,
             animation_type: None,

@@ -98,6 +98,13 @@ impl App {
         // `prepare_frame`/`load_from_snapshot`, which re-sorts using this state.
         let mut controller = Controller::default();
         controller.set_board_sort_from_config(&app_config);
+        if let Some(raw) = app_config.background_highlight.as_deref() {
+            if let Err(e) = raw.parse::<kanban_core::HexColor>() {
+                tracing::warn!(
+                    "Ignoring background_highlight in the config file: {e}; using the default highlight"
+                );
+            }
+        }
         let app = Self {
             store_manager,
             should_quit: false,
