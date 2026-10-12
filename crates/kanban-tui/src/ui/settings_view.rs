@@ -1,4 +1,5 @@
 use crate::app::App;
+use crate::theme::normal_text;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
@@ -6,6 +7,27 @@ use ratatui::{
     widgets::Paragraph,
     Frame,
 };
+
+const BACKGROUND_HIGHLIGHT_LABEL: &str = "Background Highlight";
+const HIGHLIGHT_PREVIEW_SAMPLE: &str = " Sample ";
+
+fn background_highlight_line(
+    value: String,
+    selected: bool,
+    highlight_bg: Color,
+    preview_bg: Color,
+) -> Line<'static> {
+    use crate::components::detail_view::metadata_line_selectable;
+
+    let mut line =
+        metadata_line_selectable(BACKGROUND_HIGHLIGHT_LABEL, value, selected, highlight_bg);
+    line.spans.push(Span::raw(" "));
+    line.spans.push(Span::styled(
+        HIGHLIGHT_PREVIEW_SAMPLE,
+        normal_text().bg(preview_bg),
+    ));
+    line
+}
 
 pub fn render_settings_view(app: &App, frame: &mut Frame, area: Rect) {
     let columns = Layout::default()
@@ -70,6 +92,17 @@ fn render_settings_configuration(app: &App, frame: &mut Frame, area: Rect, confi
             is_config_selected(4),
             highlight_bg,
         ),
+        background_highlight_line(
+            app.app_config
+                .background_highlight_color()
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "default".to_string()),
+            is_config_selected(
+                crate::handlers::settings_handlers::BACKGROUND_HIGHLIGHT_CONFIG_INDEX,
+            ),
+            highlight_bg,
+            highlight_bg,
+        ),
     ];
     if app.has_data_file {
         let active_storage_location =
@@ -92,39 +125,39 @@ fn render_settings_configuration(app: &App, frame: &mut Frame, area: Rect, confi
             config_lines.push(metadata_line_selectable(
                 "Active Storage Backend",
                 app.app_config.effective_storage_backend(),
-                is_config_selected(7),
+                is_config_selected(8),
                 highlight_bg,
             ));
             config_lines.push(metadata_line_selectable(
                 "Active Storage Location",
                 &active_storage_location,
-                is_config_selected(8),
+                is_config_selected(9),
                 highlight_bg,
             ));
         } else if app.cli_file_provided {
             config_lines.push(metadata_line_selectable(
                 "Active Storage Backend",
                 app.app_config.effective_storage_backend(),
-                is_config_selected(5),
+                is_config_selected(6),
                 highlight_bg,
             ));
             config_lines.push(metadata_line_selectable(
                 "Active Storage Location",
                 &active_storage_location,
-                is_config_selected(6),
+                is_config_selected(7),
                 highlight_bg,
             ));
         } else {
             config_lines.push(metadata_line_selectable(
                 "Storage Backend",
                 app.app_config.effective_storage_backend(),
-                is_config_selected(5),
+                is_config_selected(6),
                 highlight_bg,
             ));
             config_lines.push(metadata_line_selectable(
                 "Storage Location",
                 &active_storage_location,
-                is_config_selected(6),
+                is_config_selected(7),
                 highlight_bg,
             ));
         }
