@@ -116,10 +116,23 @@ pub fn save_board_sort(
 }
 
 pub fn save_background_highlight(
-    _config: &AppConfig,
-    _color: Option<kanban_core::HexColor>,
+    config: &AppConfig,
+    color: Option<kanban_core::HexColor>,
 ) -> CoreResult<()> {
-    Ok(())
+    let location = effective_configuration_location(config);
+    if location.is_empty() {
+        return Err(kanban_core::CoreError::Config(
+            "No configuration location configured".to_string(),
+        ));
+    }
+    let path = PathBuf::from(location);
+    let mut persisted = if path.exists() {
+        try_load_from(&path)?
+    } else {
+        AppConfig::default()
+    };
+    persisted.background_highlight = color.map(|c| c.to_string());
+    save_to(&persisted, &path)
 }
 
 pub fn move_config(old_path: &Path, new_path: &Path) -> CoreResult<()> {
@@ -243,7 +256,8 @@ fn is_all_defaults(config: &AppConfig) -> bool {
         && config.storage_location.is_none()
         && config.board_sort_field.is_none()
         && config.board_sort_order.is_none()
-        && config.server_addr.is_none();
+        && config.server_addr.is_none()
+        && config.background_highlight.is_none();
 
     if all_none {
         return true;
@@ -286,6 +300,7 @@ fn is_all_defaults(config: &AppConfig) -> bool {
             .server_addr
             .as_deref()
             .is_none_or(|v| v == DEFAULT_SERVER_ADDR)
+        && config.background_highlight.is_none()
 }
 
 /// Removes fields whose values are equal to the compile-time defaults so that
