@@ -94,7 +94,7 @@ impl AppConfig {
     }
 
     /// `None` when unset or when the stored string is not `#RRGGBB`; an invalid
-    /// value never fails deserialization of the rest of the file.
+    /// string never fails deserialization of the rest of the file.
     pub fn background_highlight_color(&self) -> Option<crate::HexColor> {
         self.background_highlight
             .as_deref()
