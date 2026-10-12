@@ -220,12 +220,25 @@ fn test_settings_j_skips_greyed_storage_fields_reaches_active_lines() {
     assert_eq!(
         app.focus.settings_focus,
         SettingsFocus::Configuration,
-        "j from index 4 should stay in Configuration (landing on Active Storage Backend)"
+        "j from index 4 should stay in Configuration (landing on Background Highlight)"
     );
     assert_eq!(
         app.selection.settings_config.get(),
-        Some(7),
-        "should jump to index 7 (Active Storage Backend), skipping greyed indices 5 and 6"
+        Some(5),
+        "should land on index 5 (Background Highlight)"
+    );
+
+    app.handle_settings_key_nav(KeyCode::Char('j'));
+
+    assert_eq!(
+        app.focus.settings_focus,
+        SettingsFocus::Configuration,
+        "j from index 5 should stay in Configuration (landing on Active Storage Backend)"
+    );
+    assert_eq!(
+        app.selection.settings_config.get(),
+        Some(8),
+        "should jump to index 8 (Active Storage Backend), skipping greyed indices 6 and 7"
     );
 }
 
@@ -237,11 +250,27 @@ fn test_settings_j_from_active_lines_goes_to_config_file() {
     app.cli_file_override = true;
     app.has_data_file = true;
     app.focus.settings_focus = SettingsFocus::Configuration;
-    app.selection.settings_config.set(Some(8));
+    app.selection.settings_config.set(Some(9));
 
     app.handle_settings_key_nav(KeyCode::Char('j'));
 
     assert_eq!(app.focus.settings_focus, SettingsFocus::ConfigFile);
+}
+
+#[test]
+fn test_settings_j_from_active_storage_backend_lands_on_active_storage_location() {
+    use crossterm::event::KeyCode;
+
+    let mut app = helpers::setup_settings_app();
+    app.cli_file_override = true;
+    app.has_data_file = true;
+    app.focus.settings_focus = SettingsFocus::Configuration;
+    app.selection.settings_config.set(Some(8));
+
+    app.handle_settings_key_nav(KeyCode::Char('j'));
+
+    assert_eq!(app.focus.settings_focus, SettingsFocus::Configuration);
+    assert_eq!(app.selection.settings_config.get(), Some(9));
 }
 
 #[test]
@@ -259,26 +288,26 @@ fn test_settings_k_from_config_file_lands_on_active_storage_location() {
     assert_eq!(app.focus.settings_focus, SettingsFocus::Configuration);
     assert_eq!(
         app.selection.settings_config.get(),
-        Some(8),
-        "should land on index 8 (Active Storage Location)"
+        Some(9),
+        "should land on index 9 (Active Storage Location)"
     );
 }
 
 #[test]
-fn test_settings_k_from_active_backend_skips_to_editing_format() {
+fn test_settings_k_from_active_backend_skips_to_background_highlight() {
     use crossterm::event::KeyCode;
 
     let mut app = helpers::setup_settings_app();
     app.cli_file_override = true;
     app.has_data_file = true;
     app.focus.settings_focus = SettingsFocus::Configuration;
-    app.selection.settings_config.set(Some(7));
+    app.selection.settings_config.set(Some(8));
 
     app.handle_settings_key_nav(KeyCode::Char('k'));
 
     assert_eq!(
         app.selection.settings_config.get(),
-        Some(4),
-        "k from Active Storage Backend should skip greyed indices and land on Editing Format (4)"
+        Some(5),
+        "k from Active Storage Backend should skip greyed indices and land on Background Highlight (5)"
     );
 }

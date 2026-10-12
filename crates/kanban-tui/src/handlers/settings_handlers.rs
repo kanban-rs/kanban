@@ -11,6 +11,7 @@ use ratatui::Terminal;
 use std::io;
 
 const EXPORT_BUTTON_STORAGE_INDEX: usize = 3;
+pub(crate) const BACKGROUND_HIGHLIGHT_CONFIG_INDEX: usize = 5;
 
 impl App {
     pub fn settings_item_count(&self, panel: SettingsFocus) -> usize {
@@ -18,12 +19,12 @@ impl App {
             SettingsFocus::Configuration => {
                 if self.has_data_file {
                     if self.cli_file_override {
-                        9
+                        10
                     } else {
-                        7
+                        8
                     }
                 } else {
-                    5
+                    6
                 }
             }
             SettingsFocus::ConfigFile => 3,
@@ -467,7 +468,9 @@ impl App {
                             self.focus.settings_focus = SettingsFocus::ConfigFile;
                             self.selection.settings_config_file.set(Some(0));
                         }
-                        4 => self.selection.settings_config.set(Some(7)),
+                        BACKGROUND_HIGHLIGHT_CONFIG_INDEX => {
+                            self.selection.settings_config.set(Some(8))
+                        }
                         _ => self.selection.settings_config.next(count),
                     }
                 } else if current >= count - 1 {
@@ -507,8 +510,10 @@ impl App {
                     let count = self.settings_item_count(SettingsFocus::ConfigFile);
                     self.focus.settings_focus = SettingsFocus::ConfigFile;
                     self.selection.settings_config_file.set(Some(count - 1));
-                } else if self.cli_file_override && self.has_data_file && current == 7 {
-                    self.selection.settings_config.set(Some(4));
+                } else if self.cli_file_override && self.has_data_file && current == 8 {
+                    self.selection
+                        .settings_config
+                        .set(Some(BACKGROUND_HIGHLIGHT_CONFIG_INDEX));
                 } else {
                     self.selection.settings_config.prev();
                 }
