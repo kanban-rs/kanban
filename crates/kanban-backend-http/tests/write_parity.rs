@@ -38,6 +38,23 @@ async fn open_local(kind: Backend, path: &Path) -> KanbanContext {
     }
 }
 
+async fn open_local_with_sqlite_handle(
+    kind: Backend,
+    path: &Path,
+) -> (KanbanContext, Option<Arc<SqliteBackend>>) {
+    match kind {
+        Backend::Json => (open_local(kind, path).await, None),
+        Backend::Sqlite => {
+            let sqlite = Arc::new(SqliteBackend::open(path.to_str().unwrap()).await.unwrap());
+            let backend: Arc<dyn kanban_service::KanbanBackend> = sqlite.clone();
+            let ctx = KanbanContext::open(backend, AppConfig::default())
+                .await
+                .unwrap();
+            (ctx, Some(sqlite))
+        }
+    }
+}
+
 async fn start_server(kind: Backend, path: &Path) -> TestServer {
     match kind {
         Backend::Json => TestServer::start_on_json(path).await,
@@ -759,7 +776,7 @@ async fn cascade_parity(kind: Backend) {
     let remote_path = dir.path().join("remote.store");
     let control_path = dir.path().join("control.store");
 
-    let mut seed_ctx = open_local(kind, &remote_path).await;
+    let (mut seed_ctx, seed_sqlite) = open_local_with_sqlite_handle(kind, &remote_path).await;
     let board_id = seed_ctx
         .create_board("Cascade".to_string(), Some("CAS".to_string()))
         .unwrap()
@@ -801,6 +818,11 @@ async fn cascade_parity(kind: Backend) {
     seed_ctx.attach_children(card_a, vec![card_c]).unwrap();
     seed_ctx.save().await.unwrap();
     drop(seed_ctx);
+    // Dropping the context does not close the SQLite pool synchronously; on
+    // Windows the still-open WAL cannot be copied.
+    if let Some(sqlite) = seed_sqlite {
+        sqlite.close().await;
+    }
 
     copy_store(kind, &remote_path, &control_path);
 
@@ -1181,10 +1203,15 @@ async fn run_both<S>(
     let remote_path = dir.path().join("remote.store");
     let control_path = dir.path().join("control.store");
 
-    let mut seed_ctx = open_local(kind, &remote_path).await;
+    let (mut seed_ctx, seed_sqlite) = open_local_with_sqlite_handle(kind, &remote_path).await;
     let seeded = seed(&mut seed_ctx);
     seed_ctx.save().await.unwrap();
     drop(seed_ctx);
+    // Dropping the context does not close the SQLite pool synchronously; on
+    // Windows the still-open WAL cannot be copied.
+    if let Some(sqlite) = seed_sqlite {
+        sqlite.close().await;
+    }
 
     copy_store(kind, &remote_path, &control_path);
 
