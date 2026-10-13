@@ -16,3 +16,8 @@ pub fn highlight_background(config: &AppConfig) -> Color {
 pub fn default_highlight_background() -> Color {
     SELECTED_BG
 }
+
+/// Canonical hex for the built-in default highlight — `SELECTED_BG`
+/// (`Color::Blue`, xterm colour 4). Display/prefill only; keep in sync if
+/// `SELECTED_BG` changes.
+pub const DEFAULT_HIGHLIGHT_HEX: &str = "#0000FF";

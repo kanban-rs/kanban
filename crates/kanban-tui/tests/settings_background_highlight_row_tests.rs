@@ -74,8 +74,8 @@ fn bg_run(buffer: &Buffer, y: u16, bg: Color) -> Vec<(String, Color)> {
 fn test_background_highlight_row_shows_default_when_unset() {
     let app = helpers::setup_settings_app();
     let buffer = render_settings(&app);
-    let y = find_row_containing(&buffer, "Background Highlight: default");
-    assert!(row_text(&buffer, y).contains("Background Highlight: default"));
+    let y = find_row_containing(&buffer, "Background Highlight: default (#0000FF)");
+    assert!(row_text(&buffer, y).contains("Background Highlight: default (#0000FF)"));
 }
 
 #[test]
@@ -92,8 +92,8 @@ fn test_background_highlight_row_shows_default_for_an_invalid_value() {
     let mut app = helpers::setup_settings_app();
     app.app_config.background_highlight = Some("blue".to_string());
     let buffer = render_settings(&app);
-    let y = find_row_containing(&buffer, "Background Highlight: default");
-    assert!(row_text(&buffer, y).contains("Background Highlight: default"));
+    let y = find_row_containing(&buffer, "Background Highlight: default (#0000FF)");
+    assert!(row_text(&buffer, y).contains("Background Highlight: default (#0000FF)"));
 }
 
 #[test]
@@ -215,13 +215,13 @@ fn test_settings_j_from_background_highlight_lands_on_storage_backend() {
 }
 
 #[test]
-fn test_background_highlight_swatch_fits_at_80_columns() {
+fn test_background_highlight_row_marks_default_at_80_columns() {
     let mut app = helpers::setup_settings_app();
     let buffer = render_full(&mut app);
     let y = find_row_containing(&buffer, "Background Highlight: default");
     let row = row_text(&buffer, y);
     assert!(
-        row.contains("Background Highlight: default") && row.contains(" Sample "),
-        "expected the full label and swatch to fit on row {y}: {row:?}"
+        row.contains("Background Highlight: default"),
+        "expected the default marker on row {y}: {row:?}"
     );
 }
