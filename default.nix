@@ -19,10 +19,14 @@ rustPlatform.buildRustPackage {
   cargoLock.lockFile = ./Cargo.lock;
 
   nativeBuildInputs = [ pkgs.pkg-config ];
-  buildInputs = lib.optionals (pkgs.stdenv.isLinux && withTui) [
-    pkgs.wayland
-    pkgs.xorg.libxcb
-  ];
+  buildInputs =
+    lib.optionals (pkgs.stdenv.isLinux && withTui) [
+      pkgs.wayland
+      pkgs.xorg.libxcb
+    ]
+    ++ lib.optionals (pkgs.stdenv.isDarwin && withTui) [
+      pkgs.apple-sdk
+    ];
 
   cargoBuildFlags = [ "--package" "kanban-cli" ]
     ++ lib.optionals (!withTui) [ "--no-default-features" ];
