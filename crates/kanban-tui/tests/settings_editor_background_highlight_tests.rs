@@ -86,7 +86,7 @@ fn rgb() -> Color {
 }
 
 #[test]
-fn test_editor_buffer_lists_background_highlight_as_empty_when_unset() {
+fn test_editor_buffer_lists_background_highlight_as_the_default_hex_when_unset() {
     let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = tempfile::tempdir().unwrap();
 
@@ -94,7 +94,7 @@ fn test_editor_buffer_lists_background_highlight_as_empty_when_unset() {
     let app = settings_app(&json_path, None, "json");
     let (_, sent) = app.config_editor_buffer();
     assert!(
-        sent.contains("\"background_highlight\": \"\""),
+        sent.contains("\"background_highlight\": \"#0000FF\""),
         "buffer:\n{sent}"
     );
 
@@ -102,7 +102,7 @@ fn test_editor_buffer_lists_background_highlight_as_empty_when_unset() {
     let app = settings_app(&toml_path, None, "toml");
     let (_, sent) = app.config_editor_buffer();
     assert!(
-        sent.contains("background_highlight = \"\""),
+        sent.contains("background_highlight = \"#0000FF\""),
         "buffer:\n{sent}"
     );
 }
@@ -130,7 +130,7 @@ fn test_editor_edit_sets_background_highlight_saves_it_and_repaints_live() {
 
     edit(
         &mut app,
-        "\"background_highlight\": \"\"",
+        "\"background_highlight\": \"#0000FF\"",
         "\"background_highlight\": \"#2e3440\"",
     );
 
@@ -175,13 +175,46 @@ fn test_editor_edit_in_toml_sets_background_highlight() {
 
     edit(
         &mut app,
-        "background_highlight = \"\"",
+        "background_highlight = \"#0000FF\"",
         "background_highlight = \"#2E3440\"",
     );
 
     let saved = std::fs::read_to_string(&path).unwrap();
     assert!(saved.contains("background_highlight = \"#2E3440\""));
     assert_eq!(app.highlight_bg(), rgb());
+}
+
+#[test]
+fn test_editor_edit_saving_the_default_hex_keeps_the_highlight_to_default() {
+    let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    let file_body = "background_highlight = \"#2E3440\"\ndefault_card_prefix = \"feat\"\n";
+    let mut app = settings_app(&path, Some(file_body), "json");
+
+    edit(
+        &mut app,
+        "\"background_highlight\": \"#2E3440\"",
+        "\"background_highlight\": \"#0000FF\"",
+    );
+
+    assert!(
+        !matches!(
+            &app.ui_state.banner,
+            Some(b) if b.variant == BannerVariant::Error
+        ),
+        "banner: {:?}",
+        app.ui_state.banner
+    );
+    let saved = std::fs::read_to_string(&path).unwrap();
+    assert!(!saved.contains("background_highlight"), "saved:\n{saved}");
+    assert!(saved.contains("default_card_prefix = \"feat\""));
+    assert_eq!(app.highlight_bg(), Color::Blue);
+
+    let buf = render(&mut app);
+    find(&buf, "Background Highlight: default (#0000FF)");
+    let (x, y) = find(&buf, "Configuration Format: ");
+    assert_eq!(buf.cell((x, y)).unwrap().bg, Color::Blue);
 }
 
 #[test]
@@ -325,7 +358,7 @@ fn test_unrelated_edit_drops_an_invalid_file_value() {
 
     let (_, sent) = app.config_editor_buffer();
     assert!(
-        sent.contains("\"background_highlight\": \"\""),
+        sent.contains("\"background_highlight\": \"#0000FF\""),
         "buffer:\n{sent}"
     );
 

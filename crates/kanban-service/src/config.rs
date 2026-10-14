@@ -350,9 +350,15 @@ pub fn strip_defaults(config: &mut AppConfig) {
     }
 }
 
+/// Canonical display hex for the built-in default background highlight
+/// (`SELECTED_BG` is `Color::Blue`, xterm colour 4). Display and placeholder
+/// only; a single source of truth shared with the TUI.
+pub const DEFAULT_HIGHLIGHT_HEX: &str = "#0000FF";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfigDto {
-    /// `#RRGGBB`; empty or absent means the default highlight.
+    /// `#RRGGBB`; empty, absent, or [`DEFAULT_HIGHLIGHT_HEX`] means the
+    /// built-in default highlight.
     pub background_highlight: Option<String>,
     pub configuration_format: Option<String>,
     pub configuration_location: Option<String>,
@@ -380,7 +386,7 @@ impl AppConfigDto {
                 entity
                     .background_highlight_color()
                     .map(|c| c.to_string())
-                    .unwrap_or_default(),
+                    .unwrap_or_else(|| DEFAULT_HIGHLIGHT_HEX.to_string()),
             ),
             default_card_prefix: Some(entity.effective_default_card_prefix().to_string()),
             default_sprint_prefix: Some(entity.effective_default_sprint_prefix().to_string()),
@@ -452,15 +458,11 @@ fn validate_background_highlight(raw: Option<&str>) -> CoreResult<()> {
 }
 
 fn normalize_background_highlight(raw: Option<String>) -> Option<String> {
-    match raw.as_deref() {
-        None | Some("") => None,
-        Some(value) => Some(
-            value
-                .parse::<HexColor>()
-                .map(|c| c.to_string())
-                .unwrap_or_else(|_| value.to_string()),
-        ),
+    let value = raw?;
+    if value.is_empty() || value.eq_ignore_ascii_case(DEFAULT_HIGHLIGHT_HEX) {
+        return None;
     }
+    value.parse::<HexColor>().ok().map(|c| c.to_string())
 }
 
 #[cfg(unix)]
@@ -1533,23 +1535,43 @@ mod tests {
     }
 
     #[test]
-    fn test_dto_from_config_shows_an_empty_background_highlight_when_unset() {
+    fn test_dto_from_config_shows_the_default_hex_when_unset() {
         let entity = AppConfig::default();
         let dto = AppConfigDto::from_config(&entity, false);
-        assert_eq!(dto.background_highlight.as_deref(), Some(""));
+        assert_eq!(dto.background_highlight.as_deref(), Some("#0000FF"));
         assert!(toml::to_string_pretty(&dto)
             .unwrap()
-            .contains("background_highlight = \"\""));
+            .contains("background_highlight = \"#0000FF\""));
     }
 
     #[test]
-    fn test_dto_from_config_shows_an_empty_background_highlight_for_an_invalid_value() {
+    fn test_dto_from_config_shows_the_default_hex_for_an_invalid_value() {
         let entity = AppConfig {
             background_highlight: Some("blue".into()),
             ..Default::default()
         };
         let dto = AppConfigDto::from_config(&entity, false);
-        assert_eq!(dto.background_highlight.as_deref(), Some(""));
+        assert_eq!(dto.background_highlight.as_deref(), Some("#0000FF"));
+    }
+
+    #[test]
+    fn test_dto_apply_drops_the_default_hex_and_values_that_are_not_colours() {
+        for value in ["#0000FF", "#0000ff", "blue", "2E3440"] {
+            let mut entity = AppConfig {
+                background_highlight: Some("#2E3440".into()),
+                ..Default::default()
+            };
+            let dto = AppConfigDto {
+                background_highlight: Some(value.to_string()),
+                ..AppConfigDto::from_config(&AppConfig::default(), false)
+            };
+            dto.apply_to(&mut entity);
+            assert_eq!(
+                entity.background_highlight.as_deref(),
+                None,
+                "apply_to({value:?}) must not persist a value that is not a #RRGGBB colour"
+            );
+        }
     }
 
     #[test]
@@ -1561,10 +1583,10 @@ mod tests {
         let loaded = load_from(&path);
         let dto = AppConfigDto::from_config(&loaded, false);
         let serialized = toml::to_string_pretty(&dto).unwrap();
-        assert!(serialized.contains("background_highlight = \"\""));
+        assert!(serialized.contains("background_highlight = \"#0000FF\""));
 
         let edited = serialized.replace(
-            "background_highlight = \"\"",
+            "background_highlight = \"#0000FF\"",
             "background_highlight = \"#2e3440\"",
         );
         let updated_dto: AppConfigDto = toml::from_str(&edited).unwrap();
