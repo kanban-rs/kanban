@@ -22,6 +22,7 @@
 
 # Claude Code CLI (per-machine settings + scratch worktrees for agent runs)
 .claude/
+.qwen
 
 # OS
 .DS_Store
