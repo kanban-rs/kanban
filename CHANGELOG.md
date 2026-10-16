@@ -5,6 +5,73 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-10-16 ([#960](https://github.com/kanban-rs/kanban/pull/960))
+
+### Other Changes (2026-10-16)
+
+backend-http: the write-parity tests close the seeded SQLite store before copying it, so the copy no longer races a live WAL that Windows keeps locked (an intermittent Test (Windows) failure that also hid later crates' Windows tests).
+
+### KAN-1656 Decline Migrate Sprint Logs Remote (2026-10-16)
+
+service,tui: against a remote kanban server, sprint-log migration now declines immediately with KanbanError::unsupported("migrate_sprint_logs") instead of pulling every card, sprint and board over the wire to compute a backfill that only the store owner should run. The TUI log line for a declined migration no longer claims the decline was a read.
+
+### KAN-1713 Tolerate Older Server Write Responses (2026-10-16)
+
+api,backend-http: a write that an older kanban server commits is now reported as success with Invalidation::All when the server answers with a bare entity or 204 No Content, instead of a serialization error after the commit. Adds kanban_server::test_helpers::StubServer for old-server tests.
+
+### KAN-1714 Unsupported By Server (2026-10-16)
+
+backend-http,domain,api: a write the kanban server has no route for (404 or 405 without an error envelope) now fails with KanbanError::UnsupportedByServer, naming the route and asking for a server upgrade, instead of "internal error: HTTP 404 Not Found". is_unsupported() is true for it. Adds KanbanError::UnsupportedByServer and KanbanError::unsupported_by_server.
+
+### KAN-1715 Warn On Older Server (2026-10-16)
+
+backend-http,backend,domain,api: a client no longer refuses an older kanban server or one that reports no version; HttpBackend::probe() logs a one-time compatibility warning (CLI/MCP stderr, TUI F12 log) and opens, and writes degrade per operation. Breaking: KanbanError::UnsupportedServerVersion is removed. Adds kanban_backend::CompatibilityNotice and KanbanBackend::compatibility_notice().
+
+### KAN-1721 Background Highlight Config Key (2026-10-16)
+
+core: adds HexColor (#RRGGBB only, either case, displayed uppercase) and the background_highlight config key with AppConfig::background_highlight_color(). Breaking (library API): AppConfig gains a public field; external exhaustive struct literals must add it.
+
+### KAN-1722 Persist Background Highlight (2026-10-16)
+
+service: adds config::save_background_highlight (writes one key, refuses to overwrite an unparseable file) and counts background_highlight as a non-default value.
+
+### KAN-1723 Card List Background Highlight (2026-10-16)
+
+tui: the selected task row uses background_highlight from the config file (#RRGGBB); unset keeps the terminal's blue. Breaking (kanban-tui library API): CardListItemConfig gains a highlight_bg field.
+
+### KAN-1724 List Item Background Highlight (2026-10-16)
+
+tui: the projects list, help popup, parents/children boxes, import list and sort pickers use background_highlight. Breaking (kanban-tui library API): ListItemConfig gains a public highlight_bg field and ListItemConfig::new takes the highlight colour, Default and theme::selected_item are removed, render_relationship_section and render_selection_popup_with_lines take a highlight_bg parameter.
+
+### KAN-1725 Panels Background Highlight (2026-10-16)
+
+tui: settings rows, the export button and board-detail sprint/column lists use background_highlight. Breaking (kanban-tui library API): metadata_line_selectable takes a highlight_bg parameter.
+
+### KAN-1726 Pickers Background Highlight (2026-10-16)
+
+tui: sprint pickers, the carry-over dialog and the parents/children popup use background_highlight; a source guard forbids hard-coded selection backgrounds. Breaking (kanban-tui library API): render_entry_line, SprintPickerView::render/render_with_cursor and SprintPicker::render take a highlight_bg parameter.
+
+### KAN-1727 Settings Background Highlight Row (2026-10-16)
+
+tui: the settings page shows a Background Highlight row in the Configuration pane (`#RRGGBB`, or `default` when unset or invalid) with a preview swatch drawing sample text on the effective highlight colour, so its contrast can be checked.
+
+### KAN-1728 Edit Background Highlight (2026-10-16)
+
+tui: edit Background Highlight inline on the settings page with a live preview; Enter applies and saves, Esc cancels, empty resets (GH #918). Breaking (kanban-tui library API): DialogMode gains an EditBackgroundHighlight variant; external exhaustive matches must handle it.
+
+### KAN-1776 External Editor Background Highlight (2026-10-16)
+
+service,tui: the in-app configuration editor shows and edits background_highlight (#RRGGBB, or empty for the default); an invalid value is rejected with an error and nothing is saved, and a valid one applies as soon as the editor closes (GH #918). Breaking (kanban-service library API): AppConfigDto gains a background_highlight field. Adds App::config_editor_buffer and App::finish_config_edit.
+
+### KAN-1777 Default Highlight Hex (2026-10-16)
+
+tui: show the default background highlight hex (#0000FF) in the settings row as `default (#0000FF)` and as the placeholder in the empty inline edit field; no API or config change.
+
+### KAN-1778 Editor Default Highlight Hex (2026-10-16)
+
+tui: the external config editor shows the default background highlight hex (#0000FF) when the colour is unset, and saving that field only ever persists valid #RRGGBB values (invalid input is rejected or dropped, never stored)
+
+
 ## [0.11.0] - 2026-10-03 ([#920](https://github.com/kanban-rs/kanban/pull/920))
 
 ### Other Changes (2026-10-03)
