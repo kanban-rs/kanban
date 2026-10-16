@@ -81,16 +81,27 @@ implement now fails fast with an explicit "not supported over the HTTP
 backend in v1" error instead of the generic `with_transaction` decline it hit
 before this crate had any `RemoteWrites` impl.
 
+## Older servers
+
+A write the server commits is reported as success even when the answer is a bare entity, or an empty `204 No Content` to a delete, rather than the `MutationResponse<T>`/`DeleteResponse` wrapper current servers send. A missing `invalidation` field is treated as `Invalidation::All`, so the client over-invalidates rather than reporting a serialization error after the write already happened.
+
+A write route the server has no handler for (a 404 or 405 answered without an error envelope, i.e. a JSON object with a string `code` field) fails, and nothing was written, with `KanbanError::UnsupportedByServer` naming the method, the route template and the server URL, for example:
+
+```
+kanban server at http://host:5177 does not support POST /v1/cards/{id}/move, so nothing was written. Upgrade the server to this client's version (v0.12.0) to use it.
+```
+
+`is_unsupported()` is true for it. A 404 answered WITH an `ApiError` body (an entity genuinely not found) still surfaces as before, as a validation error carrying the server's `NOT_FOUND` code. A 404 or 405 answered with an envelope whose `code` this client does not recognize (a newer server) is reported as a generic error carrying the server's code and message, not `UnsupportedByServer`, since the route clearly exists.
+
 ## Version handshake
 
-`HttpBackend::probe()` (called by `KanbanContext::open`, before any write) reads the `version` field of `GET /health` and refuses to open when the server's `major.minor` is lower than this binary's, or the field is absent entirely (a server that predates the handshake). A newer server is accepted. The error names the URL, the server's version (or that it reports none), and this client's version, and says to upgrade the server first:
+`HttpBackend::probe()` (called by `KanbanContext::open`, before any write) reads the `version` field of `GET /health` and never refuses a reachable server. When the server's `major.minor` is lower than this binary's, or the field is absent or unparseable, it logs one `tracing::warn!` naming the URL, the server's version (or that it predates the handshake), and this client's version, and exposes the same information through `compatibility_notice()`:
 
 ```
-kanban server at http://host:5177 reports no version, which is older than this client (v0.11.0). Upgrade the server before the client.
-kanban server at http://host:5177 is v0.11.0, which is older than this client (v0.12.0). Upgrade the server before the client.
+kanban server at http://host:5177 reports no version, so it predates this client (v0.11.0). Writes it has no route for fail with an upgrade message, and rules added in newer releases may not be enforced. Upgrade the server to clear this warning.
 ```
 
-The first form is what a server released before the handshake (v0.10.x) produces.
+The first form (`UnknownServerVersion`, `reported: None`) is what a server released before the handshake (v0.10.x) produces. A server whose `major.minor` is lower but parseable gets `OlderServer` instead, naming both versions. See [Older servers](#older-servers) for what a write the server has no route for does; a server that accepts a request but behaves differently (ignores a field, enforces a rule at fewer entry points) is only warned about, not caught.
 
 ## Key public exports
 
@@ -98,8 +109,9 @@ The first form is what a server released before the handshake (v0.10.x) produces
 pub struct HttpBackend {
     base_url: String,
     client: reqwest::Client,
-    runtime: tokio::runtime::Runtime,
+    runtime: Option<tokio::runtime::Runtime>,
     instance_id: uuid::Uuid,
+    compatibility: std::sync::Mutex<Option<kanban_backend::CompatibilityNotice>>,
 }
 
 impl HttpBackend {
@@ -109,6 +121,7 @@ impl HttpBackend {
 impl kanban_backend::KanbanBackend for HttpBackend {
     fn as_data_store(&self) -> &dyn kanban_domain::DataStore { self }
     fn instance_id(&self) -> uuid::Uuid { self.instance_id }
+    fn compatibility_notice(&self) -> Option<kanban_backend::CompatibilityNotice>;
 }
 
 pub struct HttpBackendFactory;

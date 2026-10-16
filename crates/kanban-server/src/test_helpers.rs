@@ -4,6 +4,10 @@
 //! subset, so unused items here would otherwise warn as dead code per-binary.
 #![allow(dead_code)]
 
+mod stub_server;
+
+pub use stub_server::{StubReply, StubServer, EMPTY_PAGE_BODY, PRE_HANDSHAKE_HEALTH_BODY};
+
 use crate::app;
 use crate::state::AppState;
 use axum::body::Body;

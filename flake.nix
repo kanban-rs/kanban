@@ -77,7 +77,15 @@
           text = builtins.readFile ./scripts/check-datastore-explicit-impl.sh;
         };
 
-        kanban = pkgs.callPackage ./default.nix { src = self; gitRev = self.rev or null; };
+        kanban = pkgs.callPackage ./default.nix { 
+          src = builtins.path {
+            path = self;
+            name = "kanban-src";
+            filter = path: type:
+              !(type == "directory" && builtins.baseNameOf path == "demo");
+          }; 
+          gitRev = self.rev or null; 
+        };
       in {
         devShells.default = import ./shell.nix {
           inherit pkgs rustToolchain;

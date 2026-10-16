@@ -43,7 +43,7 @@ impl From<&KanbanError> for ApiError {
             // A backend gap is a server fault, not a client error.
             KanbanError::Unsupported { .. } => ErrorCode::InternalError,
             KanbanError::UnsupportedFutureVersion { .. }
-            | KanbanError::UnsupportedServerVersion { .. } => ErrorCode::UnsupportedVersion,
+            | KanbanError::UnsupportedByServer { .. } => ErrorCode::UnsupportedVersion,
         };
         // Public-message policy — exhaustive over `ErrorCode` so a new code must
         // declare whether it may expose the underlying error detail.
@@ -246,11 +246,11 @@ mod tests {
                 ErrorCode::UnsupportedVersion,
             ),
             (
-                KanbanError::UnsupportedServerVersion {
-                    url: "http://host:5177".to_string(),
-                    server_version: Some("0.10.0".to_string()),
-                    client_version: "0.11.1".to_string(),
-                },
+                KanbanError::unsupported_by_server(
+                    "POST /v1/cards/{id}/move",
+                    "http://host:5177",
+                    "0.12.0",
+                ),
                 ErrorCode::UnsupportedVersion,
             ),
         ];

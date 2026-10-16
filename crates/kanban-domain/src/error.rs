@@ -249,26 +249,17 @@ pub enum KanbanError {
     )]
     UnsupportedFutureVersion { file_version: u32, binary_max: u32 },
 
-    /// The remote server is older than this client's minor line, or predates
-    /// the version handshake. Raised by the HTTP backend's open probe, before
-    /// any request that could commit a write.
+    /// The remote server answered 404 or 405 without an `ApiError` body: it
+    /// has no route for this operation, so nothing was written.
     #[error(
-        "kanban server at {url} {}, which is older than this client (v{client_version}). \
-         Upgrade the server before the client.",
-        describe_server_version(.server_version)
+        "kanban server at {url} does not support {operation}, so nothing was written. \
+         Upgrade the server to this client's version (v{client_version}) to use it."
     )]
-    UnsupportedServerVersion {
+    UnsupportedByServer {
+        operation: String,
         url: String,
-        server_version: Option<String>,
         client_version: String,
     },
-}
-
-fn describe_server_version(version: &Option<String>) -> String {
-    match version {
-        Some(v) => format!("is v{v}"),
-        None => "reports no version".to_string(),
-    }
 }
 
 /// Return `noun` (when count is 1) or `noun + "s"` (otherwise).
@@ -333,8 +324,23 @@ impl KanbanError {
         Self::Unsupported { operation }
     }
 
+    pub fn unsupported_by_server(
+        operation: impl Into<String>,
+        url: impl Into<String>,
+        client_version: impl Into<String>,
+    ) -> Self {
+        Self::UnsupportedByServer {
+            operation: operation.into(),
+            url: url.into(),
+            client_version: client_version.into(),
+        }
+    }
+
     pub fn is_unsupported(&self) -> bool {
-        matches!(self, KanbanError::Unsupported { .. })
+        matches!(
+            self,
+            KanbanError::Unsupported { .. } | KanbanError::UnsupportedByServer { .. }
+        )
     }
 
     pub fn is_transport(&self) -> bool {
@@ -623,36 +629,29 @@ mod tests {
     }
 
     #[test]
-    fn test_unsupported_server_version_display_names_url_both_versions_and_the_fix() {
-        let err = KanbanError::UnsupportedServerVersion {
-            url: "http://host:5177".to_string(),
-            server_version: Some("0.10.0".to_string()),
-            client_version: "0.11.1".to_string(),
-        };
-        let msg = err.to_string();
-        assert!(msg.contains("http://host:5177"), "msg: {msg}");
-        assert!(msg.contains("v0.10.0"), "msg: {msg}");
-        assert!(msg.contains("v0.11.1"), "msg: {msg}");
-        assert!(
-            msg.contains("Upgrade the server before the client"),
-            "msg: {msg}"
+    fn test_unsupported_by_server_display_names_the_operation_url_client_version_and_the_fix() {
+        let err = KanbanError::unsupported_by_server(
+            "POST /v1/cards/{id}/move",
+            "http://host:5177",
+            "0.12.0",
         );
+        let msg = err.to_string();
+        assert!(msg.contains("POST /v1/cards/{id}/move"), "msg: {msg}");
+        assert!(msg.contains("http://host:5177"), "msg: {msg}");
+        assert!(msg.contains("v0.12.0"), "msg: {msg}");
+        assert!(msg.contains("nothing was written"), "msg: {msg}");
+        assert!(msg.contains("Upgrade the server"), "msg: {msg}");
     }
 
     #[test]
-    fn test_unsupported_server_version_display_without_server_version_says_it_reports_none() {
-        let err = KanbanError::UnsupportedServerVersion {
-            url: "http://host:5177".to_string(),
-            server_version: None,
-            client_version: "0.11.1".to_string(),
-        };
-        let msg = err.to_string();
-        assert!(msg.contains("reports no version"), "msg: {msg}");
-        assert!(msg.contains("v0.11.1"), "msg: {msg}");
-        assert!(
-            msg.contains("Upgrade the server before the client"),
-            "msg: {msg}"
+    fn test_unsupported_by_server_is_unsupported_and_not_not_found() {
+        let err = KanbanError::unsupported_by_server(
+            "POST /v1/cards/{id}/move",
+            "http://host:5177",
+            "0.12.0",
         );
+        assert!(err.is_unsupported());
+        assert!(!err.is_not_found());
     }
 
     #[test]

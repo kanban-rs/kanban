@@ -10,9 +10,10 @@ registering it from the application, not editing `kanban-service`.
 
 ## Key public exports
 
-From `src/lib.rs`, `src/factory.rs`, `src/remote_writes.rs`, `src/local_persistence.rs`:
+From `src/lib.rs`, `src/factory.rs`, `src/remote_writes.rs`, `src/local_persistence.rs`, `src/compatibility.rs`:
 
 ```rust
+pub use compatibility::CompatibilityNotice;
 pub use factory::{KanbanBackendFactory, KanbanBackendRegistry};
 pub use local_persistence::LocalPersistence;
 pub use remote_writes::RemoteWrites;
@@ -27,6 +28,7 @@ pub trait KanbanBackend: DataStore + CommandStore + Send + Sync {
     fn needs_save_worker(&self) -> bool { false }
     fn instance_id(&self) -> Uuid { Uuid::nil() }
     fn local_persistence(&self) -> Option<&dyn LocalPersistence> { None }
+    fn compatibility_notice(&self) -> Option<CompatibilityNotice> { None }
     fn health_checker(&self) -> Option<Box<dyn kanban_core::HealthChecker>> { None }
     fn remote_writes(&self) -> Option<&dyn RemoteWrites> { None }
     fn with_transaction(&self, f: TransactionFn<'_>) -> KanbanResult<()>; // required

@@ -1,4 +1,5 @@
 use super::requests::UpdateCardRequest;
+use crate::v1::invalidation::invalidation_all;
 use crate::v1::{ApiError, ErrorCode};
 use crate::InvalidationDto;
 use kanban_domain::Invalidation;
@@ -87,10 +88,6 @@ fn lenient_error_code<'de, D: serde::Deserializer<'de>>(
         let de: StringDeserializer<ValueError> = s.into_deserializer();
         ErrorCode::deserialize(de).ok()
     }))
-}
-
-fn invalidation_all() -> InvalidationDto {
-    InvalidationDto::All
 }
 
 #[non_exhaustive]

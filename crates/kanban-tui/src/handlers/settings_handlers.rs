@@ -11,6 +11,7 @@ use ratatui::Terminal;
 use std::io;
 
 const EXPORT_BUTTON_STORAGE_INDEX: usize = 3;
+pub(crate) const BACKGROUND_HIGHLIGHT_CONFIG_INDEX: usize = 5;
 
 impl App {
     pub fn settings_item_count(&self, panel: SettingsFocus) -> usize {
@@ -18,12 +19,12 @@ impl App {
             SettingsFocus::Configuration => {
                 if self.has_data_file {
                     if self.cli_file_override {
-                        9
+                        10
                     } else {
-                        7
+                        8
                     }
                 } else {
-                    5
+                    6
                 }
             }
             SettingsFocus::ConfigFile => 3,
@@ -324,13 +325,8 @@ impl App {
         }
     }
 
-    pub(crate) fn open_config_editor(
-        &mut self,
-        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-        event_handler: &EventHandler,
-    ) -> bool {
+    pub fn config_editor_buffer(&self) -> (EditFormat, String) {
         let format = EditFormat::parse(self.app_config.effective_editing_format());
-        let ext = format.file_extension();
         let mut dto = AppConfigDto::from_config(&self.app_config, self.has_data_file);
         if self.cli_file_override {
             dto.storage_backend = if self.config_storage_backend.is_empty() {
@@ -345,25 +341,43 @@ impl App {
             };
         }
         let serialized = format.serialize(&dto).unwrap_or_else(|_| "{}".to_string());
-        let current_content = if self.cli_file_override {
+        let content = if self.cli_file_override {
             format.comment_storage_fields(&serialized)
         } else {
             serialized
         };
-        let temp_file = std::env::temp_dir().join(format!("kanban_config_edit.{}", ext));
-        match edit_in_external_editor(terminal, event_handler, temp_file, &current_content) {
+        (format, content)
+    }
+
+    pub fn finish_config_edit(
+        &mut self,
+        format: &EditFormat,
+        sent: &str,
+        edited: io::Result<Option<String>>,
+    ) {
+        match edited {
             Ok(Some(new_content)) => {
-                if new_content.trim() != current_content.trim() {
-                    if let Err(e) = self.apply_config_edit(&new_content, &format) {
+                if new_content.trim() != sent.trim() {
+                    if let Err(e) = self.apply_config_edit(&new_content, format) {
                         self.set_error(e);
                     }
                 }
             }
             Ok(None) => {}
-            Err(e) => {
-                self.set_error(format!("Failed to edit config: {}", e));
-            }
+            Err(e) => self.set_error(format!("Failed to edit config: {}", e)),
         }
+    }
+
+    pub(crate) fn open_config_editor(
+        &mut self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        event_handler: &EventHandler,
+    ) -> bool {
+        let (format, content) = self.config_editor_buffer();
+        let temp_file =
+            std::env::temp_dir().join(format!("kanban_config_edit.{}", format.file_extension()));
+        let edited = edit_in_external_editor(terminal, event_handler, temp_file, &content);
+        self.finish_config_edit(&format, &content, edited);
         true
     }
 
@@ -374,6 +388,10 @@ impl App {
         event_handler: &EventHandler,
     ) -> bool {
         match key {
+            KeyCode::Enter if self.settings_background_highlight_row_selected() => {
+                self.open_background_highlight_editor();
+                false
+            }
             KeyCode::Enter if self.focus.settings_focus == SettingsFocus::Configuration => {
                 self.open_config_editor(terminal, event_handler)
             }
@@ -467,7 +485,9 @@ impl App {
                             self.focus.settings_focus = SettingsFocus::ConfigFile;
                             self.selection.settings_config_file.set(Some(0));
                         }
-                        4 => self.selection.settings_config.set(Some(7)),
+                        BACKGROUND_HIGHLIGHT_CONFIG_INDEX => {
+                            self.selection.settings_config.set(Some(8))
+                        }
                         _ => self.selection.settings_config.next(count),
                     }
                 } else if current >= count - 1 {
@@ -507,8 +527,10 @@ impl App {
                     let count = self.settings_item_count(SettingsFocus::ConfigFile);
                     self.focus.settings_focus = SettingsFocus::ConfigFile;
                     self.selection.settings_config_file.set(Some(count - 1));
-                } else if self.cli_file_override && self.has_data_file && current == 7 {
-                    self.selection.settings_config.set(Some(4));
+                } else if self.cli_file_override && self.has_data_file && current == 8 {
+                    self.selection
+                        .settings_config
+                        .set(Some(BACKGROUND_HIGHLIGHT_CONFIG_INDEX));
                 } else {
                     self.selection.settings_config.prev();
                 }

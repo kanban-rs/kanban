@@ -1,68 +1,9 @@
+use kanban_backend::CompatibilityNotice;
 use kanban_backend_http::HttpBackend;
 use kanban_domain::KanbanError;
-use kanban_server::test_helpers::TestServer;
+use kanban_server::test_helpers::{StubReply, StubServer, TestServer};
 use kanban_service::{AppConfig, KanbanBackend, KanbanContext};
 use std::sync::Arc;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
-
-fn find_headers_end(buf: &[u8]) -> Option<usize> {
-    buf.windows(4).position(|w| w == b"\r\n\r\n")
-}
-
-async fn serve_health(body: String) -> String {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    let url = format!("http://{addr}");
-    tokio::spawn(async move {
-        loop {
-            let (mut socket, _) = match listener.accept().await {
-                Ok(conn) => conn,
-                Err(_) => break,
-            };
-            let body = body.clone();
-            tokio::spawn(async move {
-                let mut buf = Vec::new();
-                let mut tmp = [0u8; 4096];
-                loop {
-                    let n = match socket.read(&mut tmp).await {
-                        Ok(n) => n,
-                        Err(_) => return,
-                    };
-                    buf.extend_from_slice(&tmp[..n]);
-                    if find_headers_end(&buf).is_some() || n == 0 {
-                        break;
-                    }
-                }
-                let response = format!(
-                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-                    body.len()
-                );
-                let _ = socket.write_all(response.as_bytes()).await;
-                let _ = socket.shutdown().await;
-            });
-        }
-    });
-    url
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_open_over_http_backend_against_live_server_succeeds() {
-    let server = TestServer::start().await;
-    let backend: Arc<dyn KanbanBackend> = Arc::new(HttpBackend::new(&server.base_url()).unwrap());
-
-    let result = KanbanContext::open(Arc::clone(&backend), AppConfig::default()).await;
-
-    let ctx = match result {
-        Ok(ctx) => ctx,
-        Err(e) => panic!("expected open() to succeed against a live server, got: {e}"),
-    };
-
-    drop(ctx);
-    drop(backend);
-
-    server.shutdown().await;
-}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_open_over_http_backend_against_dead_server_fails_with_transport_error() {
@@ -85,89 +26,151 @@ async fn test_open_over_http_backend_against_dead_server_fails_with_transport_er
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_open_against_a_server_without_a_version_fails_with_the_upgrade_message() {
-    let id = uuid::Uuid::new_v4();
-    let base_url = serve_health(format!(r#"{{"status":"ok","instance_id":"{id}"}}"#)).await;
+async fn test_open_against_a_server_without_a_version_succeeds_with_an_unknown_version_notice() {
+    let stub = StubServer::pre_handshake(|_, _| StubReply::empty(404)).await;
+    let base_url = stub.base_url();
     let backend: Arc<dyn KanbanBackend> = Arc::new(HttpBackend::new(&base_url).unwrap());
 
     let result = KanbanContext::open(Arc::clone(&backend), AppConfig::default()).await;
 
-    let err = match result {
-        Ok(_) => panic!("expected open to fail against a server without a version"),
-        Err(e) => e,
+    let ctx = match result {
+        Ok(ctx) => ctx,
+        Err(e) => panic!("expected open to succeed against a server without a version, got: {e}"),
     };
-    match err {
-        KanbanError::UnsupportedServerVersion {
-            server_version: None,
-            ref client_version,
-            ref url,
-        } if client_version == kanban_core::KANBAN_VERSION && url == &base_url => {}
-        other => panic!("expected UnsupportedServerVersion, got {other:?}"),
-    }
-    assert!(
-        err.to_string()
-            .contains("Upgrade the server before the client"),
-        "msg: {err}"
+
+    let http_backend = backend
+        .as_any()
+        .and_then(|a| a.downcast_ref::<HttpBackend>())
+        .expect("backend must downcast to HttpBackend");
+    assert_eq!(
+        http_backend.compatibility_notice(),
+        Some(CompatibilityNotice::UnknownServerVersion {
+            url: base_url.clone(),
+            reported: None,
+            client_version: kanban_core::KANBAN_VERSION.to_string(),
+        })
     );
 
+    let write_result = backend
+        .remote_graph_writes()
+        .expect("http backend")
+        .unblock(uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+    match write_result {
+        Err(e) => assert!(
+            e.is_unsupported(),
+            "expected the write to degrade with UnsupportedByServer, got: {e}"
+        ),
+        Ok(_) => panic!("expected the write to fail against a server with no route for it"),
+    }
+
+    drop(ctx);
     drop(backend);
+    stub.shutdown().await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_open_against_an_older_minor_server_fails_naming_both_versions() {
+async fn test_open_against_an_older_minor_server_succeeds_with_an_older_server_notice() {
     let id = uuid::Uuid::new_v4();
-    let base_url = serve_health(format!(
-        r#"{{"status":"ok","instance_id":"{id}","version":"0.0.1"}}"#
-    ))
+    let stub = StubServer::start(move |method, path| match (method, path) {
+        ("GET", "/health") => StubReply::json(
+            200,
+            format!(r#"{{"status":"ok","instance_id":"{id}","version":"0.0.1"}}"#),
+        ),
+        _ => StubReply::empty(404),
+    })
     .await;
+    let base_url = stub.base_url();
     let backend: Arc<dyn KanbanBackend> = Arc::new(HttpBackend::new(&base_url).unwrap());
 
     let result = KanbanContext::open(Arc::clone(&backend), AppConfig::default()).await;
 
-    let err = match result {
-        Ok(_) => panic!("expected open to fail against an older minor server"),
-        Err(e) => e,
+    let ctx = match result {
+        Ok(ctx) => ctx,
+        Err(e) => panic!("expected open to succeed against an older minor server, got: {e}"),
     };
-    match err {
-        KanbanError::UnsupportedServerVersion {
-            server_version: Some(ref v),
-            ref client_version,
-            ref url,
-        } if v == "0.0.1" && client_version == kanban_core::KANBAN_VERSION && url == &base_url => {}
-        other => panic!("expected UnsupportedServerVersion, got {other:?}"),
-    }
-    let msg = err.to_string();
-    assert!(msg.contains("v0.0.1"), "msg: {msg}");
-    assert!(
-        msg.contains(&format!("v{}", kanban_core::KANBAN_VERSION)),
-        "msg: {msg}"
+
+    let http_backend = backend
+        .as_any()
+        .and_then(|a| a.downcast_ref::<HttpBackend>())
+        .expect("backend must downcast to HttpBackend");
+    assert_eq!(
+        http_backend.compatibility_notice(),
+        Some(CompatibilityNotice::OlderServer {
+            url: base_url.clone(),
+            server_version: "0.0.1".to_string(),
+            client_version: kanban_core::KANBAN_VERSION.to_string(),
+        })
     );
 
+    drop(ctx);
     drop(backend);
+    stub.shutdown().await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_open_against_a_newer_server_succeeds() {
+async fn test_open_against_a_newer_server_succeeds_without_a_notice() {
     let id = uuid::Uuid::new_v4();
-    let base_url = serve_health(format!(
-        r#"{{"status":"ok","instance_id":"{id}","version":"999.0.0"}}"#
-    ))
+    let stub = StubServer::start(move |method, path| match (method, path) {
+        ("GET", "/health") => StubReply::json(
+            200,
+            format!(r#"{{"status":"ok","instance_id":"{id}","version":"999.0.0"}}"#),
+        ),
+        _ => StubReply::empty(404),
+    })
     .await;
+    let base_url = stub.base_url();
     let backend: Arc<dyn KanbanBackend> = Arc::new(HttpBackend::new(&base_url).unwrap());
 
     let result = KanbanContext::open(Arc::clone(&backend), AppConfig::default()).await;
 
-    match result {
-        Ok(ctx) => drop(ctx),
+    let ctx = match result {
+        Ok(ctx) => ctx,
         Err(e) => panic!("expected open to succeed against a newer server, got: {e}"),
-    }
+    };
 
+    let http_backend = backend
+        .as_any()
+        .and_then(|a| a.downcast_ref::<HttpBackend>())
+        .expect("backend must downcast to HttpBackend");
+    assert_eq!(http_backend.compatibility_notice(), None);
+
+    drop(ctx);
     drop(backend);
+    stub.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_open_over_http_backend_against_live_server_succeeds_without_a_notice() {
+    let server = TestServer::start().await;
+    let backend: Arc<dyn KanbanBackend> = Arc::new(HttpBackend::new(&server.base_url()).unwrap());
+
+    let result = KanbanContext::open(Arc::clone(&backend), AppConfig::default()).await;
+
+    let ctx = match result {
+        Ok(ctx) => ctx,
+        Err(e) => panic!("expected open() to succeed against a live server, got: {e}"),
+    };
+
+    let http_backend = backend
+        .as_any()
+        .and_then(|a| a.downcast_ref::<HttpBackend>())
+        .expect("backend must downcast to HttpBackend");
+    assert_eq!(http_backend.compatibility_notice(), None);
+
+    drop(ctx);
+    drop(backend);
+
+    server.shutdown().await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_open_against_a_non_kanban_health_body_fails_with_transport_error() {
-    let base_url = serve_health("not json".to_string()).await;
+    let stub = StubServer::start(|method, path| match (method, path) {
+        ("GET", "/health") => StubReply::json(200, "not json"),
+        _ => StubReply::empty(404),
+    })
+    .await;
+    let base_url = stub.base_url();
     let backend: Arc<dyn KanbanBackend> = Arc::new(HttpBackend::new(&base_url).unwrap());
 
     let result = KanbanContext::open(Arc::clone(&backend), AppConfig::default()).await;
@@ -181,4 +184,5 @@ async fn test_open_against_a_non_kanban_health_body_fails_with_transport_error()
     }
 
     drop(backend);
+    stub.shutdown().await;
 }

@@ -1,5 +1,5 @@
 use super::KanbanContext;
-use kanban_domain::{EntityIds, Invalidation, KanbanResult};
+use kanban_domain::{EntityIds, Invalidation, KanbanError, KanbanResult};
 
 impl KanbanContext {
     /// Backfill `sprint_logs` for cards that have a `sprint_id` but empty logs.
@@ -14,8 +14,14 @@ impl KanbanContext {
     /// function — they are reference data only, never mutated, so the
     /// persist loop correctly iterates `cards` alone.
     ///
+    /// Over a remote backend, returns `KanbanError::unsupported` before
+    /// reading the store.
+    ///
     /// Returns the number of cards that received a backfilled log.
     pub fn migrate_sprint_logs(&mut self) -> KanbanResult<(usize, Option<Invalidation>)> {
+        if self.backend.remote_writes().is_some() {
+            return Err(KanbanError::unsupported("migrate_sprint_logs"));
+        }
         // C3b FIDELITY: raw reads — sprint-log migration must touch ALL cards.
         let mut cards = self.backend.list_all_cards()?;
         let sprints = self.backend.list_all_sprints()?;
@@ -62,5 +68,44 @@ impl KanbanContext {
     /// For SQLite this is a WAL checkpoint; for JSON this flushes the cache.
     pub async fn save(&self) -> KanbanResult<()> {
         self.backend.flush().await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend_test_support::{MockBackend, MockRemoteWritesImpl};
+    use kanban_core::AppConfig;
+    use kanban_domain::{Board, Card, DataStore, KanbanError, Sprint};
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn test_migrate_sprint_logs_on_a_remote_backend_declines_before_any_read() {
+        let backend = Arc::new(MockBackend::with_remote_writes(Arc::new(
+            MockRemoteWritesImpl,
+        )));
+
+        let board = Board::new("Roadmap", None::<String>);
+        backend.upsert_board(board.clone()).unwrap();
+        let sprint = Sprint::new(board.id, 1, None, None::<String>);
+        backend.upsert_sprint(sprint.clone()).unwrap();
+        let mut card = Card::new(board.id, uuid::Uuid::new_v4(), "Do the thing", 0);
+        card.sprint_id = Some(sprint.id);
+        backend.upsert_card(card.clone()).unwrap();
+
+        let mut ctx = KanbanContext::open(backend.clone(), AppConfig::default())
+            .await
+            .unwrap();
+
+        let err = ctx.migrate_sprint_logs().unwrap_err();
+
+        assert!(err.is_unsupported(), "got: {err:?}");
+        assert_eq!(
+            err.to_string(),
+            KanbanError::unsupported("migrate_sprint_logs").to_string()
+        );
+
+        let readback = backend.get_card(card.id).unwrap().unwrap();
+        assert_eq!(readback, card);
     }
 }

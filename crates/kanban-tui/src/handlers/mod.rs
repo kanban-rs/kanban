@@ -7,4 +7,5 @@ pub mod filter_handlers;
 pub mod navigation_handlers;
 pub mod popup_handlers;
 pub mod settings_handlers;
+pub mod settings_highlight_handlers;
 pub mod sprint_handlers;

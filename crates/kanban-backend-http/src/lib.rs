@@ -16,6 +16,7 @@ pub struct HttpBackend {
     client: reqwest::Client,
     runtime: Option<tokio::runtime::Runtime>,
     instance_id: uuid::Uuid,
+    compatibility: std::sync::Mutex<Option<kanban_backend::CompatibilityNotice>>,
 }
 
 /// Dropping a `tokio::runtime::Runtime` blocks the current thread, and
@@ -55,11 +56,23 @@ impl kanban_backend::KanbanBackend for HttpBackend {
             )));
         }
         let health = Self::read_health(resp, &url).await?;
-        version_check::check_server_version(
+        let notice = version_check::compatibility_notice(
             self.base_url(),
             health.version.as_deref(),
             kanban_core::KANBAN_VERSION,
-        )
+        );
+        if let Some(notice) = &notice {
+            tracing::warn!("{notice}");
+        }
+        *self.compatibility.lock().unwrap_or_else(|e| e.into_inner()) = notice;
+        Ok(())
+    }
+
+    fn compatibility_notice(&self) -> Option<kanban_backend::CompatibilityNotice> {
+        self.compatibility
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     fn remote_writes(&self) -> Option<&dyn kanban_backend::RemoteWrites> {
@@ -121,6 +134,7 @@ impl HttpBackend {
             client,
             runtime: Some(runtime),
             instance_id: uuid::Uuid::new_v4(),
+            compatibility: std::sync::Mutex::new(None),
         })
     }
 

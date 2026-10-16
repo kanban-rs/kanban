@@ -1,6 +1,8 @@
+pub mod compatibility;
 pub mod factory;
 pub mod local_persistence;
 pub mod remote_writes;
+pub use compatibility::CompatibilityNotice;
 pub use factory::{KanbanBackendFactory, KanbanBackendRegistry};
 pub use local_persistence::LocalPersistence;
 pub use remote_writes::{
@@ -80,6 +82,12 @@ pub trait KanbanBackend: DataStore + CommandStore + Send + Sync {
     /// (the default) for backends with no durable local store (InMemory,
     /// Http) or that don't track it (MockBackend).
     fn local_persistence(&self) -> Option<&dyn crate::LocalPersistence> {
+        None
+    }
+
+    /// Some(...) when the last `probe()` found the remote server older than
+    /// this binary, or unable to report a comparable version.
+    fn compatibility_notice(&self) -> Option<crate::CompatibilityNotice> {
         None
     }
 
@@ -363,6 +371,13 @@ mod tests {
         let backend = StubBackend::default();
         let backend: &dyn KanbanBackend = &backend;
         assert!(backend.local_persistence().is_none());
+    }
+
+    #[test]
+    fn test_default_compatibility_notice_is_none() {
+        let backend = StubBackend::default();
+        let backend: &dyn KanbanBackend = &backend;
+        assert!(backend.compatibility_notice().is_none());
     }
 
     #[test]

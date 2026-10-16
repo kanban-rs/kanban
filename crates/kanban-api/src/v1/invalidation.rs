@@ -101,6 +101,10 @@ impl From<&InvalidationDto> for Invalidation {
     }
 }
 
+pub(crate) fn invalidation_all() -> InvalidationDto {
+    InvalidationDto::All
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::*;

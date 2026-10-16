@@ -50,6 +50,7 @@ impl App {
                 | AppMode::Dialog(DialogMode::SetSprintPrefix)
                 | AppMode::Dialog(DialogMode::SetSprintCardPrefix)
                 | AppMode::Dialog(DialogMode::ChooseStorageFile)
+                | AppMode::Dialog(DialogMode::EditBackgroundHighlight)
         );
 
         if matches!(key.code, KeyCode::Char('q') | KeyCode::Char('Q'))
@@ -184,6 +185,9 @@ impl App {
                 DialogMode::ChooseStorageFile => self.handle_choose_storage_file_dialog(key.code),
                 DialogMode::DeletePermanentBoardConfirm => {
                     self.handle_delete_permanent_board_confirm_popup(key.code)
+                }
+                DialogMode::EditBackgroundHighlight => {
+                    self.handle_edit_background_highlight_dialog(key.code)
                 }
             },
         }

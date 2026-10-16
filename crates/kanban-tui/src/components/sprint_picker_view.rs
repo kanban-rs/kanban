@@ -5,7 +5,7 @@ use kanban_domain::{Board, Sprint, SprintStatus};
 use kanban_view::sprint_assign_list::{
     build_entries, build_entries_active_only, sprint_id_of, SprintAssignEntry,
 };
-use ratatui::{layout::Rect, Frame};
+use ratatui::{layout::Rect, style::Color, Frame};
 use uuid::Uuid;
 
 pub struct SprintPickerView<'a> {
@@ -109,9 +109,15 @@ impl<'a> SprintPickerView<'a> {
         self.entries.is_empty()
     }
 
-    pub fn render(&self, frame: &mut Frame, area: Rect, selected: Option<usize>) {
+    pub fn render(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        selected: Option<usize>,
+        highlight_bg: Color,
+    ) {
         // Coupled mode: cursor and `[x]` are on the same row.
-        self.render_with_cursor(frame, area, selected, selected);
+        self.render_with_cursor(frame, area, selected, selected, highlight_bg);
     }
 
     /// Decoupled render: `checked` is the row that shows `[x]`; `cursor`
@@ -125,6 +131,7 @@ impl<'a> SprintPickerView<'a> {
         area: Rect,
         checked: Option<usize>,
         cursor: Option<usize>,
+        highlight_bg: Color,
     ) {
         let items: Vec<ListItem<Option<Uuid>>> = self
             .entries
@@ -139,6 +146,7 @@ impl<'a> SprintPickerView<'a> {
                     is_focused,
                     self.current_sprint_id,
                     self.board,
+                    highlight_bg,
                 );
                 ListItem {
                     value: sprint_id_of(entry),
