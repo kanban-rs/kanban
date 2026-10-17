@@ -23,7 +23,7 @@ impl SprintAssignEntry<'_> {
     }
 }
 
-pub const ACTIVE_PLANNED_HEADER: &str = "Active / Planned";
+pub const ACTIVE_PLANNED_HEADER: &str = "Active / Planning";
 pub const COMPLETED_ENDED_HEADER: &str = "Completed / Ended";
 
 /// Build the entry list for the new-card picker: same as
