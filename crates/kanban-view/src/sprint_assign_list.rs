@@ -23,7 +23,7 @@ impl SprintAssignEntry<'_> {
     }
 }
 
-pub const ACTIVE_PLANNED_HEADER: &str = "Active / Planning";
+pub const ACTIVE_PLANNING_HEADER: &str = "Active / Planning";
 pub const COMPLETED_ENDED_HEADER: &str = "Completed / Ended";
 
 /// Build the entry list for the new-card picker: same as
@@ -63,7 +63,7 @@ pub fn build_entries<'a>(
     );
     entries.push(SprintAssignEntry::None);
     if !active.is_empty() {
-        entries.push(SprintAssignEntry::Header(ACTIVE_PLANNED_HEADER));
+        entries.push(SprintAssignEntry::Header(ACTIVE_PLANNING_HEADER));
         for s in active {
             entries.push(SprintAssignEntry::ActiveOrPlanned(s));
         }
@@ -211,7 +211,7 @@ mod tests {
         assert!(
             entries
                 .iter()
-                .all(|e| header_label(e) != Some(ACTIVE_PLANNED_HEADER)),
+                .all(|e| header_label(e) != Some(ACTIVE_PLANNING_HEADER)),
             "active/planned header must be omitted when section is empty"
         );
         assert!(
@@ -231,7 +231,7 @@ mod tests {
         assert!(
             entries
                 .iter()
-                .any(|e| header_label(e) == Some(ACTIVE_PLANNED_HEADER)),
+                .any(|e| header_label(e) == Some(ACTIVE_PLANNING_HEADER)),
             "active/planned header must appear when section is non-empty"
         );
         assert!(
@@ -298,7 +298,7 @@ mod tests {
         );
         let entries = vec![
             SprintAssignEntry::None,
-            SprintAssignEntry::Header(ACTIVE_PLANNED_HEADER),
+            SprintAssignEntry::Header(ACTIVE_PLANNING_HEADER),
             SprintAssignEntry::ActiveOrPlanned(&s1),
             SprintAssignEntry::Header(COMPLETED_ENDED_HEADER),
             SprintAssignEntry::Completed(&s2),
@@ -321,7 +321,7 @@ mod tests {
         );
         let entries = vec![
             SprintAssignEntry::None,
-            SprintAssignEntry::Header(ACTIVE_PLANNED_HEADER),
+            SprintAssignEntry::Header(ACTIVE_PLANNING_HEADER),
             SprintAssignEntry::ActiveOrPlanned(&s1),
             SprintAssignEntry::Header(COMPLETED_ENDED_HEADER),
             SprintAssignEntry::Completed(&s2),
@@ -338,7 +338,7 @@ mod tests {
         let s1 = make_sprint(1, board, SprintStatus::Planning, None);
         let entries = vec![
             SprintAssignEntry::None,
-            SprintAssignEntry::Header(ACTIVE_PLANNED_HEADER),
+            SprintAssignEntry::Header(ACTIVE_PLANNING_HEADER),
             SprintAssignEntry::ActiveOrPlanned(&s1),
         ];
         // Already at last selectable (idx 2); next should stay at 2
@@ -377,7 +377,7 @@ mod tests {
 
     #[test]
     fn test_sprint_id_of_returns_none_for_header_and_none_entries() {
-        let header = SprintAssignEntry::Header(ACTIVE_PLANNED_HEADER);
+        let header = SprintAssignEntry::Header(ACTIVE_PLANNING_HEADER);
         let none = SprintAssignEntry::None;
         assert_eq!(sprint_id_of(&header), None);
         assert_eq!(sprint_id_of(&none), None);
@@ -401,12 +401,12 @@ mod tests {
         let s = make_sprint(1, board, SprintStatus::Planning, None);
         let entries = vec![
             SprintAssignEntry::None,
-            SprintAssignEntry::Header(ACTIVE_PLANNED_HEADER),
+            SprintAssignEntry::Header(ACTIVE_PLANNING_HEADER),
             SprintAssignEntry::ActiveOrPlanned(&s),
         ];
         assert_eq!(
             section_header_for(&entries, 2),
-            Some((1, ACTIVE_PLANNED_HEADER))
+            Some((1, ACTIVE_PLANNING_HEADER))
         );
     }
 
@@ -422,7 +422,7 @@ mod tests {
         );
         let entries = vec![
             SprintAssignEntry::None,
-            SprintAssignEntry::Header(ACTIVE_PLANNED_HEADER),
+            SprintAssignEntry::Header(ACTIVE_PLANNING_HEADER),
             SprintAssignEntry::ActiveOrPlanned(&s_active),
             SprintAssignEntry::Header(COMPLETED_ENDED_HEADER),
             SprintAssignEntry::Completed(&s_completed),

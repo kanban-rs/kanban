@@ -86,7 +86,7 @@ mod tests {
     use crate::theme::SELECTED_BG;
     use chrono::{DateTime, Utc};
     use kanban_domain::{Sprint, SprintStatus};
-    use kanban_view::sprint_assign_list::ACTIVE_PLANNED_HEADER;
+    use kanban_view::sprint_assign_list::ACTIVE_PLANNING_HEADER;
 
     fn ts(s: &str) -> DateTime<Utc> {
         DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
@@ -175,7 +175,7 @@ mod tests {
     #[test]
     fn test_render_entry_line_header_has_no_checkbox() {
         let board = make_board_for_render();
-        let entry = SprintAssignEntry::Header(ACTIVE_PLANNED_HEADER);
+        let entry = SprintAssignEntry::Header(ACTIVE_PLANNING_HEADER);
         let line = render_entry_line(&entry, false, false, None, &board, SELECTED_BG);
         let text = line_to_string(&line);
         assert!(
