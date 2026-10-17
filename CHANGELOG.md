@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] - 2026-10-17 ([#961](https://github.com/kanban-rs/kanban/pull/961))
+
+### Other Changes (2026-10-17)
+
+Fix the wording of the header used in the sprint assignment dialog to better reflect that this section can shows both active and in planning sprints.
+
+- Renamed ACTIVE_PLANNED_HEADER constant to ACTIVE_PLANNING_HEADER
+- Changed value from "Planned" to "Active / Planning" to more accurately represent that the section contains both active and planned sprints
+
+
 ## [0.12.0] - 2026-10-16 ([#960](https://github.com/kanban-rs/kanban/pull/960))
 
 ### Other Changes (2026-10-16)
