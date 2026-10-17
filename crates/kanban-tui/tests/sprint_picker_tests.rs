@@ -636,11 +636,11 @@ fn test_render_emits_active_planned_header_with_yellow_color() {
         now,
     );
     let grid = render_picker_with_colors(&picker, Some(0));
-    let color = line_color(&grid, "Active / Planned");
+    let color = line_color(&grid, "Active / Planning");
     assert_eq!(
         color,
         Some(Color::Yellow),
-        "Active / Planned header must render in yellow"
+        "Active / Planning header must render in yellow"
     );
 }
 

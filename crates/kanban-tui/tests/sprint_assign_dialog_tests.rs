@@ -167,8 +167,8 @@ fn test_dialog_renders_active_planned_header_when_active_sprints_exist() {
     open_assign_dialog(&mut app);
     let output = render_dialog_to_string(&app);
     assert!(
-        output.contains("Active / Planned"),
-        "expected Active / Planned header in dialog output:\n{}",
+        output.contains("Active / Planning"),
+        "expected Active / Planning header in dialog output:\n{}",
         output
     );
 }
@@ -241,7 +241,7 @@ fn test_down_arrow_skips_headers() {
         None
     );
 
-    // One Down lands on a real sprint row — the Active/Planned section
+    // One Down lands on a real sprint row — the Active/Planning section
     // header gets skipped by next_selectable.
     app.handle_assign_card_to_sprint_popup(KeyCode::Char('j'));
     assert!(
@@ -541,7 +541,7 @@ fn test_dialog_scrolls_to_keep_selected_sprint_visible_when_list_overflows() {
 #[test]
 fn test_sticky_header_appears_at_top_when_scrolled_past_active_planned_header() {
     // 30 planning sprints — selected at the last entry forces the
-    // Active / Planned header (at entry index 1) to scroll off the top.
+    // Active / Planning header (at entry index 1) to scroll off the top.
     let mut app = App::test_default();
     let board = app.ctx.create_board("B".into(), None).unwrap();
     let column = app
@@ -580,8 +580,8 @@ fn test_sticky_header_appears_at_top_when_scrolled_past_active_planned_header() 
 
     let output = render_dialog_to_string(&app);
     assert!(
-        output.contains("Active / Planned"),
-        "Active / Planned header must be pinned at the top of the list area when scrolled past; output:\n{}",
+        output.contains("Active / Planning"),
+        "Active / Planning header must be pinned at the top of the list area when scrolled past; output:\n{}",
         output
     );
 }
@@ -595,10 +595,10 @@ fn test_sticky_header_does_not_duplicate_when_list_fits_without_scrolling() {
     open_assign_dialog(&mut app);
 
     let output = render_dialog_to_string(&app);
-    let count = output.matches("Active / Planned").count();
+    let count = output.matches("Active / Planning").count();
     assert_eq!(
         count, 1,
-        "without scroll, Active / Planned should appear exactly once (natural position); got {} in:\n{}",
+        "without scroll, Active / Planning should appear exactly once (natural position); got {} in:\n{}",
         count, output
     );
 }
@@ -659,8 +659,8 @@ fn test_sticky_header_switches_to_completed_ended_when_selecting_in_lower_sectio
     // The upper section's header is also scrolled off but should NOT appear —
     // the overlay shows the *enclosing* section header for the selection.
     assert!(
-        !output.contains("Active / Planned"),
-        "Active / Planned must not appear when selection is past it and the overlay belongs to the lower section; output:\n{}",
+        !output.contains("Active / Planning"),
+        "Active / Planning must not appear when selection is past it and the overlay belongs to the lower section; output:\n{}",
         output
     );
 }
