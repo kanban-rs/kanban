@@ -27,7 +27,7 @@ pub(crate) fn render_create_card_popup(app: &App, frame: &mut Frame) {
     let dialog_height = if sprint_visible {
         (frame.area().height * 60 / 100).max(18)
     } else {
-        1 + 3 + 1 + 3 + border_and_margin
+        1 + 3 + 1 + border_and_margin
     };
     let area = crate::components::centered_rect_abs(60, dialog_height, frame.area());
     frame.render_widget(Clear, area);
@@ -44,7 +44,6 @@ pub(crate) fn render_create_card_popup(app: &App, frame: &mut Frame) {
         Constraint::Length(1),
         Constraint::Length(3),
         Constraint::Length(1),
-        Constraint::Length(3),
     ];
     if sprint_visible {
         constraints.push(Constraint::Length(1));
@@ -84,42 +83,34 @@ pub(crate) fn render_create_card_popup(app: &App, frame: &mut Frame) {
         frame.set_cursor_position((cursor_x, cursor_y));
     }
 
+    let column_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Length(12), Constraint::Min(0)])
+        .split(chunks[2]);
     frame.render_widget(
         Paragraph::new("Column:").style(Style::default().fg(Color::Yellow)),
-        chunks[2],
+        column_chunks[0],
     );
 
     // The target column name must stay readable in both the editable (a
     // placeholder is pre-filled) and the read-only (the column was inferred)
     // states — it tells the user where the new card will land.
-    let column_text_style = crate::theme::normal_text();
-    let column_input = Paragraph::new(app.dialog_input.create_card_column_input.as_str())
-        .style(column_text_style)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(if column_focused {
-                    crate::theme::focused_border()
-                } else {
-                    unfocused_border
-                }),
-        );
-    frame.render_widget(column_input, chunks[3]);
+    frame.render_widget(
+        Paragraph::new(app.dialog_input.create_card_column_input.as_str())
+            .style(crate::theme::normal_text()),
+        column_chunks[1],
+    );
     if column_focused {
-        let cursor_x = chunks[3].x
-            + app
-                .dialog_input
-                .create_card_column_input
-                .cursor_byte_offset() as u16
-            + 1;
-        let cursor_y = chunks[3].y + 1;
+        let cursor_x = column_chunks[1].x
+            + app.dialog_input.create_card_column_input.cursor_byte_offset() as u16;
+        let cursor_y = column_chunks[1].y;
         frame.set_cursor_position((cursor_x, cursor_y));
     }
 
     if sprint_visible {
         frame.render_widget(
             Paragraph::new("Sprint:").style(Style::default().fg(Color::Yellow)),
-            chunks[4],
+            chunks[3],
         );
 
         let picker_block = Block::default()
@@ -129,8 +120,8 @@ pub(crate) fn render_create_card_popup(app: &App, frame: &mut Frame) {
             } else {
                 unfocused_border
             });
-        let picker_inner = picker_block.inner(chunks[5]);
-        frame.render_widget(picker_block, chunks[5]);
+        let picker_inner = picker_block.inner(chunks[4]);
+        frame.render_widget(picker_block, chunks[4]);
         match app.model.board_sprints_state(board.id) {
             LoadState::Loaded(sprints) => {
                 app.dialog_input.create_card_sprint_picker.render(

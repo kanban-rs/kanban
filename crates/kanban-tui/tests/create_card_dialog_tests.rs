@@ -85,7 +85,7 @@ fn find_label(buffer: &ratatui::buffer::Buffer, label: &str) -> Option<(u16, u16
             let mut matched = true;
             for (i, ch) in target.iter().enumerate() {
                 match buffer.cell((x + i as u16, y)).map(|c| c.symbol()) {
-                    Some(s) if s == *ch => {}
+                    Some(s) if s.chars().next() == Some(*ch) => {}
                     _ => {
                         matched = false;
                         break;
@@ -700,12 +700,12 @@ fn test_create_card_dialog_renders_target_column_in_a_readable_colour() {
     );
 
     let buffer = render_buffer(&mut app, 80, 24);
-    // The value box sits one row below its label; its first text cell is one
-    // column in (past the left border) and one row down (past the top border).
+    // The value sits on the same row as its label, right after the 12-column
+    // label chunk ("Column:" plus its spacing).
     let (lx, ly) = find_label(&buffer, "Column:").expect("the dialog is rendered");
     let cell = buffer
-        .cell((lx + 1, ly + 2))
-        .expect("the target column value cell must exist under the label");
+        .cell((lx + 12, ly))
+        .expect("the target column value cell must exist on the label row");
     assert_eq!(cell.symbol(), "D", "the value cell holds the column name");
     assert_ne!(
         cell.fg, Color::DarkGray,
