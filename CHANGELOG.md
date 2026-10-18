@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.2] - 2026-10-18 ([#964](https://github.com/kanban-rs/kanban/pull/964))
+
+### KAN-1781 Does Not Let You Scroll To The Last Element Of The Sprint List From Below (2026-10-18)
+
+Select the last sprint item when navigating up from the Date Range section into the Sprints list in the Filter Options dialog, so the cursor lands closest to where the user came from.
+
+### KAN-1782 Column Selector In Create New Task Dialog Is Void (2026-10-18)
+
+The Column selector in the create new task dialog did nothing. The dialog now shows the target column instead, so you always know where the new card will land.
+
+- Show the target column read-only in the dialog
+- Create new cards in the column of the card you are looking at when opened from the board view
+- Keep the target column visible when the board has no sprints
+- Render the column name in a readable colour
+
+
 ## [0.12.1] - 2026-10-17 ([#961](https://github.com/kanban-rs/kanban/pull/961))
 
 ### Other Changes (2026-10-17)
