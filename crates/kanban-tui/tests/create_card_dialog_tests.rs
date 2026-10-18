@@ -700,11 +700,11 @@ fn test_create_card_dialog_renders_target_column_in_a_readable_colour() {
     );
 
     let buffer = render_buffer(&mut app, 80, 24);
-    // The value sits on the same row as its label, right after the 12-column
-    // label chunk ("Column:" plus its spacing).
+    // The value sits on the same row as its label, right after the 8-column
+    // label chunk ("Column:" plus its single trailing space).
     let (lx, ly) = find_label(&buffer, "Column:").expect("the dialog is rendered");
     let cell = buffer
-        .cell((lx + 12, ly))
+        .cell((lx + 8, ly))
         .expect("the target column value cell must exist on the label row");
     assert_eq!(cell.symbol(), "D", "the value cell holds the column name");
     assert_ne!(

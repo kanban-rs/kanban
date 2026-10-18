@@ -85,7 +85,7 @@ pub(crate) fn render_create_card_popup(app: &App, frame: &mut Frame) {
 
     let column_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(12), Constraint::Min(0)])
+        .constraints([Constraint::Length(8), Constraint::Min(0)])
         .split(chunks[2]);
     frame.render_widget(
         Paragraph::new("Column:").style(Style::default().fg(Color::Yellow)),
