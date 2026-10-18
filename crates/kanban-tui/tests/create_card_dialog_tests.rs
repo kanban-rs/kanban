@@ -565,3 +565,67 @@ fn test_create_card_dialog_shows_focused_column_when_column_is_fixed_and_no_spri
         "the dialog must be cancellable from the title focus"
     );
 }
+
+#[test]
+fn test_create_card_dialog_targets_the_column_of_the_card_being_viewed() {
+    // Two columns; the user is looking at a card in the SECOND column. In
+    // the default (grouped) view there is no focused column, so the column
+    // being viewed is the anchor: the dialog must name it and the submit
+    // must land the new card in it, not in the board's first column.
+    let mut app = App::test_default();
+    let board = app.ctx.create_board("Board".to_string(), None).unwrap();
+    let _backlog = app
+        .ctx
+        .create_column(board.id, "Backlog".to_string(), Some(0))
+        .unwrap();
+    let doing = app
+        .ctx
+        .create_column(board.id, "Doing".to_string(), Some(1))
+        .unwrap();
+    let existing = app
+        .ctx
+        .create_card(
+            board.id,
+            doing.id,
+            "Existing".to_string(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    app.selection.active_board_id = Some(board.id);
+    app.reload_model();
+    app.prepare_frame();
+    app.select_card_by_id(existing.id);
+
+    app.focus.active = Focus::Cards;
+    app.handle_create_card_key();
+
+    assert_eq!(
+        app.dialog_input.create_card_column_input.as_str(),
+        "Doing",
+        "the dialog field must show the column of the card being viewed, \
+         not the board's first column"
+    );
+    let rendered = render_to_string(&mut app, 80, 24);
+    assert!(
+        rendered.contains("Column:"),
+        "the target column row must stay visible:\n{rendered}"
+    );
+
+    for ch in "Landed".chars() {
+        app.handle_create_card_dialog(KeyCode::Char(ch));
+    }
+    app.handle_create_card_dialog(KeyCode::Enter);
+    app.reload_model();
+    app.prepare_frame();
+
+    let cards = cards_of(&app, board.id);
+    let created = cards
+        .iter()
+        .find(|c| c.title == "Landed")
+        .expect("card created");
+    assert_eq!(
+        created.column_id, doing.id,
+        "the new card must land in the column of the card being viewed, \
+         not the board's first column"
+    );
+}
