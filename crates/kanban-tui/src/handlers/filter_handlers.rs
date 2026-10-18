@@ -66,6 +66,17 @@ impl App {
                     }
                     _ => {
                         dialog_state.prev_section();
+                        // Entering Sprints from below (Date Range) —
+                        // select the last item so the cursor is closest to
+                        // where the user came from.
+                        if dialog_state.current_section == FilterDialogSection::Sprints {
+                            if let Some(LoadState::Loaded(sprints)) = &board_sprints {
+                                let total = 1 + sprints.len();
+                                if total > 1 {
+                                    dialog_state.item_selection = total - 1;
+                                }
+                            }
+                        }
                     }
                 },
                 KeyCode::Char(' ') => {
