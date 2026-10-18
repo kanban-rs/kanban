@@ -21,7 +21,6 @@ pub(crate) fn render_create_card_popup(app: &App, frame: &mut Frame) {
         return;
     };
 
-    let column_editable = app.dialog_input.create_card_column_is_editable();
     let sprint_visible = app.dialog_input.create_card_sprint_is_visible();
 
     let border_and_margin = 6;
@@ -90,11 +89,10 @@ pub(crate) fn render_create_card_popup(app: &App, frame: &mut Frame) {
         chunks[2],
     );
 
-    let column_text_style = if column_editable {
-        crate::theme::normal_text()
-    } else {
-        crate::theme::label_text()
-    };
+    // The target column name must stay readable in both the editable (a
+    // placeholder is pre-filled) and the read-only (the column was inferred)
+    // states — it tells the user where the new card will land.
+    let column_text_style = crate::theme::normal_text();
     let column_input = Paragraph::new(app.dialog_input.create_card_column_input.as_str())
         .style(column_text_style)
         .block(
