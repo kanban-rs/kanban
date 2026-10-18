@@ -50,17 +50,15 @@ impl App {
             .get_selected_card_in_context()
             .filter(|card| card.board_id == board_id)
             .map(|card| card.column_id);
-        let target_column_id = focused_col_id
-            .or(selected_card_col_id)
-            .or_else(|| {
-                match self.model.board_columns_state(board_id) {
-                    LoadState::Loaded(columns) => columns
-                        .iter()
-                        .find(|col| col.board_id == board_id)
-                        .map(|col| col.id),
-                    _ => None,
-                }
-            });
+        let target_column_id = focused_col_id.or(selected_card_col_id).or_else(|| {
+            match self.model.board_columns_state(board_id) {
+                LoadState::Loaded(columns) => columns
+                    .iter()
+                    .find(|col| col.board_id == board_id)
+                    .map(|col| col.id),
+                _ => None,
+            }
+        });
 
         target_column_id.and_then(|col_id| {
             self.model

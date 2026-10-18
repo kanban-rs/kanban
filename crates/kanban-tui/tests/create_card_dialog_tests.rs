@@ -85,7 +85,7 @@ fn find_label(buffer: &ratatui::buffer::Buffer, label: &str) -> Option<(u16, u16
             let mut matched = true;
             for (i, ch) in target.iter().enumerate() {
                 match buffer.cell((x + i as u16, y)).map(|c| c.symbol()) {
-                    Some(s) if s.chars().next() == Some(*ch) => {}
+                    Some(s) if s.starts_with(*ch) => {}
                     _ => {
                         matched = false;
                         break;
@@ -708,7 +708,8 @@ fn test_create_card_dialog_renders_target_column_in_a_readable_colour() {
         .expect("the target column value cell must exist on the label row");
     assert_eq!(cell.symbol(), "D", "the value cell holds the column name");
     assert_ne!(
-        cell.fg, Color::DarkGray,
+        cell.fg,
+        Color::DarkGray,
         "the target column name must not be DarkGray on the black popup (invisible)"
     );
     assert!(

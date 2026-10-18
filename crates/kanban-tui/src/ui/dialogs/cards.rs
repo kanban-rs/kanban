@@ -103,7 +103,10 @@ pub(crate) fn render_create_card_popup(app: &App, frame: &mut Frame) {
     );
     if column_focused {
         let cursor_x = column_chunks[1].x
-            + app.dialog_input.create_card_column_input.cursor_byte_offset() as u16;
+            + app
+                .dialog_input
+                .create_card_column_input
+                .cursor_byte_offset() as u16;
         let cursor_y = column_chunks[1].y;
         frame.set_cursor_position((cursor_x, cursor_y));
     }
