@@ -662,7 +662,7 @@ fn test_create_card_dialog_targets_the_column_of_the_card_being_viewed() {
 
 #[test]
 fn test_create_card_dialog_renders_target_column_in_a_readable_colour() {
-    use ratatui::style::Color;
+    use ratatui::style::{Color, Modifier};
     // The target column name must be visible on the popup's black background.
     // It read as "no column name" because the inferred (read-only) value was
     // styled DarkGray on Black — invisible. Pin the fix so the value cell
@@ -710,5 +710,9 @@ fn test_create_card_dialog_renders_target_column_in_a_readable_colour() {
     assert_ne!(
         cell.fg, Color::DarkGray,
         "the target column name must not be DarkGray on the black popup (invisible)"
+    );
+    assert!(
+        cell.modifier.contains(Modifier::BOLD),
+        "the target column is rendered bold so it reads as the card destination"
     );
 }

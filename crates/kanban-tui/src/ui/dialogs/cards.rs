@@ -4,7 +4,7 @@ use crate::ui::render_unavailable_panel;
 use kanban_domain::LoadState;
 use ratatui::{
     layout::{Constraint, Direction, Layout},
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     widgets::{Block, Borders, Clear, Paragraph},
     Frame,
 };
@@ -94,10 +94,11 @@ pub(crate) fn render_create_card_popup(app: &App, frame: &mut Frame) {
 
     // The target column name must stay readable in both the editable (a
     // placeholder is pre-filled) and the read-only (the column was inferred)
-    // states — it tells the user where the new card will land.
+    // states — it tells the user where the new card will land. Bold so it
+    // reads as the destination rather than just another field.
     frame.render_widget(
         Paragraph::new(app.dialog_input.create_card_column_input.as_str())
-            .style(crate::theme::normal_text()),
+            .style(crate::theme::normal_text().add_modifier(Modifier::BOLD)),
         column_chunks[1],
     );
     if column_focused {
