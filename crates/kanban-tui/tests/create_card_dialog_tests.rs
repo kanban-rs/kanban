@@ -541,7 +541,7 @@ fn test_create_card_dialog_opened_from_the_sprint_detail_view_reprimes_sprint_vi
 }
 
 #[test]
-fn test_create_card_dialog_is_title_only_when_column_is_fixed_and_no_sprints() {
+fn test_create_card_dialog_shows_focused_column_when_column_is_fixed_and_no_sprints() {
     let mut app = setup_app_with_board();
     app.focus.active = Focus::Cards;
     app.handle_create_card_key();
@@ -549,12 +549,19 @@ fn test_create_card_dialog_is_title_only_when_column_is_fixed_and_no_sprints() {
     let rendered = render_to_string(&mut app, 80, 24);
 
     assert!(rendered.contains("Task Title:"));
-    assert!(!rendered.contains("Column:"), "{rendered}");
+    assert!(
+        rendered.contains("Column:"),
+        "the fixed column must stay visible even when the board has no sprints:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("Todo"),
+        "the dialog must make clear where the new card will land:\n{rendered}"
+    );
     assert!(!rendered.contains("Sprint:"), "{rendered}");
 
     app.handle_create_card_dialog(KeyCode::Esc);
     assert!(
         !matches!(app.mode, AppMode::Dialog(DialogMode::CreateCard)),
-        "the title-only popup must itself be cancellable"
+        "the dialog must be cancellable from the title focus"
     );
 }

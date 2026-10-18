@@ -24,17 +24,6 @@ pub(crate) fn render_create_card_popup(app: &App, frame: &mut Frame) {
     let column_editable = app.dialog_input.create_card_column_is_editable();
     let sprint_visible = app.dialog_input.create_card_sprint_is_visible();
 
-    if !column_editable && !sprint_visible {
-        render_input_popup(
-            frame,
-            "Create New Task",
-            "Task Title:",
-            app.input.as_str(),
-            app.input.cursor_byte_offset(),
-        );
-        return;
-    }
-
     let border_and_margin = 6;
     let dialog_height = if sprint_visible {
         (frame.area().height * 60 / 100).max(18)
