@@ -64,6 +64,79 @@ fn test_filter_dialog_sprint_toggle_targets_rendered_sprint() {
 }
 
 #[test]
+fn test_up_from_date_range_enters_sprints_at_last_item() {
+    let (mut app, _board) = seed_board_with_scoped_sprints(|board_id| {
+        vec![
+            Sprint::new(board_id, 1, None, None::<String>),
+            Sprint::new(board_id, 2, None, None::<String>),
+        ]
+    });
+
+    open_filter_dialog(&mut app);
+
+    // Navigate DOWN through all sprint items to reach DateRange (section 1).
+    // 2 sprints => 3 items (unassigned + 2), need 3 'j' presses to advance past them.
+    app.handle_filter_options_popup(crossterm::event::KeyCode::Char('j')); // item 0 → 1
+    app.handle_filter_options_popup(crossterm::event::KeyCode::Char('j')); // item 1 → 2
+    app.handle_filter_options_popup(crossterm::event::KeyCode::Char('j')); // item 2 → DateRange
+    {
+        let ds = app.filter.dialog_state.as_ref().unwrap();
+        assert_eq!(
+            ds.current_section,
+            kanban_view::filters::FilterDialogSection::DateRange
+        );
+    }
+
+    // Navigate UP from DateRange back to Sprints — should land on the last item
+    app.handle_filter_options_popup(crossterm::event::KeyCode::Char('k'));
+    {
+        let ds = app.filter.dialog_state.as_ref().unwrap();
+        assert_eq!(
+            ds.current_section,
+            kanban_view::filters::FilterDialogSection::Sprints
+        );
+        // 2 sprints => total_items = 3 (unassigned + 2), last = 2
+        assert_eq!(ds.item_selection, 2);
+    }
+}
+
+#[test]
+fn test_down_from_tags_wraps_to_sprints_at_first_item() {
+    let (mut app, _board) = seed_board_with_scoped_sprints(|board_id| {
+        vec![
+            Sprint::new(board_id, 1, None, None::<String>),
+            Sprint::new(board_id, 2, None, None::<String>),
+        ]
+    });
+
+    open_filter_dialog(&mut app);
+
+    // Navigate DOWN through all sprint items, then DateRange, then to Tags
+    app.handle_filter_options_popup(crossterm::event::KeyCode::Char('j')); // item 0 → 1
+    app.handle_filter_options_popup(crossterm::event::KeyCode::Char('j')); // item 1 → 2
+    app.handle_filter_options_popup(crossterm::event::KeyCode::Char('j')); // item 2 → DateRange
+    app.handle_filter_options_popup(crossterm::event::KeyCode::Char('j')); // DateRange → Tags
+    {
+        let ds = app.filter.dialog_state.as_ref().unwrap();
+        assert_eq!(
+            ds.current_section,
+            kanban_view::filters::FilterDialogSection::Tags
+        );
+    }
+
+    // Navigate DOWN from Tags (wrap) to Sprints — should land on the first item
+    app.handle_filter_options_popup(crossterm::event::KeyCode::Char('j'));
+    {
+        let ds = app.filter.dialog_state.as_ref().unwrap();
+        assert_eq!(
+            ds.current_section,
+            kanban_view::filters::FilterDialogSection::Sprints
+        );
+        assert_eq!(ds.item_selection, 0);
+    }
+}
+
+#[test]
 fn test_filter_dialog_sprint_nav_counts_the_rendered_rows() {
     let (mut app, _board) = seed_board_with_scoped_sprints(|board_id| {
         vec![Sprint::new(board_id, 2, None, None::<String>)]

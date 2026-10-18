@@ -399,10 +399,12 @@ fn test_the_create_card_dialog_has_the_same_shape_with_and_without_columns() {
 }
 
 #[test]
-fn test_the_disabled_column_field_is_greyed_and_the_editable_one_is_not() {
+fn test_the_column_field_value_is_readable_whether_editable_or_fixed() {
     let width = 120u16;
     let height = 40u16;
 
+    // Editable (columnless board): the pre-filled template name must be
+    // readable on the popup's black background.
     let mut app_no_cols = setup_app_without_columns();
     app_no_cols.focus.active = Focus::Cards;
     app_no_cols.handle_create_card_key();
@@ -418,6 +420,8 @@ fn test_the_disabled_column_field_is_greyed_and_the_editable_one_is_not() {
     );
     assert_eq!(color, Some(Color::White));
 
+    // Fixed (board with columns): the inferred target column must be
+    // equally readable, not greyed out on the popup's black background.
     let mut app_cols = setup_app_with_two_columns();
     app_cols.focus.active = Focus::Cards;
     app_cols.handle_create_card_key();
@@ -431,7 +435,7 @@ fn test_the_disabled_column_field_is_greyed_and_the_editable_one_is_not() {
         row2,
         "Backlog",
     );
-    assert_eq!(color2, Some(Color::DarkGray));
+    assert_eq!(color2, Some(Color::White));
 }
 
 #[test]

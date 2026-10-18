@@ -51,7 +51,7 @@ fn setup_app_with_board_no_columns() -> App {
     app
 }
 
-fn render_to_string(app: &mut App, width: u16, height: u16) -> String {
+fn render_buffer(app: &mut App, width: u16, height: u16) -> ratatui::buffer::Buffer {
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).unwrap();
     terminal
@@ -59,7 +59,11 @@ fn render_to_string(app: &mut App, width: u16, height: u16) -> String {
             kanban_tui::ui::render(app, frame);
         })
         .unwrap();
-    let buffer = terminal.backend().buffer().clone();
+    terminal.backend().buffer().clone()
+}
+
+fn render_to_string(app: &mut App, width: u16, height: u16) -> String {
+    let buffer = render_buffer(app, width, height);
     let mut result = String::new();
     for y in 0..buffer.area.height {
         for x in 0..buffer.area.width {
@@ -68,6 +72,32 @@ fn render_to_string(app: &mut App, width: u16, height: u16) -> String {
         result.push('\n');
     }
     result
+}
+
+/// Locate the first on-screen occurrence of `label`, returning its top-left
+/// `(x, y)`. Used to anchor colour assertions to a specific dialog field so
+/// they don't accidentally match a same-named cell in the base view.
+fn find_label(buffer: &ratatui::buffer::Buffer, label: &str) -> Option<(u16, u16)> {
+    let target: Vec<char> = label.chars().collect();
+    let len = target.len() as u16;
+    for y in 0..buffer.area.height {
+        for x in 0..buffer.area.width.saturating_sub(len) + 1 {
+            let mut matched = true;
+            for (i, ch) in target.iter().enumerate() {
+                match buffer.cell((x + i as u16, y)).map(|c| c.symbol()) {
+                    Some(s) if s.starts_with(*ch) => {}
+                    _ => {
+                        matched = false;
+                        break;
+                    }
+                }
+            }
+            if matched {
+                return Some((x, y));
+            }
+        }
+    }
+    None
 }
 
 fn confirm_create_card_dialog(app: &mut App, title: &str) {
@@ -541,7 +571,7 @@ fn test_create_card_dialog_opened_from_the_sprint_detail_view_reprimes_sprint_vi
 }
 
 #[test]
-fn test_create_card_dialog_is_title_only_when_column_is_fixed_and_no_sprints() {
+fn test_create_card_dialog_shows_focused_column_when_column_is_fixed_and_no_sprints() {
     let mut app = setup_app_with_board();
     app.focus.active = Focus::Cards;
     app.handle_create_card_key();
@@ -549,12 +579,141 @@ fn test_create_card_dialog_is_title_only_when_column_is_fixed_and_no_sprints() {
     let rendered = render_to_string(&mut app, 80, 24);
 
     assert!(rendered.contains("Task Title:"));
-    assert!(!rendered.contains("Column:"), "{rendered}");
+    assert!(
+        rendered.contains("Column:"),
+        "the fixed column must stay visible even when the board has no sprints:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("Todo"),
+        "the dialog must make clear where the new card will land:\n{rendered}"
+    );
     assert!(!rendered.contains("Sprint:"), "{rendered}");
 
     app.handle_create_card_dialog(KeyCode::Esc);
     assert!(
         !matches!(app.mode, AppMode::Dialog(DialogMode::CreateCard)),
-        "the title-only popup must itself be cancellable"
+        "the dialog must be cancellable from the title focus"
+    );
+}
+
+#[test]
+fn test_create_card_dialog_targets_the_column_of_the_card_being_viewed() {
+    // Two columns; the user is looking at a card in the SECOND column. In
+    // the default (grouped) view there is no focused column, so the column
+    // being viewed is the anchor: the dialog must name it and the submit
+    // must land the new card in it, not in the board's first column.
+    let mut app = App::test_default();
+    let board = app.ctx.create_board("Board".to_string(), None).unwrap();
+    let _backlog = app
+        .ctx
+        .create_column(board.id, "Backlog".to_string(), Some(0))
+        .unwrap();
+    let doing = app
+        .ctx
+        .create_column(board.id, "Doing".to_string(), Some(1))
+        .unwrap();
+    let existing = app
+        .ctx
+        .create_card(
+            board.id,
+            doing.id,
+            "Existing".to_string(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    app.selection.active_board_id = Some(board.id);
+    app.reload_model();
+    app.prepare_frame();
+    app.select_card_by_id(existing.id);
+
+    app.focus.active = Focus::Cards;
+    app.handle_create_card_key();
+
+    assert_eq!(
+        app.dialog_input.create_card_column_input.as_str(),
+        "Doing",
+        "the dialog field must show the column of the card being viewed, \
+         not the board's first column"
+    );
+    let rendered = render_to_string(&mut app, 80, 24);
+    assert!(
+        rendered.contains("Column:"),
+        "the target column row must stay visible:\n{rendered}"
+    );
+
+    for ch in "Landed".chars() {
+        app.handle_create_card_dialog(KeyCode::Char(ch));
+    }
+    app.handle_create_card_dialog(KeyCode::Enter);
+    app.reload_model();
+    app.prepare_frame();
+
+    let cards = cards_of(&app, board.id);
+    let created = cards
+        .iter()
+        .find(|c| c.title == "Landed")
+        .expect("card created");
+    assert_eq!(
+        created.column_id, doing.id,
+        "the new card must land in the column of the card being viewed, \
+         not the board's first column"
+    );
+}
+
+#[test]
+fn test_create_card_dialog_renders_target_column_in_a_readable_colour() {
+    use ratatui::style::{Color, Modifier};
+    // The target column name must be visible on the popup's black background.
+    // It read as "no column name" because the inferred (read-only) value was
+    // styled DarkGray on Black — invisible. Pin the fix so the value cell
+    // never regresses to that colour.
+    let mut app = App::test_default();
+    let board = app.ctx.create_board("Board".to_string(), None).unwrap();
+    let _backlog = app
+        .ctx
+        .create_column(board.id, "Backlog".to_string(), Some(0))
+        .unwrap();
+    let doing = app
+        .ctx
+        .create_column(board.id, "Doing".to_string(), Some(1))
+        .unwrap();
+    let existing = app
+        .ctx
+        .create_card(
+            board.id,
+            doing.id,
+            "Existing".to_string(),
+            CreateCardOptions::default(),
+        )
+        .unwrap();
+    app.selection.active_board_id = Some(board.id);
+    app.reload_model();
+    app.prepare_frame();
+    app.select_card_by_id(existing.id);
+
+    app.focus.active = Focus::Cards;
+    app.handle_create_card_key();
+    assert_eq!(
+        app.dialog_input.create_card_column_input.as_str(),
+        "Doing",
+        "the value under test is the inferred target column"
+    );
+
+    let buffer = render_buffer(&mut app, 80, 24);
+    // The value sits on the same row as its label, right after the 8-column
+    // label chunk ("Column:" plus its single trailing space).
+    let (lx, ly) = find_label(&buffer, "Column:").expect("the dialog is rendered");
+    let cell = buffer
+        .cell((lx + 8, ly))
+        .expect("the target column value cell must exist on the label row");
+    assert_eq!(cell.symbol(), "D", "the value cell holds the column name");
+    assert_ne!(
+        cell.fg,
+        Color::DarkGray,
+        "the target column name must not be DarkGray on the black popup (invisible)"
+    );
+    assert!(
+        cell.modifier.contains(Modifier::BOLD),
+        "the target column is rendered bold so it reads as the card destination"
     );
 }
