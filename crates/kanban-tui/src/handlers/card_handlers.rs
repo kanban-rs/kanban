@@ -40,9 +40,17 @@ impl App {
     }
 
     pub fn create_card_target_column(&self, board_id: uuid::Uuid) -> Option<kanban_domain::Column> {
-        let target_column_id = if let Some(focused_col_id) = self.get_focused_column_id() {
-            Some(focused_col_id)
-        } else {
+        // Priority: the focused column (column view), then the column of the
+        // card the user is looking at (flat/grouped views, where there is no
+        // focused column yet the selection anchors a column), then the board's
+        // first column. Display and submit both flow through this function, so
+        // the dialog always names the column the card actually lands in.
+        let focused_col_id = self.get_focused_column_id();
+        let selected_card_col_id = self
+            .get_selected_card_in_context()
+            .filter(|card| card.board_id == board_id)
+            .map(|card| card.column_id);
+        let target_column_id = focused_col_id.or(selected_card_col_id).or_else(|| {
             match self.model.board_columns_state(board_id) {
                 LoadState::Loaded(columns) => columns
                     .iter()
@@ -50,7 +58,7 @@ impl App {
                     .map(|col| col.id),
                 _ => None,
             }
-        };
+        });
 
         target_column_id.and_then(|col_id| {
             self.model
