@@ -1876,6 +1876,121 @@ mod card_tests {
         );
     }
 
+    /// KAN-L3: the CLI card-update path maps `--tags` (repeatable) and
+    /// `--clear-tags` to `FieldUpdate::Set` and `FieldUpdate::Clear` respectively;
+    /// neither flag leaves `tags` as `NoChange`. CardResponse omits tags in
+    /// this leaf, so the assertion reads the persisted store row.
+    #[test]
+    fn test_cli_card_update_tags_produces_set_and_clear() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let (board_id, column_id) = setup_board_and_column(&file);
+
+        // Create a card with no tags initially.
+        let create_out = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "card",
+                "create",
+                "--board",
+                &board_id,
+                "--column",
+                &column_id,
+                "--title",
+                "Update Me",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let card_json = parse_json_output(&String::from_utf8_lossy(&create_out));
+        let card_id = extract_id(&card_json);
+
+        // Phase 1: --tags a --tags b → card.tags == ["a","b"]
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "card",
+                "update",
+                &card_id,
+                "--tags",
+                "a",
+                "--tags",
+                "b",
+            ])
+            .assert()
+            .success();
+
+        let store: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        let cards = store["data"]["cards"]
+            .as_array()
+            .expect("store has a cards array");
+        let card = cards
+            .iter()
+            .find(|c| c["id"] == card_id)
+            .expect("card found in store");
+        assert_eq!(
+            card["tags"],
+            serde_json::json!(["a", "b"]),
+            "--tags a --tags b sets card.tags to [a,b]"
+        );
+
+        // Phase 2: --clear-tags → card.tags == []
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "card",
+                "update",
+                &card_id,
+                "--clear-tags",
+            ])
+            .assert()
+            .success();
+
+        let store: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        let cards = store["data"]["cards"]
+            .as_array()
+            .expect("store has a cards array");
+        let card = cards
+            .iter()
+            .find(|c| c["id"] == card_id)
+            .expect("card found in store");
+        assert_eq!(
+            card["tags"],
+            serde_json::json!([]),
+            "--clear-tags empties card.tags"
+        );
+
+        // Phase 3: no tag flags → card.tags unchanged (NoChange)
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "card",
+                "update",
+                &card_id,
+                "--title",
+                "Renamed",
+            ])
+            .assert()
+            .success();
+
+        let store: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        let cards = store["data"]["cards"]
+            .as_array()
+            .expect("store has a cards array");
+        let card = cards
+            .iter()
+            .find(|c| c["id"] == card_id)
+            .expect("card found in store");
+        assert_eq!(
+            card["tags"],
+            serde_json::json!([]),
+            "no --tags flags leaves card.tags unchanged (still [])"
+        );
+        assert_eq!(card["title"], "Renamed", "title update still works");
+    }
+
     /// KAN-796: the CLI card-create path funnels through the Card factory
     /// (`Card::create` via the create command), so a created card carries the
     /// factory-seeded server-managed `card_number`, and the JSON output edge

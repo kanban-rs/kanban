@@ -570,6 +570,10 @@ pub struct CardUpdateArgs {
     pub due_date: Option<String>,
     #[arg(long)]
     pub clear_due_date: bool,
+    #[arg(long, action = ArgAction::Append)]
+    pub tags: Vec<String>,
+    #[arg(long)]
+    pub clear_tags: bool,
 }
 
 // Sprint commands

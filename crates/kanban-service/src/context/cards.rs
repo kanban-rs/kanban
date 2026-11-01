@@ -610,7 +610,7 @@ fn replace_update_from_spec(spec: NewCard) -> CardUpdate {
         due_date,
         points,
         sprint_id: _,
-        tags: _,
+        tags,
     } = spec;
     CardUpdate {
         title: Some(title),
@@ -630,9 +630,13 @@ fn replace_update_from_spec(spec: NewCard) -> CardUpdate {
             Some(p) => FieldUpdate::Set(p),
             None => FieldUpdate::Clear,
         },
-        // The create spec (NewCard) carries no tags (card tags is a later
-        // leaf); a replace-from-spec leaves card tags untouched.
-        tags: FieldUpdate::NoChange,
+        // Replace-from-spec: an empty tag list in the spec clears all tags;
+        // a non-empty list sets them (same Some/None pattern as `points`).
+        tags: if tags.is_empty() {
+            FieldUpdate::Clear
+        } else {
+            FieldUpdate::Set(tags)
+        },
         sprint_id: FieldUpdate::NoChange,
     }
 }

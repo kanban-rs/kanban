@@ -49,9 +49,7 @@ pub(crate) fn update_card_request(updates: &CardUpdate) -> UpdateCardRequest {
         due_date,
         points,
         sprint_id,
-        // Tags are not wired through the HTTP request shape yet (a later leaf);
-        // the API path never touches them here.
-        tags: _,
+        tags,
     } = updates;
     UpdateCardRequest {
         title: title.clone(),
@@ -63,6 +61,7 @@ pub(crate) fn update_card_request(updates: &CardUpdate) -> UpdateCardRequest {
         due_date: Patch::from(due_date.clone()),
         points: Patch::from(points.clone()),
         sprint_id: Patch::from(sprint_id.clone()),
+        tags: Patch::from(tags.clone()),
     }
 }
 
@@ -109,7 +108,7 @@ mod tests {
             due_date: FieldUpdate::Clear,
             points: FieldUpdate::Set(3),
             sprint_id: FieldUpdate::NoChange,
-            tags: FieldUpdate::NoChange,
+            tags: FieldUpdate::Set(vec!["t".to_string()]),
         };
 
         let req = update_card_request(&updates);
@@ -123,6 +122,7 @@ mod tests {
         assert_eq!(req.due_date, Patch::Clear);
         assert_eq!(req.points, Patch::Set(3));
         assert_eq!(req.sprint_id, Patch::NoChange);
+        assert_eq!(req.tags, Patch::Set(vec!["t".to_string()]));
     }
 
     #[test]

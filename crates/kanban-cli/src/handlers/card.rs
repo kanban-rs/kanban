@@ -404,8 +404,13 @@ fn build_card_update(args: &CardUpdateArgs) -> Result<CardUpdate, String> {
                 None => FieldUpdate::NoChange,
             }
         },
-        // Card tags is a later leaf; the CLI update command carries no tags yet.
-        tags: FieldUpdate::NoChange,
+        tags: if args.clear_tags {
+            FieldUpdate::Clear
+        } else if !args.tags.is_empty() {
+            FieldUpdate::Set(args.tags.clone())
+        } else {
+            FieldUpdate::NoChange
+        },
         sprint_id: FieldUpdate::NoChange,
     })
 }
