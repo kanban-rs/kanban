@@ -159,6 +159,7 @@ impl CreateCard {
             due_date: self.options.due_date,
             points: self.options.points,
             sprint_id: None,
+            tags: self.options.tags.clone().unwrap_or_default(),
         };
         // The value must match what the identifier reader resolves, so a sprint
         // override is applied below once the sprint is known.

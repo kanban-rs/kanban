@@ -23,6 +23,7 @@ pub struct NewCard {
     pub due_date: Option<DateTime<Utc>>,
     pub points: Option<u8>,
     pub sprint_id: Option<Uuid>,
+    pub tags: Vec<String>,
 }
 
 /// COMPLETE field set. The Card type carrying the persistence wire shape.
@@ -88,6 +89,7 @@ impl Card {
             due_date,
             points,
             sprint_id,
+            tags,
         } = spec;
         Ok(Card {
             id,
@@ -100,7 +102,7 @@ impl Card {
             position: 0,
             due_date,
             points,
-            tags: Vec::new(),
+            tags,
             card_number,
             prefix,
             sprint_id,
@@ -270,6 +272,7 @@ mod factory_tests {
             due_date: Some("2024-06-01T00:00:00Z".parse().unwrap()),
             points: Some(5),
             sprint_id: None,
+            tags: Vec::new(),
         }
     }
 
@@ -303,6 +306,7 @@ mod factory_tests {
                 due_date: Some(due),
                 points: Some(8),
                 sprint_id: Some(sprint_id),
+                tags: Vec::new(),
             },
             Uuid::new_v4(),
             1,
@@ -336,6 +340,7 @@ mod factory_tests {
                 due_date: None,
                 points: None,
                 sprint_id: Some(sprint_id),
+                tags: Vec::new(),
             },
             Uuid::new_v4(),
             1,
@@ -492,6 +497,7 @@ mod factory_tests {
             due_date: None,
             points: None,
             sprint_id: None,
+            tags: Vec::new(),
         };
         assert_eq!(new_card.title, "x");
     }

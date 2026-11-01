@@ -1,4 +1,4 @@
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
 
 use kanban_core::CLI_VERSION_DISPLAY;
 
@@ -507,6 +507,10 @@ pub struct CardCreateArgs {
     pub points: Option<u8>,
     #[arg(long)]
     pub due_date: Option<String>,
+    /// Tag the new card (repeatable). Pass the same flag several times to attach
+    /// more than one tag; omit for no tags.
+    #[arg(long, action = ArgAction::Append)]
+    pub tags: Vec<String>,
     /// Assign the new card to a sprint. Pass a UUID, name, or number to pick a
     /// specific sprint; pass without a value to use the board's sole active
     /// sprint (errors if zero or more than one active sprint exists).

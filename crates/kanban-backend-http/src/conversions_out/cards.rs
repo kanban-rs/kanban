@@ -11,6 +11,7 @@ pub(crate) fn create_card_request(id: Option<Uuid>, spec: &NewCard) -> (String, 
         due_date,
         points,
         sprint_id,
+        tags,
     } = spec;
     let path = format!("/v1/columns/{column_id}/cards");
     let body = CreateCardRequest {
@@ -21,6 +22,7 @@ pub(crate) fn create_card_request(id: Option<Uuid>, spec: &NewCard) -> (String, 
         due_date: *due_date,
         points: *points,
         sprint_id: *sprint_id,
+        tags: Some(tags.clone()),
     };
     (path, body)
 }
@@ -82,6 +84,7 @@ mod tests {
             due_date: None,
             points: None,
             sprint_id: None,
+            tags: Vec::new(),
         };
 
         let (path, body) = create_card_request(Some(id), &spec);

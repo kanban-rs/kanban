@@ -1823,6 +1823,59 @@ mod card_tests {
         assert_eq!(json["data"]["points"], 5);
     }
 
+    /// KAN-1793: the CLI card-create path threads the repeatable `--tags` flag
+    /// into `CreateCardOptions.tags` -> the Card factory -> the persisted store.
+    /// The wire projection (CardResponse) intentionally omits tags in this leaf,
+    /// so the assertion reads the persisted store and proves the two tags land
+    /// on the card in the order given.
+    #[test]
+    fn test_cli_card_create_with_tags_produces_tags() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let (board_id, column_id) = setup_board_and_column(&file);
+
+        let output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "card",
+                "create",
+                "--board",
+                &board_id,
+                "--column",
+                &column_id,
+                "--title",
+                "Tagged Task",
+                "--tags",
+                "a",
+                "--tags",
+                "b",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        assert!(json["success"].as_bool().unwrap());
+        assert_eq!(json["data"]["title"], "Tagged Task");
+
+        // CardResponse omits tags in this leaf, so verify on the store row.
+        let store: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        let cards = store["data"]["cards"]
+            .as_array()
+            .expect("store has a cards array");
+        let card = cards
+            .iter()
+            .find(|c| c["title"] == "Tagged Task")
+            .expect("the created card is persisted");
+        assert_eq!(
+            card["tags"],
+            serde_json::json!(["a", "b"]),
+            "two --tags flags land on the persisted card in order (KAN-1793)"
+        );
+    }
+
     /// KAN-796: the CLI card-create path funnels through the Card factory
     /// (`Card::create` via the create command), so a created card carries the
     /// factory-seeded server-managed `card_number`, and the JSON output edge

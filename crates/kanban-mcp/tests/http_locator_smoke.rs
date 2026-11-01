@@ -56,6 +56,7 @@ async fn test_tool_create_card_against_http_locator_succeeds() {
                 due_date: None,
                 points: None,
                 sprint_id: None,
+                tags: None,
             },
         }))
         .await

@@ -357,11 +357,17 @@ fn build_create_options(args: &CardCreateArgs) -> Result<CreateCardOptions, Stri
         Some(d) => Some(parse_datetime_input(d)?),
         None => None,
     };
+    let tags = if args.tags.is_empty() {
+        None
+    } else {
+        Some(args.tags.clone())
+    };
     Ok(CreateCardOptions {
         description: args.description.clone(),
         priority,
         points: args.points,
         due_date,
+        tags,
         ..Default::default()
     })
 }

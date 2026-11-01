@@ -28,6 +28,7 @@ impl CreateCardRequest {
             due_date,
             points,
             sprint_id,
+            tags,
         } = self;
         let spec = NewCard {
             column_id,
@@ -39,6 +40,7 @@ impl CreateCardRequest {
             due_date,
             points,
             sprint_id,
+            tags: tags.unwrap_or_default(),
         };
         Ok((id, spec))
     }
@@ -130,6 +132,7 @@ mod tests {
             due_date: Some(due),
             points: Some(5),
             sprint_id: Some(sprint_id),
+            tags: Some(vec!["tag".to_string()]),
         };
         let (id, spec) = req.into_new_card(column_id).unwrap();
         assert_eq!(id, Some(client_id));
@@ -143,8 +146,34 @@ mod tests {
                 due_date: Some(due),
                 points: Some(5),
                 sprint_id: Some(sprint_id),
+                tags: vec!["tag".to_string()],
             }
         );
+    }
+
+    #[test]
+    fn test_into_new_card_maps_some_tags_to_new_card() {
+        let column_id = Uuid::new_v4();
+        let req = CreateCardRequest {
+            id: None,
+            title: "Task".to_string(),
+            description: None,
+            priority: None,
+            due_date: None,
+            points: None,
+            sprint_id: None,
+            tags: Some(vec!["a".to_string()]),
+        };
+        let (_, spec) = req.into_new_card(column_id).unwrap();
+        assert_eq!(spec.tags, vec!["a".to_string()]);
+    }
+
+    #[test]
+    fn test_into_new_card_maps_none_tags_to_empty() {
+        let column_id = Uuid::new_v4();
+        let req: CreateCardRequest = serde_json::from_str(r#"{"title":"x"}"#).unwrap();
+        let (_, spec) = req.into_new_card(column_id).unwrap();
+        assert!(spec.tags.is_empty());
     }
 
     #[test]

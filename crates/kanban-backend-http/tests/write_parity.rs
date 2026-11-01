@@ -119,6 +119,7 @@ fn a_new_card(column_id: Uuid, title: &str) -> NewCard {
         due_date: None,
         points: Some(3),
         sprint_id: None,
+        tags: Vec::new(),
     }
 }
 

@@ -116,6 +116,7 @@ mod tests {
             due_date: None,
             points: Some(3),
             sprint_id: None,
+            tags: Vec::new(),
         };
         Card::create(
             spec,

@@ -206,6 +206,7 @@ pub async fn test_a_created_cards_invalidation_names_the_card_on_every_backend(
                 due_date: None,
                 points: None,
                 sprint_id: None,
+                tags: Vec::new(),
             },
         )
         .unwrap();
