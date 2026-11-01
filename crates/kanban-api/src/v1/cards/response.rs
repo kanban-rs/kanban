@@ -76,6 +76,8 @@ impl From<&Card> for CardResponse {
             completed_at,
             sprint_logs: _,
             prefix,
+            // Not part of the HTTP card projection yet (a later leaf).
+            tags: _,
         } = card;
         Self {
             id: *id,

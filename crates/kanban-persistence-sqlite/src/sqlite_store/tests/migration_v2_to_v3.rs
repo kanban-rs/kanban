@@ -4,7 +4,7 @@ use std::path::Path;
 use tempfile::TempDir;
 use uuid::Uuid;
 
-use super::super::SqliteStore;
+use super::super::{SqliteStore, SUPPORTED_SCHEMA_VERSION};
 use super::make_rt;
 
 /// Open a fresh single-connection pool and seed the metadata/boards/columns
@@ -225,7 +225,7 @@ fn test_migrate_v2_db_adds_board_id_and_backfills() {
             .fetch_one(store.pool())
             .await
             .unwrap();
-        assert_eq!(version, 13,
+        assert_eq!(version, SUPPORTED_SCHEMA_VERSION,
             "schema_version bumped to current through the whole chain, 2->3 archived_cards up to 12->13 prefix FK"
         );
     });
@@ -291,7 +291,7 @@ fn test_migrate_is_idempotent_on_v3_db() {
             .fetch_one(store.pool())
             .await
             .unwrap();
-        assert_eq!(version, 13);
+        assert_eq!(version, SUPPORTED_SCHEMA_VERSION);
 
         let still_there: bool =
             sqlx::query_scalar("SELECT COUNT(*) > 0 FROM archived_cards WHERE card_id = ?")

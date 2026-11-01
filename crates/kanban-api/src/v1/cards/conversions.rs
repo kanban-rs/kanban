@@ -6,7 +6,9 @@
 //! field on either side is a compile error.
 
 use super::requests::{CreateCardRequest, ReplaceCardRequest, UpdateCardRequest};
-use kanban_domain::{CardPriority, CardUpdate, ColumnId, KanbanError, KanbanResult, NewCard};
+use kanban_domain::{
+    CardPriority, CardUpdate, ColumnId, FieldUpdate, KanbanError, KanbanResult, NewCard,
+};
 use uuid::Uuid;
 
 impl CreateCardRequest {
@@ -67,6 +69,9 @@ impl TryFrom<UpdateCardRequest> for CardUpdate {
             due_date: due_date.into(),
             points: points.into(),
             sprint_id: sprint_id.into(),
+            // Tags are not wired through the HTTP request shape yet (a later
+            // leaf); keep the API path from touching them.
+            tags: FieldUpdate::NoChange,
         })
     }
 }
@@ -96,6 +101,9 @@ impl TryFrom<ReplaceCardRequest> for CardUpdate {
             due_date: due_date.into(),
             points: points.into(),
             sprint_id: sprint_id.into(),
+            // Tags are not wired through the HTTP request shape yet (a later
+            // leaf); keep the API path from touching them.
+            tags: FieldUpdate::NoChange,
         })
     }
 }

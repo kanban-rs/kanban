@@ -25,6 +25,7 @@ fn fully_populated_card(column_id: Uuid) -> Card {
         position: 7,
         due_date: Some("2024-05-05T00:00:00Z".parse().unwrap()),
         points: Some(3),
+        tags: Vec::new(),
         card_number: 42,
         sprint_id: None,
         created_at: "2024-01-01T00:00:00Z".parse().unwrap(),
@@ -360,5 +361,46 @@ fn test_get_card_by_board_and_number_uses_indexed_search_not_full_scan() {
             !plan_text.contains("SCAN cards"),
             "override must not fall back to a full table scan, got: {plan_text}"
         );
+    });
+}
+
+/// Write a card carrying `tags=["x","y"]`, read it back, and assert the tags
+/// survived the round-trip through SQLite.
+#[test]
+fn test_sqlite_card_tags_round_trip() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("t.sqlite3");
+    let rt = make_rt();
+    rt.block_on(async {
+        let store = SqliteStore::open(&path).await.unwrap();
+        let column_id = seed_column(&store);
+
+        let card = Card::reconstitute(CardRecord {
+            id: Uuid::new_v4(),
+            column_id,
+            board_id: Uuid::new_v4(),
+            title: "Tagged".into(),
+            description: None,
+            priority: kanban_domain::CardPriority::Medium,
+            status: kanban_domain::CardStatus::Todo,
+            position: 0,
+            due_date: None,
+            points: None,
+            tags: vec!["x".to_string(), "y".to_string()],
+            card_number: 1,
+            sprint_id: None,
+            created_at: "2024-01-01T00:00:00Z".parse().unwrap(),
+            updated_at: "2024-01-01T00:00:00Z".parse().unwrap(),
+            completed_at: None,
+            sprint_logs: vec![],
+            prefix: String::new(),
+        })
+        .unwrap();
+
+        let card_id = card.id;
+        store.upsert_card(card).expect("upsert card with tags");
+
+        let loaded = store.get_card(card_id).expect("get card").expect("Some");
+        assert_eq!(loaded.tags, vec!["x".to_string(), "y".to_string()]);
     });
 }

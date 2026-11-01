@@ -47,6 +47,9 @@ pub(crate) fn update_card_request(updates: &CardUpdate) -> UpdateCardRequest {
         due_date,
         points,
         sprint_id,
+        // Tags are not wired through the HTTP request shape yet (a later leaf);
+        // the API path never touches them here.
+        tags: _,
     } = updates;
     UpdateCardRequest {
         title: title.clone(),
@@ -103,6 +106,7 @@ mod tests {
             due_date: FieldUpdate::Clear,
             points: FieldUpdate::Set(3),
             sprint_id: FieldUpdate::NoChange,
+            tags: FieldUpdate::NoChange,
         };
 
         let req = update_card_request(&updates);

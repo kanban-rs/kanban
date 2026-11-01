@@ -235,6 +235,7 @@ async fn create_card_then_update_with_all_fields() {
                 column_id: None,
                 points: kanban_domain::FieldUpdate::Set(5),
                 due_date: kanban_domain::FieldUpdate::NoChange,
+                tags: kanban_domain::FieldUpdate::NoChange,
                 sprint_id: kanban_domain::FieldUpdate::NoChange,
             },
         )

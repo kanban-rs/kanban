@@ -1738,6 +1738,7 @@ mod tests {
             position: 7,
             due_date: Some("2024-05-05T00:00:00Z".parse().unwrap()),
             points: Some(3),
+            tags: Vec::new(),
             card_number: 42,
             sprint_id: Some(sprint_id),
             created_at: "2024-01-01T00:00:00Z".parse().unwrap(),

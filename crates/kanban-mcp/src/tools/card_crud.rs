@@ -273,6 +273,8 @@ impl KanbanMcpServer {
                 .map(FieldUpdate::Set)
                 .unwrap_or(FieldUpdate::NoChange),
             due_date,
+            // Card tags is a later leaf; the MCP update DTO carries no tags yet.
+            tags: FieldUpdate::NoChange,
             sprint_id: FieldUpdate::NoChange,
         };
         let card = locked_write(&self.ctx, |ctx| {

@@ -303,6 +303,7 @@ fn test_delete_sprint_uses_embedded_timestamp() {
         position: 0,
         due_date: None,
         points: None,
+        tags: Vec::new(),
         card_number: 1,
         sprint_id: Some(sprint_id),
         created_at: Utc::now(),

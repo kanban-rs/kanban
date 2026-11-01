@@ -143,6 +143,7 @@ pub(crate) fn card_from_response(resp: &CardResponse) -> Card {
         created_at,
         updated_at,
         completed_at,
+        tags: Vec::new(),
         sprint_logs: Vec::new(),
     }
 }

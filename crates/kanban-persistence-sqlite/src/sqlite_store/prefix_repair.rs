@@ -33,6 +33,7 @@ async fn stamped_cards(pool: &Pool<Sqlite>) -> KanbanResult<Vec<Card>> {
                 position: 0,
                 due_date: None,
                 points: None,
+                tags: Vec::new(),
                 card_number: card_number as u32,
                 prefix,
                 sprint_id: None,

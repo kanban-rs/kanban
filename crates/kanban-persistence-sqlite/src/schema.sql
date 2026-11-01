@@ -141,6 +141,7 @@ CREATE TABLE IF NOT EXISTS cards (
     position INTEGER NOT NULL,
     due_date TEXT,
     points INTEGER CHECK (points >= 0 AND points <= 255),
+    tags TEXT,
     card_number INTEGER NOT NULL DEFAULT 0,
     -- The namespace this card's identifier belongs to, frozen at creation.
     -- '' means "no namespace" and is the only value exempt from the

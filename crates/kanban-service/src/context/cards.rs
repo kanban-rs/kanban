@@ -627,6 +627,9 @@ fn replace_update_from_spec(spec: NewCard) -> CardUpdate {
             Some(p) => FieldUpdate::Set(p),
             None => FieldUpdate::Clear,
         },
+        // The create spec (NewCard) carries no tags (card tags is a later
+        // leaf); a replace-from-spec leaves card tags untouched.
+        tags: FieldUpdate::NoChange,
         sprint_id: FieldUpdate::NoChange,
     }
 }

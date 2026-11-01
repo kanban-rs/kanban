@@ -3,7 +3,7 @@ use std::path::Path;
 use tempfile::TempDir;
 use uuid::Uuid;
 
-use super::super::SqliteStore;
+use super::super::{SqliteStore, SUPPORTED_SCHEMA_VERSION};
 use super::make_rt;
 use super::migration_v2_to_v3::open_seeded_pool;
 
@@ -117,7 +117,10 @@ fn test_open_schema4_db_writes_durable_backup_before_board_id_migration() {
                 .fetch_one(store.pool())
                 .await
                 .unwrap();
-        assert_eq!(live_version, 13, "live store must be migrated to current");
+        assert_eq!(
+            live_version, SUPPORTED_SCHEMA_VERSION,
+            "live store must be migrated to current"
+        );
 
         let live_board_id: String = sqlx::query_scalar("SELECT board_id FROM cards WHERE id = ?")
             .bind(card_id.to_string())

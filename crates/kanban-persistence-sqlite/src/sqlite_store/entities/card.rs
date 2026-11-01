@@ -6,7 +6,7 @@ use sqlx::Row;
 
 use crate::sqlite_store::conversions::{row_to_card, row_to_sprint_log};
 use crate::sqlite_store::helpers::{
-    db_err, fmt_dt, is_foreign_key_violation, opt_dt, required_str, ser_enum,
+    db_err, fmt_dt, is_foreign_key_violation, opt_dt, required_str, ser_enum, ser_err,
 };
 use crate::sqlite_store::SqliteStore;
 
@@ -34,14 +34,14 @@ impl SqliteStore {
 
         let insert_result = sqlx::query(
             "INSERT INTO cards (id, column_id, board_id, title, description, priority, status,
-                position, due_date, points, card_number, prefix, sprint_id, created_at,
+                position, due_date, points, tags, card_number, prefix, sprint_id, created_at,
                 updated_at, completed_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET
                 column_id=excluded.column_id, board_id=excluded.board_id, title=excluded.title,
                 description=excluded.description, priority=excluded.priority,
                 status=excluded.status, position=excluded.position,
-                due_date=excluded.due_date, points=excluded.points,
+                due_date=excluded.due_date, points=excluded.points, tags=excluded.tags,
                 card_number=excluded.card_number, prefix=excluded.prefix,
                 sprint_id=excluded.sprint_id,
                 updated_at=excluded.updated_at, completed_at=excluded.completed_at",
@@ -56,6 +56,7 @@ impl SqliteStore {
         .bind(card.position)
         .bind(opt_dt(&card.due_date))
         .bind(card.points.map(|v| v as i32))
+        .bind(serde_json::to_string(&card.tags).map_err(ser_err)?)
         .bind(card.card_number as i32)
         .bind(&card.prefix)
         .bind(card.sprint_id.map(|id| id.to_string()))
@@ -257,8 +258,8 @@ impl SqliteStore {
     ) -> KanbanResult<Vec<Card>> {
         let sql = format!(
             "SELECT id, column_id, board_id, title, description, priority, status, position,
-                    due_date, points, card_number, prefix, sprint_id, created_at, updated_at,
-                    completed_at
+                    due_date, points, tags, card_number, prefix, sprint_id, created_at,
+                    updated_at, completed_at
              FROM cards {} {}
              ORDER BY position ASC, created_at ASC, id ASC",
             base_filter, where_clause

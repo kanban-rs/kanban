@@ -146,6 +146,7 @@ impl SqliteStore {
         Self::stamp_empty_card_prefixes(pool).await?;
         Self::repair_unbacked_namespaces(pool).await?;
         Self::migrate_v12_to_v13_prefix_fk(pool).await?;
+        Self::migrate_v13_to_v14_tags(pool).await?;
 
         // Once the ALTERs above have caught the schema up, normalise
         // schema_version. Doing it unconditionally is idempotent and
@@ -969,6 +970,27 @@ impl SqliteStore {
         .execute(pool)
         .await
         .map_err(db_err)?;
+        Ok(())
+    }
+
+    /// Schema 13 -> 14: add the `tags` column (a JSON-encoded array of tag
+    /// strings) to `cards`. The column is created by `SCHEMA` for fresh
+    /// databases; this ALTERs it onto older ones. Guarded on the column being
+    /// absent, so it is idempotent and skips databases that already have it
+    /// (including fresh ones, where `SCHEMA` created it).
+    pub(crate) async fn migrate_v13_to_v14_tags(pool: &Pool<Sqlite>) -> KanbanResult<()> {
+        if !table_present(pool, "cards").await? {
+            return Ok(());
+        }
+        if column_present(pool, "cards", "tags").await? {
+            return Ok(());
+        }
+
+        sqlx::query("ALTER TABLE cards ADD COLUMN tags TEXT")
+            .execute(pool)
+            .await
+            .map_err(db_err)?;
+
         Ok(())
     }
 

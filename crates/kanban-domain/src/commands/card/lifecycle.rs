@@ -92,6 +92,13 @@ impl UpdateCard {
                     None => FieldUpdate::Clear,
                 },
             },
+            tags: match upd.tags {
+                FieldUpdate::NoChange => FieldUpdate::NoChange,
+                _ => match &card.tags {
+                    v if v.is_empty() => FieldUpdate::Clear,
+                    v => FieldUpdate::Set(v.clone()),
+                },
+            },
             sprint_id: FieldUpdate::NoChange,
         };
 
