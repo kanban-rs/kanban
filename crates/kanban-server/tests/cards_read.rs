@@ -1311,6 +1311,98 @@ async fn test_list_cards_unknown_status_value_returns_400() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_server_cards_tag_filter_returns_matching_only() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let board_id: Uuid;
+    {
+        let mut ctx = state.ctx.lock().await;
+        board_id = ctx
+            .create_board("Test Board".to_string(), Some("TB".to_string()))
+            .unwrap()
+            .id;
+        let col_id = ctx
+            .create_column(board_id, "Column".to_string(), None)
+            .unwrap()
+            .id;
+        ctx.create_card(
+            board_id,
+            col_id,
+            "Bug-urgent".to_string(),
+            CreateCardOptions {
+                tags: Some(vec!["bug".to_string(), "urgent".to_string()]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        ctx.create_card(
+            board_id,
+            col_id,
+            "Bug-only".to_string(),
+            CreateCardOptions {
+                tags: Some(vec!["bug".to_string()]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        ctx.create_card(
+            board_id,
+            col_id,
+            "Untagged".to_string(),
+            std::default::Default::default(),
+        )
+        .unwrap();
+    }
+
+    // ?tags=bug -> 2 items
+    let resp = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{board_id}/cards?tags=bug"),
+        None,
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json = json_of(resp).await;
+    assert_eq!(
+        json["items"].as_array().map(|a| a.len()).unwrap_or(0),
+        2,
+        "expected 2 for ?tags=bug; got: {json:?}"
+    );
+
+    // ?tags=bug,urgent -> 1 item (Bug-urgent only)
+    let resp = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{board_id}/cards?tags=bug,urgent"),
+        None,
+    )
+    .await;
+    let json = json_of(resp).await;
+    assert_eq!(
+        json["items"].as_array().map(|a| a.len()).unwrap_or(0),
+        1,
+        "expected 1 for ?tags=bug,urgent; got: {json:?}"
+    );
+
+    // ?tags=nonexistent -> 0 items
+    let resp = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{board_id}/cards?tags=nonexistent"),
+        None,
+    )
+    .await;
+    let json = json_of(resp).await;
+    assert_eq!(
+        json["items"].as_array().map(|a| a.len()).unwrap_or(0),
+        0,
+        "expected 0 for ?tags=nonexistent; got: {json:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_list_cards_search_matches_title_case_insensitive() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));

@@ -4841,6 +4841,103 @@ mod error_tests {
     }
 
     #[test]
+    fn test_cli_card_list_with_tag_flag_filters() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let (board_id, column_id) = setup_board_and_column(&file);
+        let f = file.to_str().unwrap();
+
+        // Three cards: two tagged with "bug" (Bug-urgent also carries "urgent"),
+        // one untagged.
+        kanban()
+            .args([
+                f,
+                "card",
+                "create",
+                "--board",
+                &board_id,
+                "--column",
+                &column_id,
+                "--title",
+                "Bug-urgent",
+                "--tags",
+                "bug",
+                "--tags",
+                "urgent",
+            ])
+            .assert()
+            .success();
+        kanban()
+            .args([
+                f, "card", "create", "--board", &board_id, "--column", &column_id, "--title",
+                "Bug-only", "--tags", "bug",
+            ])
+            .assert()
+            .success();
+        kanban()
+            .args([
+                f, "card", "create", "--board", &board_id, "--column", &column_id, "--title",
+                "Untagged",
+            ])
+            .assert()
+            .success();
+
+        fn titles(args: &[&str]) -> Vec<String> {
+            let stdout = kanban()
+                .args(args)
+                .assert()
+                .success()
+                .get_output()
+                .stdout
+                .clone();
+            let json = parse_json_output(&String::from_utf8_lossy(&stdout));
+            json["data"]["items"]
+                .as_array()
+                .expect("items array")
+                .iter()
+                .map(|it| it["title"].as_str().expect("title").to_string())
+                .collect()
+        }
+
+        // --tags bug -> Bug-urgent, Bug-only; Untagged excluded.
+        let t = titles(&[f, "card", "list", "--tags", "bug"]);
+        assert!(
+            t.contains(&"Bug-urgent".to_string()),
+            "expected Bug-urgent; got: {t:?}"
+        );
+        assert!(
+            t.contains(&"Bug-only".to_string()),
+            "expected Bug-only; got: {t:?}"
+        );
+        assert!(
+            !t.contains(&"Untagged".to_string()),
+            "Untagged should be excluded; got: {t:?}"
+        );
+
+        // --tags bug,urgent -> only Bug-urgent.
+        let t = titles(&[f, "card", "list", "--tags", "bug,urgent"]);
+        assert!(
+            t.contains(&"Bug-urgent".to_string()),
+            "expected Bug-urgent; got: {t:?}"
+        );
+        assert!(
+            !t.contains(&"Bug-only".to_string()),
+            "Bug-only should be excluded; got: {t:?}"
+        );
+
+        // --tags nonexistent -> no matching cards.
+        let t = titles(&[f, "card", "list", "--tags", "nonexistent"]);
+        assert!(
+            !t.contains(&"Bug-urgent".to_string()),
+            "Bug-urgent should not appear; got: {t:?}"
+        );
+        assert!(
+            !t.contains(&"Bug-only".to_string()),
+            "Bug-only should not appear; got: {t:?}"
+        );
+    }
+
+    #[test]
     fn test_card_update_invalid_priority() {
         let dir = tempdir().unwrap();
         let file = dir.path().join("test.json");

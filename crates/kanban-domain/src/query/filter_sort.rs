@@ -49,6 +49,9 @@ pub struct CardListFilter {
     pub status: Option<CardStatus>,
     /// `CompositeSearcher::all` semantics; empty string is a no-op.
     pub search: Option<String>,
+    /// Tag filter. `None` or empty list = no tag constraint (all cards pass).
+    /// Non-empty list = card must contain ALL listed tags (AND semantics).
+    pub tags: Option<Vec<String>>,
     pub sort: Option<SortField>,
     pub sort_order: Option<SortOrder>,
     /// Three-state archival selector. Defaults to `LiveOnly`, so callers that
@@ -104,6 +107,29 @@ fn board_for<'a>(card: &Card, board: Option<&'a Board>, boards: &'a [Board]) -> 
     boards.iter().find(|b| b.id == card.board_id)
 }
 
+/// Parse a comma-separated tag string into a trimmed, non-empty list.
+/// `None` input or an empty result list yields `None` (a no-op filter).
+pub fn parse_csv_tags(raw: Option<&str>) -> Option<Vec<String>> {
+    raw.and_then(|s| {
+        let v: Vec<String> = s
+            .split(',')
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty())
+            .collect();
+        if v.is_empty() {
+            None
+        } else {
+            Some(v)
+        }
+    })
+}
+
+/// Shared tag predicate: a card matches when it contains ALL tags in `wanted`.
+/// An empty `wanted` slice means no constraint (matches every card).
+pub fn card_matches_tags(card: &Card, wanted: &[String]) -> bool {
+    wanted.iter().all(|t| card.tags.contains(t))
+}
+
 fn passes_filter(
     card: &Card,
     allowed_columns: Option<&HashSet<Uuid>>,
@@ -144,6 +170,11 @@ fn passes_filter(
             return false;
         };
         if !searcher.matches(card, board, sprints) {
+            return false;
+        }
+    }
+    if let Some(ref tags) = filter.tags {
+        if !tags.is_empty() && !card_matches_tags(card, tags) {
             return false;
         }
     }
@@ -647,5 +678,77 @@ mod tests {
         let filter = CardListFilter::default();
         let out = filter_and_sort_cards(&cards, &columns, &[], None, &[], &filter);
         assert_eq!(out.len(), 2);
+    }
+
+    #[test]
+    fn test_card_matches_tags_requires_all_requested() {
+        let (board_a, _) = two_boards_with_prefixes("AAA", "BBB");
+        let col_a = Column::new(board_a.id, "Todo".to_string(), 0);
+        let mut card = Card::new(board_a.id, col_a.id, "one", 0);
+        card.tags = vec!["foo".into(), "bar".into()];
+
+        assert!(
+            card_matches_tags(&card, &[]),
+            "empty wanted slice matches every card"
+        );
+        assert!(card_matches_tags(&card, &["foo".to_string()]));
+        assert!(!card_matches_tags(&card, &["baz".to_string()]));
+        assert!(card_matches_tags(
+            &card,
+            &["foo".to_string(), "bar".to_string()]
+        ));
+        assert!(
+            !card_matches_tags(&card, &["foo".to_string(), "baz".to_string()]),
+            "AND semantics: one absent tag must reject"
+        );
+    }
+
+    #[test]
+    fn test_filter_by_tags_returns_only_matching() {
+        let (board_a, _) = two_boards_with_prefixes("AAA", "BBB");
+        let col_a = Column::new(board_a.id, "Todo".to_string(), 0);
+        let mut card_a = Card::new(board_a.id, col_a.id, "with-x", 0);
+        card_a.tags = vec!["x".into(), "y".into()];
+        let mut card_b = Card::new(board_a.id, col_a.id, "with-x-only", 1);
+        card_b.tags = vec!["x".into()];
+        let card_c = Card::new(board_a.id, col_a.id, "no-tags", 2);
+        let cards = vec![card_a.clone(), card_b.clone(), card_c];
+        let columns = vec![col_a];
+        let boards = vec![board_a.clone()];
+
+        let filter_x = CardListFilter {
+            tags: Some(vec!["x".to_string()]),
+            ..Default::default()
+        };
+        let out_x = filter_and_sort_cards(&cards, &columns, &[], None, &boards, &filter_x);
+        assert_eq!(
+            out_x.len(),
+            2,
+            "expected 2 cards with tag 'x'; got: {:?}",
+            out_x.iter().map(|c| c.title.clone()).collect::<Vec<_>>()
+        );
+
+        let filter_xy = CardListFilter {
+            tags: Some(vec!["x".to_string(), "y".to_string()]),
+            ..Default::default()
+        };
+        let out_xy = filter_and_sort_cards(&cards, &columns, &[], None, &boards, &filter_xy);
+        assert_eq!(
+            out_xy.len(),
+            1,
+            "expected one card (with x and y); got: {:?}",
+            out_xy.iter().map(|c| c.title.clone()).collect::<Vec<_>>()
+        );
+        assert_eq!(out_xy[0].title, "with-x");
+
+        let out_none = filter_and_sort_cards(
+            &cards,
+            &columns,
+            &[],
+            None,
+            &boards,
+            &CardListFilter::default(),
+        );
+        assert_eq!(out_none.len(), 3, "no tag filter should return all 3 cards");
     }
 }

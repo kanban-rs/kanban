@@ -101,7 +101,8 @@ pub use prefix_integrity::{
 };
 pub use prefix_resolution::{resolve as resolve_prefix, PrefixAxis};
 pub use query::{
-    count_filtered_cards, filter_and_sort_boards, filter_and_sort_cards, resolve_board_sort,
+    card_matches_tags, count_filtered_cards, filter_and_sort_boards, filter_and_sort_cards,
+    parse_csv_tags, resolve_board_sort,
     sprint::{
         calculate_points, calculate_points_by_ids, get_sprint_cards, get_sprint_completed_cards,
         get_sprint_uncompleted_cards, partition_sprint_cards, sort_card_ids,

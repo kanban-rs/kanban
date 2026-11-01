@@ -532,6 +532,10 @@ pub struct CardListArgs {
     pub sprint: Option<String>,
     #[arg(long)]
     pub status: Option<String>,
+    /// Tag filter. Comma-separated tags; a card must carry ALL listed tags
+    /// to match (e.g. `--tags bug,urgent`).
+    #[arg(long)]
+    pub tags: Option<String>,
     /// Show only archived cards (mutually exclusive with --include-archived).
     #[arg(long, conflicts_with = "include_archived")]
     pub archived: bool,

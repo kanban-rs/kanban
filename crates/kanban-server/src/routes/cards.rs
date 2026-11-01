@@ -12,8 +12,8 @@ use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use kanban_domain::{
-    filter_and_sort_cards, ArchivedFilter, Card, CardListFilter, Invalidation, LoadState, Model,
-    NoProjections, Sprint,
+    filter_and_sort_cards, parse_csv_tags, ArchivedFilter, Card, CardListFilter, Invalidation,
+    LoadState, Model, NoProjections, Sprint,
 };
 use kanban_service::api::ArchivedCardResponse;
 use kanban_service::api::ArchivedFilterDto;
@@ -51,6 +51,7 @@ pub struct CardQuery {
     #[serde(default)]
     pub hide_assigned: bool,
     pub status: Option<CardStatusDto>,
+    pub tags: Option<String>,
     pub search: Option<String>,
     pub sort: Option<SortFieldDto>,
     pub sort_order: Option<SortOrderDto>,
@@ -76,6 +77,7 @@ fn card_query_filter(q: &CardQuery, board_id: Uuid, archived: ArchivedFilter) ->
         hide_assigned: q.hide_assigned,
         status: q.status.map(Into::into),
         search: q.search.clone(),
+        tags: parse_csv_tags(q.tags.as_deref()),
         sort: q.sort.map(Into::into),
         sort_order: q.sort_order.map(Into::into),
         archived,
@@ -706,6 +708,7 @@ mod tests {
             sprint_ids: Some(HashSet::from([other_sprint_id])),
             hide_assigned: true,
             status: Some(CardStatusDto::Done),
+            tags: Some("x,y".to_string()),
             search: Some("q".to_string()),
             sort: Some(SortFieldDto::Priority),
             sort_order: Some(SortOrderDto::Descending),
@@ -723,6 +726,7 @@ mod tests {
         assert!(filter.hide_assigned);
         assert_eq!(filter.status, Some(CardStatus::Done));
         assert_eq!(filter.search, Some("q".to_string()));
+        assert_eq!(filter.tags, Some(vec!["x".to_string(), "y".to_string()]));
         assert_eq!(filter.sort, Some(SortField::Priority));
         assert_eq!(filter.sort_order, Some(SortOrder::Descending));
         assert_eq!(filter.archived, ArchivedFilter::LiveOnly);
