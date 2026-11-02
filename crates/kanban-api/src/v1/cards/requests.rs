@@ -29,6 +29,9 @@ pub struct CreateCardRequest {
     pub points: Option<u8>,
     #[serde(default)]
     pub sprint_id: Option<Uuid>,
+    /// Tag strings for the new card; omitted (or empty) means no tags.
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
 }
 
 /// Request body for `PATCH /v1/cards/:id` — JSON Merge Patch (RFC 7386):
@@ -53,6 +56,8 @@ pub struct UpdateCardRequest {
     pub points: Patch<u8>,
     #[serde(default, skip_serializing_if = "Patch::is_no_change")]
     pub sprint_id: Patch<Uuid>,
+    #[serde(default, skip_serializing_if = "Patch::is_no_change")]
+    pub tags: Patch<Vec<String>>,
 }
 
 /// Request body for `PUT /v1/cards/:id` — full replace of client-editable
@@ -73,6 +78,8 @@ pub struct ReplaceCardRequest {
     pub points: Option<u8>,
     #[serde(default)]
     pub sprint_id: Option<Uuid>,
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
 }
 
 #[cfg(test)]

@@ -228,7 +228,7 @@ impl DataStore for SqliteStore {
                 // editable card). The archived/live distinction is a LIST-level filter.
                 let row = sqlx::query(
                     "SELECT id, column_id, board_id, title, description, priority, status, position,
-                            due_date, points, card_number, prefix, sprint_id, created_at,
+                            due_date, points, tags, card_number, prefix, sprint_id, created_at,
                             updated_at, completed_at
                      FROM cards
                      WHERE id = ?",

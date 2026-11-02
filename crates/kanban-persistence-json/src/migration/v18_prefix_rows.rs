@@ -142,6 +142,7 @@ fn stamped_cards(envelope: &Value) -> Vec<Card> {
                 position: 0,
                 due_date: None,
                 points: None,
+                tags: Vec::new(),
                 card_number,
                 prefix,
                 sprint_id: None,

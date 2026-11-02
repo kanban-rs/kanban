@@ -1823,6 +1823,174 @@ mod card_tests {
         assert_eq!(json["data"]["points"], 5);
     }
 
+    /// KAN-1793: the CLI card-create path threads the repeatable `--tags` flag
+    /// into `CreateCardOptions.tags` -> the Card factory -> the persisted store.
+    /// The wire projection (CardResponse) intentionally omits tags in this leaf,
+    /// so the assertion reads the persisted store and proves the two tags land
+    /// on the card in the order given.
+    #[test]
+    fn test_cli_card_create_with_tags_produces_tags() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let (board_id, column_id) = setup_board_and_column(&file);
+
+        let output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "card",
+                "create",
+                "--board",
+                &board_id,
+                "--column",
+                &column_id,
+                "--title",
+                "Tagged Task",
+                "--tags",
+                "a",
+                "--tags",
+                "b",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        assert!(json["success"].as_bool().unwrap());
+        assert_eq!(json["data"]["title"], "Tagged Task");
+
+        // CardResponse omits tags in this leaf, so verify on the store row.
+        let store: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        let cards = store["data"]["cards"]
+            .as_array()
+            .expect("store has a cards array");
+        let card = cards
+            .iter()
+            .find(|c| c["title"] == "Tagged Task")
+            .expect("the created card is persisted");
+        assert_eq!(
+            card["tags"],
+            serde_json::json!(["a", "b"]),
+            "two --tags flags land on the persisted card in order (KAN-1793)"
+        );
+    }
+
+    /// KAN-L3: the CLI card-update path maps `--tags` (repeatable) and
+    /// `--clear-tags` to `FieldUpdate::Set` and `FieldUpdate::Clear` respectively;
+    /// neither flag leaves `tags` as `NoChange`. CardResponse omits tags in
+    /// this leaf, so the assertion reads the persisted store row.
+    #[test]
+    fn test_cli_card_update_tags_produces_set_and_clear() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let (board_id, column_id) = setup_board_and_column(&file);
+
+        // Create a card with no tags initially.
+        let create_out = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "card",
+                "create",
+                "--board",
+                &board_id,
+                "--column",
+                &column_id,
+                "--title",
+                "Update Me",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let card_json = parse_json_output(&String::from_utf8_lossy(&create_out));
+        let card_id = extract_id(&card_json);
+
+        // Phase 1: --tags a --tags b → card.tags == ["a","b"]
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "card",
+                "update",
+                &card_id,
+                "--tags",
+                "a",
+                "--tags",
+                "b",
+            ])
+            .assert()
+            .success();
+
+        let store: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        let cards = store["data"]["cards"]
+            .as_array()
+            .expect("store has a cards array");
+        let card = cards
+            .iter()
+            .find(|c| c["id"] == card_id)
+            .expect("card found in store");
+        assert_eq!(
+            card["tags"],
+            serde_json::json!(["a", "b"]),
+            "--tags a --tags b sets card.tags to [a,b]"
+        );
+
+        // Phase 2: --clear-tags → card.tags == []
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "card",
+                "update",
+                &card_id,
+                "--clear-tags",
+            ])
+            .assert()
+            .success();
+
+        let store: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        let cards = store["data"]["cards"]
+            .as_array()
+            .expect("store has a cards array");
+        let card = cards
+            .iter()
+            .find(|c| c["id"] == card_id)
+            .expect("card found in store");
+        assert_eq!(
+            card["tags"],
+            serde_json::json!([]),
+            "--clear-tags empties card.tags"
+        );
+
+        // Phase 3: no tag flags → card.tags unchanged (NoChange)
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "card",
+                "update",
+                &card_id,
+                "--title",
+                "Renamed",
+            ])
+            .assert()
+            .success();
+
+        let store: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        let cards = store["data"]["cards"]
+            .as_array()
+            .expect("store has a cards array");
+        let card = cards
+            .iter()
+            .find(|c| c["id"] == card_id)
+            .expect("card found in store");
+        assert_eq!(
+            card["tags"],
+            serde_json::json!([]),
+            "no --tags flags leaves card.tags unchanged (still [])"
+        );
+        assert_eq!(card["title"], "Renamed", "title update still works");
+    }
+
     /// KAN-796: the CLI card-create path funnels through the Card factory
     /// (`Card::create` via the create command), so a created card carries the
     /// factory-seeded server-managed `card_number`, and the JSON output edge
@@ -4670,6 +4838,103 @@ mod error_tests {
             .stderr(predicate::str::contains("\"success\":false"))
             .stderr(predicate::str::contains("Invalid status"))
             .stderr(predicate::str::contains("notastatus"));
+    }
+
+    #[test]
+    fn test_cli_card_list_with_tag_flag_filters() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let (board_id, column_id) = setup_board_and_column(&file);
+        let f = file.to_str().unwrap();
+
+        // Three cards: two tagged with "bug" (Bug-urgent also carries "urgent"),
+        // one untagged.
+        kanban()
+            .args([
+                f,
+                "card",
+                "create",
+                "--board",
+                &board_id,
+                "--column",
+                &column_id,
+                "--title",
+                "Bug-urgent",
+                "--tags",
+                "bug",
+                "--tags",
+                "urgent",
+            ])
+            .assert()
+            .success();
+        kanban()
+            .args([
+                f, "card", "create", "--board", &board_id, "--column", &column_id, "--title",
+                "Bug-only", "--tags", "bug",
+            ])
+            .assert()
+            .success();
+        kanban()
+            .args([
+                f, "card", "create", "--board", &board_id, "--column", &column_id, "--title",
+                "Untagged",
+            ])
+            .assert()
+            .success();
+
+        fn titles(args: &[&str]) -> Vec<String> {
+            let stdout = kanban()
+                .args(args)
+                .assert()
+                .success()
+                .get_output()
+                .stdout
+                .clone();
+            let json = parse_json_output(&String::from_utf8_lossy(&stdout));
+            json["data"]["items"]
+                .as_array()
+                .expect("items array")
+                .iter()
+                .map(|it| it["title"].as_str().expect("title").to_string())
+                .collect()
+        }
+
+        // --tags bug -> Bug-urgent, Bug-only; Untagged excluded.
+        let t = titles(&[f, "card", "list", "--tags", "bug"]);
+        assert!(
+            t.contains(&"Bug-urgent".to_string()),
+            "expected Bug-urgent; got: {t:?}"
+        );
+        assert!(
+            t.contains(&"Bug-only".to_string()),
+            "expected Bug-only; got: {t:?}"
+        );
+        assert!(
+            !t.contains(&"Untagged".to_string()),
+            "Untagged should be excluded; got: {t:?}"
+        );
+
+        // --tags bug,urgent -> only Bug-urgent.
+        let t = titles(&[f, "card", "list", "--tags", "bug,urgent"]);
+        assert!(
+            t.contains(&"Bug-urgent".to_string()),
+            "expected Bug-urgent; got: {t:?}"
+        );
+        assert!(
+            !t.contains(&"Bug-only".to_string()),
+            "Bug-only should be excluded; got: {t:?}"
+        );
+
+        // --tags nonexistent -> no matching cards.
+        let t = titles(&[f, "card", "list", "--tags", "nonexistent"]);
+        assert!(
+            !t.contains(&"Bug-urgent".to_string()),
+            "Bug-urgent should not appear; got: {t:?}"
+        );
+        assert!(
+            !t.contains(&"Bug-only".to_string()),
+            "Bug-only should not appear; got: {t:?}"
+        );
     }
 
     #[test]

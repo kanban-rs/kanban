@@ -23,6 +23,7 @@ pub struct NewCard {
     pub due_date: Option<DateTime<Utc>>,
     pub points: Option<u8>,
     pub sprint_id: Option<Uuid>,
+    pub tags: Vec<String>,
 }
 
 /// COMPLETE field set. The Card type carrying the persistence wire shape.
@@ -41,6 +42,11 @@ pub struct CardRecord {
     pub position: i32,
     pub due_date: Option<DateTime<Utc>>,
     pub points: Option<u8>,
+    /// Tag strings for the card. `#[serde(default)]` so card payloads written
+    /// before cards carried tags still deserialise (to an empty list),
+    /// matching the other additive wire fields below.
+    #[serde(default)]
+    pub tags: Vec<String>,
     #[serde(default)]
     pub card_number: u32,
     /// Defaulted so records written before cards carried a prefix still
@@ -83,6 +89,7 @@ impl Card {
             due_date,
             points,
             sprint_id,
+            tags,
         } = spec;
         Ok(Card {
             id,
@@ -95,6 +102,7 @@ impl Card {
             position: 0,
             due_date,
             points,
+            tags,
             card_number,
             prefix,
             sprint_id,
@@ -119,6 +127,7 @@ impl Card {
             position,
             due_date,
             points,
+            tags,
             card_number,
             prefix,
             sprint_id,
@@ -138,6 +147,7 @@ impl Card {
             position,
             due_date,
             points,
+            tags,
             card_number,
             prefix,
             sprint_id,
@@ -162,6 +172,7 @@ impl From<&Card> for CardRecord {
             position,
             due_date,
             points,
+            tags,
             card_number,
             prefix,
             sprint_id,
@@ -181,6 +192,7 @@ impl From<&Card> for CardRecord {
             position: *position,
             due_date: *due_date,
             points: *points,
+            tags: tags.clone(),
             card_number: *card_number,
             prefix: prefix.clone(),
             sprint_id: *sprint_id,
@@ -260,6 +272,7 @@ mod factory_tests {
             due_date: Some("2024-06-01T00:00:00Z".parse().unwrap()),
             points: Some(5),
             sprint_id: None,
+            tags: Vec::new(),
         }
     }
 
@@ -293,6 +306,7 @@ mod factory_tests {
                 due_date: Some(due),
                 points: Some(8),
                 sprint_id: Some(sprint_id),
+                tags: Vec::new(),
             },
             Uuid::new_v4(),
             1,
@@ -326,6 +340,7 @@ mod factory_tests {
                 due_date: None,
                 points: None,
                 sprint_id: Some(sprint_id),
+                tags: Vec::new(),
             },
             Uuid::new_v4(),
             1,
@@ -363,6 +378,7 @@ mod factory_tests {
             position: 7,
             due_date: Some("2024-05-05T00:00:00Z".parse().unwrap()),
             points: Some(3),
+            tags: vec!["storage".to_string(), "wire".to_string()],
             card_number: 42,
             sprint_id: Some(sprint_id),
             created_at: "2024-01-01T00:00:00Z".parse().unwrap(),
@@ -432,6 +448,43 @@ mod factory_tests {
     }
 
     #[test]
+    fn test_card_tags_serde_round_trip() -> KanbanResult<()> {
+        let mut rec = populated_record();
+        rec.tags = vec!["deploy".to_string(), "urgent".to_string()];
+        let json = serde_json::to_string(&rec).unwrap();
+        let back: CardRecord = serde_json::from_str(&json).unwrap();
+        assert_eq!(rec, back);
+        Ok(())
+    }
+
+    /// A hand-written JSON payload that predates the `tags` field (no
+    /// `tags` key at all) must deserialise a `CardRecord` with `tags == []`.
+    /// This is the backward-compatibility pin: any payload written before
+    /// cards carried tags can still be read back.
+    #[test]
+    fn test_card_record_old_payload_defaults_tags_empty() {
+        let json = r#"{
+            "id": "00000000-0000-0000-0000-000000000001",
+            "column_id": "00000000-0000-0000-0000-000000000002",
+            "title": "Old card",
+            "description": null,
+            "priority": "Medium",
+            "status": "Todo",
+            "position": 0,
+            "due_date": null,
+            "points": null,
+            "created_at": "2024-01-01T00:00:00Z",
+            "updated_at": "2024-01-01T00:00:00Z"
+        }"#;
+        let rec: CardRecord = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            rec.tags,
+            Vec::<String>::new(),
+            "a pre-tags CardRecord payload must default to an empty tag list"
+        );
+    }
+
+    #[test]
     fn test_new_card_has_no_default_impl() {
         // Compile-lock: constructing NewCard/CardRecord requires naming every
         // field (no `Default`, no `..`). A `NewCard::default()` must NOT compile;
@@ -444,6 +497,7 @@ mod factory_tests {
             due_date: None,
             points: None,
             sprint_id: None,
+            tags: Vec::new(),
         };
         assert_eq!(new_card.title, "x");
     }

@@ -235,6 +235,7 @@ async fn create_card_then_update_with_all_fields() {
                 column_id: None,
                 points: kanban_domain::FieldUpdate::Set(5),
                 due_date: kanban_domain::FieldUpdate::NoChange,
+                tags: kanban_domain::FieldUpdate::NoChange,
                 sprint_id: kanban_domain::FieldUpdate::NoChange,
             },
         )
@@ -898,6 +899,7 @@ async fn tool_move_card_resolves_names_through_locked_session() {
                 due_date: None,
                 points: None,
                 sprint_id: None,
+                tags: None,
             },
         }))
         .await
@@ -1033,6 +1035,7 @@ async fn tool_move_cards_rejects_cross_board_batch() {
                     due_date: None,
                     points: None,
                     sprint_id: None,
+                    tags: None,
                 },
             }))
             .await
@@ -1136,6 +1139,7 @@ async fn tool_assign_card_to_sprint_resolves_by_name_then_mutates() {
                 due_date: None,
                 points: None,
                 sprint_id: None,
+                tags: None,
             },
         }))
         .await
@@ -1192,6 +1196,7 @@ async fn setup_server_with_two_cards() -> (KanbanMcpServer, TempDir, String, Str
                 due_date: None,
                 points: None,
                 sprint_id: None,
+                tags: None,
             },
         }))
         .await
@@ -1209,6 +1214,7 @@ async fn setup_server_with_two_cards() -> (KanbanMcpServer, TempDir, String, Str
                 due_date: None,
                 points: None,
                 sprint_id: None,
+                tags: None,
             },
         }))
         .await
@@ -1466,6 +1472,7 @@ async fn tool_create_card_with_sprint_id_assigns_to_sprint() {
                 due_date: None,
                 points: None,
                 sprint_id: None,
+                tags: None,
             },
         }))
         .await
@@ -1502,6 +1509,7 @@ async fn tool_create_card_with_sprint_name_resolves_and_assigns() {
                 due_date: None,
                 points: None,
                 sprint_id: None,
+                tags: None,
             },
         }))
         .await
@@ -1534,6 +1542,7 @@ async fn tool_create_card_without_sprint_id_leaves_card_unassigned() {
                 due_date: None,
                 points: None,
                 sprint_id: None,
+                tags: None,
             },
         }))
         .await
@@ -1571,6 +1580,7 @@ async fn tool_create_card_with_unknown_sprint_name_returns_useful_error() {
                 due_date: None,
                 points: None,
                 sprint_id: None,
+                tags: None,
             },
         }))
         .await
@@ -1625,6 +1635,7 @@ async fn tool_create_card_with_cross_board_sprint_returns_useful_error() {
                 due_date: None,
                 points: None,
                 sprint_id: None,
+                tags: None,
             },
         }))
         .await
@@ -1885,6 +1896,7 @@ fn card_req(board: &str, column: &str, title: &str) -> CreateCardParams {
             due_date: None,
             points: None,
             sprint_id: None,
+            tags: None,
         },
     }
 }
@@ -1915,6 +1927,7 @@ async fn test_mcp_create_card_uses_shared_dto_and_factory() {
             due_date: None,
             points: Some(8),
             sprint_id: None,
+            tags: None,
         },
     };
     let result = server
@@ -2073,6 +2086,7 @@ async fn read_tools_project_through_v1_response_dtos_hiding_internal_state() {
                     due_date: None,
                     points: None,
                     sprint_id: None,
+                    tags: None,
                 },
             }))
             .await
@@ -2294,6 +2308,7 @@ async fn test_mcp_list_archived_cards_includes_board_id() {
                     due_date: None,
                     points: None,
                     sprint_id: None,
+                    tags: None,
                 },
             }))
             .await
@@ -2317,6 +2332,7 @@ async fn test_mcp_list_archived_cards_includes_board_id() {
                 order: None,
                 page: None,
                 page_size: None,
+                tags: None,
             }))
             .await
             .unwrap(),
@@ -2362,6 +2378,7 @@ async fn test_mcp_list_cards_archived_selector() {
             due_date: None,
             points: None,
             sprint_id: None,
+            tags: None,
         },
     };
     server
@@ -2394,6 +2411,7 @@ async fn test_mcp_list_cards_archived_selector() {
         order: None,
         page: None,
         page_size: None,
+        tags: None,
     };
 
     // default / exclude: live only, no archived_at.
@@ -3027,6 +3045,7 @@ async fn test_list_archived_cards_returns_card_summary_shape() {
                     due_date: None,
                     points: None,
                     sprint_id: None,
+                    tags: None,
                 },
             }))
             .await
@@ -3050,6 +3069,7 @@ async fn test_list_archived_cards_returns_card_summary_shape() {
                 order: None,
                 page: None,
                 page_size: None,
+                tags: None,
             }))
             .await
             .unwrap(),
@@ -3353,6 +3373,7 @@ async fn tool_get_card_stamps_archived_at_for_archived_card() {
                     due_date: None,
                     points: None,
                     sprint_id: None,
+                    tags: None,
                 },
             }))
             .await
@@ -3561,6 +3582,7 @@ async fn test_update_card_status_done_lands_in_configured_column_via_mcp() {
             due_date: None,
             clear_due_date: None,
             points: None,
+            tags: None,
         }))
         .await
         .unwrap();

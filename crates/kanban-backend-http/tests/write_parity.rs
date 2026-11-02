@@ -119,6 +119,7 @@ fn a_new_card(column_id: Uuid, title: &str) -> NewCard {
         due_date: None,
         points: Some(3),
         sprint_id: None,
+        tags: Vec::new(),
     }
 }
 
@@ -284,6 +285,7 @@ fn assert_card_eq(label: &str, a: &Card, b: &Card) {
         position: position_a,
         due_date: due_date_a,
         points: points_a,
+        tags: _,
         card_number: card_number_a,
         prefix: prefix_a,
         sprint_id: sprint_id_a,
@@ -303,6 +305,7 @@ fn assert_card_eq(label: &str, a: &Card, b: &Card) {
         position: position_b,
         due_date: due_date_b,
         points: points_b,
+        tags: _,
         card_number: card_number_b,
         prefix: prefix_b,
         sprint_id: sprint_id_b,

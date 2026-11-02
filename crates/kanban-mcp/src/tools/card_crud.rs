@@ -184,6 +184,7 @@ impl KanbanMcpServer {
                 board_id,
                 column_id,
                 sprint_ids: sprint_id.map(|sid| std::iter::once(sid).collect()),
+                tags: req.tags,
                 status,
                 sort,
                 sort_order,
@@ -273,6 +274,7 @@ impl KanbanMcpServer {
                 .map(FieldUpdate::Set)
                 .unwrap_or(FieldUpdate::NoChange),
             due_date,
+            tags: req.tags.map(FieldUpdate::Set).unwrap_or(FieldUpdate::NoChange),
             sprint_id: FieldUpdate::NoChange,
         };
         let card = locked_write(&self.ctx, |ctx| {
@@ -541,6 +543,7 @@ mod tests {
                         due_date: None,
                         points: None,
                         sprint_id: None,
+                        tags: None,
                     },
                 }))
                 .await
@@ -590,6 +593,7 @@ mod tests {
                     due_date: None,
                     clear_due_date: None,
                     points: None,
+                    tags: None,
                 }))
                 .await
                 .unwrap(),
@@ -614,6 +618,7 @@ mod tests {
                         due_date: None,
                         points: None,
                         sprint_id: None,
+                        tags: None,
                     },
                 }))
                 .await
@@ -639,6 +644,7 @@ mod tests {
                     due_date: None,
                     clear_due_date: None,
                     points: None,
+                    tags: None,
                 }))
                 .await
                 .unwrap(),
@@ -663,6 +669,7 @@ mod tests {
                         due_date: None,
                         points: None,
                         sprint_id: None,
+                        tags: None,
                     },
                 }))
                 .await
@@ -736,6 +743,7 @@ mod tests {
                     order: None,
                     page: None,
                     page_size: None,
+                    tags: None,
                 }))
                 .await
                 .unwrap(),
@@ -771,6 +779,7 @@ mod tests {
                     order: None,
                     page: None,
                     page_size: None,
+                    tags: None,
                 }))
                 .await
                 .unwrap(),
@@ -799,6 +808,7 @@ mod tests {
                 order: None,
                 page: None,
                 page_size: None,
+                tags: None,
             }))
             .await
             .unwrap_err();
@@ -825,6 +835,7 @@ mod tests {
                     due_date: None,
                     clear_due_date: None,
                     points: None,
+                    tags: None,
                 }))
                 .await
                 .unwrap(),
@@ -855,6 +866,7 @@ mod tests {
                         due_date: None,
                         points: None,
                         sprint_id: None,
+                        tags: None,
                     },
                 }))
                 .await
@@ -875,6 +887,7 @@ mod tests {
                     order: None,
                     page: None,
                     page_size: None,
+                    tags: None,
                 }))
                 .await
                 .unwrap(),
@@ -907,6 +920,7 @@ mod tests {
                         due_date: None,
                         points: None,
                         sprint_id: None,
+                        tags: None,
                     },
                 }))
                 .await
@@ -927,6 +941,7 @@ mod tests {
                     order: None,
                     page: None,
                     page_size: None,
+                    tags: None,
                 }))
                 .await
                 .unwrap(),
@@ -969,6 +984,7 @@ mod tests {
                         due_date: None,
                         points: None,
                         sprint_id: None,
+                        tags: None,
                     },
                 }))
                 .await
@@ -997,6 +1013,7 @@ mod tests {
                     order: None,
                     page: None,
                     page_size: None,
+                    tags: None,
                 }))
                 .await
                 .unwrap(),
@@ -1022,6 +1039,7 @@ mod tests {
                     order: None,
                     page: None,
                     page_size: None,
+                    tags: None,
                 }))
                 .await
                 .unwrap(),
@@ -1079,6 +1097,7 @@ mod tests {
                     due_date: None,
                     clear_due_date: None,
                     points: None,
+                    tags: None,
                 }))
                 .await,
         )
@@ -1168,6 +1187,7 @@ mod tests {
                     due_date: None,
                     clear_due_date: None,
                     points: None,
+                    tags: None,
                 }))
                 .await,
         )
@@ -1423,6 +1443,7 @@ mod tests {
                 order: None,
                 page: None,
                 page_size: None,
+                tags: None,
             }))
             .await
             .unwrap_err();
@@ -1452,6 +1473,7 @@ mod tests {
                 order: None,
                 page: None,
                 page_size: None,
+                tags: None,
             }))
             .await
             .unwrap_err();
@@ -1478,6 +1500,7 @@ mod tests {
                 order: None,
                 page: None,
                 page_size: None,
+                tags: None,
             }))
             .await
             .unwrap_err();
@@ -1502,6 +1525,7 @@ mod tests {
                 order: None,
                 page: None,
                 page_size: None,
+                tags: None,
             }))
             .await
             .unwrap_err();
@@ -1527,6 +1551,7 @@ mod tests {
                     due_date: None,
                     points: None,
                     sprint_id: None,
+                    tags: None,
                 },
             }))
             .await
@@ -1545,6 +1570,7 @@ mod tests {
                     order: None,
                     page: None,
                     page_size: None,
+                    tags: None,
                 }))
                 .await
                 .unwrap(),
@@ -1573,6 +1599,7 @@ mod tests {
                     due_date: None,
                     points: None,
                     sprint_id: None,
+                    tags: None,
                 },
             }))
             .await
@@ -1605,6 +1632,7 @@ mod tests {
                     due_date: None,
                     points: None,
                     sprint_id: None,
+                    tags: None,
                 },
             }))
             .await
@@ -1635,6 +1663,7 @@ mod tests {
                 order: None,
                 page: None,
                 page_size: None,
+                tags: None,
             }))
             .await
             .unwrap_err();
@@ -1664,6 +1693,7 @@ mod tests {
                 order: None,
                 page: None,
                 page_size: None,
+                tags: None,
             }))
             .await
             .unwrap_err();
@@ -1731,6 +1761,7 @@ mod tests {
                         due_date: None,
                         points: None,
                         sprint_id: None,
+                        tags: None,
                     },
                 }))
                 .await
@@ -1748,6 +1779,7 @@ mod tests {
                 due_date: None,
                 clear_due_date: None,
                 points: None,
+                tags: None,
             }))
             .await
             .unwrap_err();
@@ -1835,6 +1867,7 @@ mod tests {
                         due_date: None,
                         points: None,
                         sprint_id: None,
+                        tags: None,
                     },
                 }))
                 .await
@@ -1866,6 +1899,7 @@ mod tests {
                     due_date: None,
                     clear_due_date: None,
                     points: None,
+                    tags: None,
                 }))
                 .await
                 .unwrap(),
@@ -1952,6 +1986,7 @@ mod tests {
                         due_date: None,
                         points: None,
                         sprint_id: None,
+                        tags: None,
                     },
                 }))
                 .await
@@ -2066,5 +2101,230 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_delete_card_by_identifier_on_an_archived_board_still_deletes_it_on_sqlite() {
         assert_delete_card_on_an_archived_board_still_deletes_it("test.sqlite").await;
+    }
+
+    #[tokio::test]
+    async fn test_mcp_create_with_tags_produces_card_with_same_tags() {
+        let seeded = seeded_server("test.json").await;
+        let response = text_payload(
+            &seeded
+                .server
+                .tool_create_card(Parameters(CreateCardParams {
+                    board: "Alpha".to_string(),
+                    column: "TODO".to_string(),
+                    sprint: None,
+                    content: kanban_service::api::CreateCardRequest {
+                        id: None,
+                        title: "With tags".to_string(),
+                        description: None,
+                        priority: None,
+                        due_date: None,
+                        points: None,
+                        sprint_id: None,
+                        tags: Some(vec!["a".to_string(), "b".to_string()]),
+                    },
+                }))
+                .await
+                .unwrap(),
+        );
+        assert_eq!(
+            response["tags"],
+            serde_json::json!(["a", "b"]),
+            "created card must carry the tags passed in"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_mcp_update_tags_some_sets_empty_clears_none_unchanged() {
+        let seeded = seeded_server("test.json").await;
+        // Step 1: tags Some(["x","y"]) -> card.tags == ["x","y"]
+        let res1 = text_payload(
+            &seeded
+                .server
+                .tool_update_card(Parameters(UpdateCardRequest {
+                    card: seeded.card_id.clone(),
+                    title: None,
+                    description: None,
+                    priority: None,
+                    status: None,
+                    due_date: None,
+                    clear_due_date: None,
+                    points: None,
+                    tags: Some(vec!["x".to_string(), "y".to_string()]),
+                }))
+                .await
+                .unwrap(),
+        );
+        assert_eq!(
+            res1["tags"],
+            serde_json::json!(["x", "y"]),
+            "after setting tags to [x, y], response must carry [x, y]"
+        );
+        // Step 2: tags Some([]) -> card.tags == []
+        let res2 = text_payload(
+            &seeded
+                .server
+                .tool_update_card(Parameters(UpdateCardRequest {
+                    card: seeded.card_id.clone(),
+                    title: None,
+                    description: None,
+                    priority: None,
+                    status: None,
+                    due_date: None,
+                    clear_due_date: None,
+                    points: None,
+                    tags: Some(vec![]),
+                }))
+                .await
+                .unwrap(),
+        );
+        assert_eq!(
+            res2["tags"],
+            serde_json::json!([]),
+            "after clearing with empty list, response must carry []"
+        );
+        // Step 3: tags None -> card.tags unchanged (still [])
+        let res3 = text_payload(
+            &seeded
+                .server
+                .tool_update_card(Parameters(UpdateCardRequest {
+                    card: seeded.card_id.clone(),
+                    title: Some("Still no tags".into()),
+                    description: None,
+                    priority: None,
+                    status: None,
+                    due_date: None,
+                    clear_due_date: None,
+                    points: None,
+                    tags: None,
+                }))
+                .await
+                .unwrap(),
+        );
+        assert_eq!(
+            res3["tags"],
+            serde_json::json!([]),
+            "after omitting tags (None), response must remain []"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_mcp_list_with_tags_sets_filter_tags() {
+        let seeded = seeded_server("test.json").await;
+        // The seeded card has no tags. Create a second card tagged "t1".
+        let card_t1 = text_payload(
+            &seeded
+                .server
+                .tool_create_card(Parameters(CreateCardParams {
+                    board: "Alpha".to_string(),
+                    column: "TODO".to_string(),
+                    sprint: None,
+                    content: kanban_service::api::CreateCardRequest {
+                        id: None,
+                        title: "Card with t1".to_string(),
+                        description: None,
+                        priority: None,
+                        due_date: None,
+                        points: None,
+                        sprint_id: None,
+                        tags: Some(vec!["t1".to_string()]),
+                    },
+                }))
+                .await
+                .unwrap(),
+        );
+        // List with tags=["t1"] returns exactly the card tagged t1.
+        let filtered = text_payload(
+            &seeded
+                .server
+                .tool_list_cards(Parameters(ListCardsRequest {
+                    board: Some("Alpha".to_string()),
+                    column: None,
+                    sprint: None,
+                    status: None,
+                    archived: None,
+                    sort: None,
+                    order: None,
+                    page: None,
+                    page_size: None,
+                    tags: Some(vec!["t1".to_string()]),
+                }))
+                .await
+                .unwrap(),
+        );
+        let items = filtered["items"].as_array().expect("list response must have items");
+        assert_eq!(
+            items.len(),
+            1,
+            "filtering by tags=[t1] must return exactly one card"
+        );
+        assert_eq!(
+            items[0]["id"], card_t1["id"],
+            "the card returned must be the one tagged t1"
+        );
+        // List with no tag filter returns all cards (at least 2).
+        let all = text_payload(
+            &seeded
+                .server
+                .tool_list_cards(Parameters(ListCardsRequest {
+                    board: Some("Alpha".to_string()),
+                    column: None,
+                    sprint: None,
+                    status: None,
+                    archived: None,
+                    sort: None,
+                    order: None,
+                    page: None,
+                    page_size: None,
+                    tags: None,
+                }))
+                .await
+                .unwrap(),
+        );
+        let all_items = all["items"].as_array().expect("list response must have items");
+        assert!(
+            all_items.len() >= 2,
+            "no tag filter must return at least the two seeded cards"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_mcp_get_card_returns_tags() {
+        let seeded = seeded_server("test.json").await;
+        // Create a card with tags ["alpha", "beta"].
+        let created = text_payload(
+            &seeded
+                .server
+                .tool_create_card(Parameters(CreateCardParams {
+                    board: "Alpha".to_string(),
+                    column: "TODO".to_string(),
+                    sprint: None,
+                    content: kanban_service::api::CreateCardRequest {
+                        id: None,
+                        title: "Get card tags test".to_string(),
+                        description: None,
+                        priority: None,
+                        due_date: None,
+                        points: None,
+                        sprint_id: None,
+                        tags: Some(vec!["alpha".to_string(), "beta".to_string()]),
+                    },
+                }))
+                .await
+                .unwrap(),
+        );
+        let card_id = created["id"].as_str().expect("card id must be a string").to_string();
+        let fetched = text_payload(
+            &seeded
+                .server
+                .tool_get_card(Parameters(GetCardRequest { card: card_id }))
+                .await
+                .unwrap(),
+        );
+        assert_eq!(
+            fetched["tags"],
+            serde_json::json!(["alpha", "beta"]),
+            "get card must return the card's tags"
+        );
     }
 }

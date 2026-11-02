@@ -42,6 +42,7 @@ fn card_in(board_id: Uuid, column_id: Uuid, title: &str) -> Card {
         position: 3,
         due_date: Some("2024-05-05T00:00:00Z".parse().unwrap()),
         points: Some(3),
+        tags: Vec::new(),
         card_number: 42,
         sprint_id: None,
         created_at: "2024-01-01T00:00:00Z".parse().unwrap(),

@@ -42,6 +42,7 @@ fn card_in(column_id: Uuid, title: &str, position: i32) -> Card {
         position,
         due_date: None,
         points: None,
+        tags: Vec::new(),
         card_number: position as u32 + 1,
         sprint_id: None,
         created_at: "2024-01-01T00:00:00Z".parse().unwrap(),

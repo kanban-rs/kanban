@@ -5,7 +5,7 @@ use std::path::Path;
 use tempfile::TempDir;
 use uuid::Uuid;
 
-use super::super::SqliteStore;
+use super::super::{SqliteStore, SUPPORTED_SCHEMA_VERSION};
 use super::make_rt;
 
 /// Seed a schema_version-8 shaped DB directly, with `board_completion_columns`
@@ -230,7 +230,7 @@ fn test_sqlite_migration_drops_board_completion_columns_and_preserves_the_graph(
             .fetch_one(store.pool())
             .await
             .unwrap();
-        assert_eq!(version, 13, "schema_version must be bumped to the current version");
+        assert_eq!(version, SUPPORTED_SCHEMA_VERSION, "schema_version must be bumped to the current version");
     });
 }
 

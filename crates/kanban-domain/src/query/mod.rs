@@ -11,8 +11,8 @@ pub mod filter_sort;
 pub mod sprint;
 
 pub use filter_sort::{
-    count_filtered_cards, filter_and_sort_boards, filter_and_sort_cards, resolve_board_sort,
-    ArchivedFilter, BoardListFilter, CardListFilter,
+    card_matches_tags, count_filtered_cards, filter_and_sort_boards, filter_and_sort_cards,
+    parse_csv_tags, resolve_board_sort, ArchivedFilter, BoardListFilter, CardListFilter,
 };
 
 use crate::{Board, Card, Column, Sprint};

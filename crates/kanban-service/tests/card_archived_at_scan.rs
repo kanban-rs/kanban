@@ -253,6 +253,7 @@ fn test_card_get_by_id_zero_list_archived_cards_calls() {
                 due_date: None,
                 points: None,
                 sprint_id: None,
+                tags: Vec::new(),
             },
         )
         .unwrap();
@@ -281,6 +282,7 @@ fn make_card(ctx: &mut KanbanContext, col_id: Uuid, title: &str) -> Card {
             due_date: None,
             points: None,
             sprint_id: None,
+            tags: Vec::new(),
         },
     )
     .unwrap()

@@ -41,6 +41,7 @@ fn spec(column_id: Uuid, title: &str) -> NewCard {
         due_date: None,
         points: None,
         sprint_id: None,
+        tags: Vec::new(),
     }
 }
 
@@ -227,6 +228,7 @@ async fn test_create_card_applies_all_create_options_in_one_call() {
                 due_date: Some(due),
                 points: Some(8),
                 sprint_id: None,
+                tags: Vec::new(),
             },
         )
         .unwrap();
@@ -264,6 +266,7 @@ async fn test_put_create_card_is_idempotent_create_or_replace() {
         due_date: None,
         points: Some(3),
         sprint_id: None,
+        tags: Vec::new(),
     };
     let (second, _inv) = ctx.create_or_replace_card(id, replacement).unwrap();
     assert!(!second.created, "present id reports replace");

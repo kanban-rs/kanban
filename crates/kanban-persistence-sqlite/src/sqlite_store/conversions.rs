@@ -79,6 +79,13 @@ pub(crate) fn row_to_card(row: &SqliteRow, sprint_logs: Vec<SprintLog>) -> Kanba
     let status_str: String = row.try_get("status").map_err(db_err)?;
     let points_raw: Option<i32> = row.try_get("points").map_err(db_err)?;
     let prefix: String = row.try_get("prefix").map_err(db_err)?;
+    let tags_json: Option<String> = row.try_get("tags").map_err(db_err)?;
+    let tags = match tags_json.as_deref().filter(|s| !s.is_empty()) {
+        Some(raw) => {
+            serde_json::from_str::<Vec<String>>(raw).map_err(|e| ser_err(e.to_string()))?
+        }
+        None => Vec::new(),
+    };
 
     let record = CardRecord {
         id: p_uuid(&id_str)?,
@@ -93,6 +100,7 @@ pub(crate) fn row_to_card(row: &SqliteRow, sprint_logs: Vec<SprintLog>) -> Kanba
         points: points_raw
             .map(|v| u8::try_from(v).map_err(|_| ser_err(format!("points {v} out of range"))))
             .transpose()?,
+        tags,
         card_number: row.try_get::<i32, _>("card_number").map_err(db_err)? as u32,
         sprint_id: sprint_id_str.as_deref().map(p_uuid).transpose()?,
         created_at: p_dt(&created_at_str)?,

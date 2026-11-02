@@ -6,7 +6,9 @@
 //! field on either side is a compile error.
 
 use super::requests::{CreateCardRequest, ReplaceCardRequest, UpdateCardRequest};
-use kanban_domain::{CardPriority, CardUpdate, ColumnId, KanbanError, KanbanResult, NewCard};
+use kanban_domain::{
+    CardPriority, CardUpdate, ColumnId, FieldUpdate, KanbanError, KanbanResult, NewCard,
+};
 use uuid::Uuid;
 
 impl CreateCardRequest {
@@ -26,6 +28,7 @@ impl CreateCardRequest {
             due_date,
             points,
             sprint_id,
+            tags,
         } = self;
         let spec = NewCard {
             column_id,
@@ -37,6 +40,7 @@ impl CreateCardRequest {
             due_date,
             points,
             sprint_id,
+            tags: tags.unwrap_or_default(),
         };
         Ok((id, spec))
     }
@@ -56,6 +60,7 @@ impl TryFrom<UpdateCardRequest> for CardUpdate {
             due_date,
             points,
             sprint_id,
+            tags,
         } = req;
         Ok(CardUpdate {
             title,
@@ -67,6 +72,7 @@ impl TryFrom<UpdateCardRequest> for CardUpdate {
             due_date: due_date.into(),
             points: points.into(),
             sprint_id: sprint_id.into(),
+            tags: tags.into(),
         })
     }
 }
@@ -85,6 +91,7 @@ impl TryFrom<ReplaceCardRequest> for CardUpdate {
             due_date,
             points,
             sprint_id,
+            tags,
         } = req;
         Ok(CardUpdate {
             title: Some(title),
@@ -96,6 +103,10 @@ impl TryFrom<ReplaceCardRequest> for CardUpdate {
             due_date: due_date.into(),
             points: points.into(),
             sprint_id: sprint_id.into(),
+            tags: match tags {
+                Some(v) => FieldUpdate::Set(v),
+                None => FieldUpdate::Clear,
+            },
         })
     }
 }
@@ -122,6 +133,7 @@ mod tests {
             due_date: Some(due),
             points: Some(5),
             sprint_id: Some(sprint_id),
+            tags: Some(vec!["tag".to_string()]),
         };
         let (id, spec) = req.into_new_card(column_id).unwrap();
         assert_eq!(id, Some(client_id));
@@ -135,8 +147,34 @@ mod tests {
                 due_date: Some(due),
                 points: Some(5),
                 sprint_id: Some(sprint_id),
+                tags: vec!["tag".to_string()],
             }
         );
+    }
+
+    #[test]
+    fn test_into_new_card_maps_some_tags_to_new_card() {
+        let column_id = Uuid::new_v4();
+        let req = CreateCardRequest {
+            id: None,
+            title: "Task".to_string(),
+            description: None,
+            priority: None,
+            due_date: None,
+            points: None,
+            sprint_id: None,
+            tags: Some(vec!["a".to_string()]),
+        };
+        let (_, spec) = req.into_new_card(column_id).unwrap();
+        assert_eq!(spec.tags, vec!["a".to_string()]);
+    }
+
+    #[test]
+    fn test_into_new_card_maps_none_tags_to_empty() {
+        let column_id = Uuid::new_v4();
+        let req: CreateCardRequest = serde_json::from_str(r#"{"title":"x"}"#).unwrap();
+        let (_, spec) = req.into_new_card(column_id).unwrap();
+        assert!(spec.tags.is_empty());
     }
 
     #[test]
@@ -161,6 +199,7 @@ mod tests {
             due_date: Patch::NoChange,
             points: Patch::Set(2),
             sprint_id: Patch::NoChange,
+            tags: Patch::NoChange,
         };
         let update = CardUpdate::try_from(req).unwrap();
         assert_eq!(update.title, Some("New".to_string()));
@@ -172,6 +211,7 @@ mod tests {
         assert_eq!(update.due_date, FieldUpdate::NoChange);
         assert_eq!(update.points, FieldUpdate::Set(2));
         assert_eq!(update.sprint_id, FieldUpdate::NoChange);
+        assert_eq!(update.tags, FieldUpdate::NoChange);
     }
 
     #[test]
@@ -191,6 +231,110 @@ mod tests {
         assert_eq!(update.due_date, FieldUpdate::Clear);
         assert_eq!(update.points, FieldUpdate::Clear);
         assert_eq!(update.sprint_id, FieldUpdate::Clear);
+    }
+
+    #[test]
+    fn test_update_request_tags_set_maps_to_field_update_set() {
+        let req = UpdateCardRequest {
+            title: None,
+            priority: None,
+            status: None,
+            position: None,
+            column_id: None,
+            description: Patch::NoChange,
+            due_date: Patch::NoChange,
+            points: Patch::NoChange,
+            sprint_id: Patch::NoChange,
+            tags: Patch::Set(vec!["a".to_string()]),
+        };
+        let card_update = CardUpdate::try_from(req).unwrap();
+        assert!(
+            matches!(card_update.tags, FieldUpdate::Set(ref v) if v == &vec!["a".to_string()]),
+            "Patch::Set([\"a\"]) must map to FieldUpdate::Set([\"a\"])"
+        );
+    }
+
+    #[test]
+    fn test_update_request_tags_clear_maps_to_field_update_clear() {
+        let req = UpdateCardRequest {
+            title: None,
+            priority: None,
+            status: None,
+            position: None,
+            column_id: None,
+            description: Patch::NoChange,
+            due_date: Patch::NoChange,
+            points: Patch::NoChange,
+            sprint_id: Patch::NoChange,
+            tags: Patch::Clear,
+        };
+        let card_update = CardUpdate::try_from(req).unwrap();
+        assert!(
+            matches!(card_update.tags, FieldUpdate::Clear),
+            "Patch::Clear must map to FieldUpdate::Clear"
+        );
+    }
+
+    #[test]
+    fn test_update_request_tags_nochange_maps_to_no_change() {
+        let req = UpdateCardRequest {
+            title: None,
+            priority: None,
+            status: None,
+            position: None,
+            column_id: None,
+            description: Patch::NoChange,
+            due_date: Patch::NoChange,
+            points: Patch::NoChange,
+            sprint_id: Patch::NoChange,
+            tags: Patch::NoChange,
+        };
+        let card_update = CardUpdate::try_from(req).unwrap();
+        assert!(
+            matches!(card_update.tags, FieldUpdate::NoChange),
+            "Patch::NoChange must map to FieldUpdate::NoChange"
+        );
+    }
+
+    #[test]
+    fn test_replace_request_tags_none_clears_some_sets() {
+        // tags: None -> FieldUpdate::Clear (replace semantics: absent = cleared)
+        let req_none = ReplaceCardRequest {
+            title: "R".to_string(),
+            priority: CardPriorityDto::Medium,
+            status: CardStatusDto::Todo,
+            position: 0,
+            column_id: Uuid::new_v4(),
+            description: None,
+            due_date: None,
+            points: None,
+            sprint_id: None,
+            tags: None,
+        };
+        let update_none = CardUpdate::try_from(req_none).unwrap();
+        assert!(
+            matches!(update_none.tags, FieldUpdate::Clear),
+            "ReplaceCardRequest tags:None must map to FieldUpdate::Clear"
+        );
+
+        // tags: Some(["x"]) -> FieldUpdate::Set(["x"])
+        let req_some = ReplaceCardRequest {
+            title: "R".to_string(),
+            priority: CardPriorityDto::Medium,
+            status: CardStatusDto::Todo,
+            position: 0,
+            column_id: Uuid::new_v4(),
+            description: None,
+            due_date: None,
+            points: None,
+            sprint_id: None,
+            tags: Some(vec!["x".to_string()]),
+        };
+        let update_some = CardUpdate::try_from(req_some).unwrap();
+        assert!(
+            matches!(update_some.tags, FieldUpdate::Set(ref v) if v == &vec!["x".to_string()]),
+            "ReplaceCardRequest tags:Some([\"x\"]) must map to FieldUpdate::Set([\"x\"])"
+        );
     }
 
     #[test]

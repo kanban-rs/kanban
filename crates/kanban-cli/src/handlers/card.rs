@@ -310,6 +310,7 @@ fn build_filter(ctx: &CliContext, args: &CardListArgs) -> Result<CardListFilter,
         column_id,
         sprint_ids: sprint_id.map(|sid| std::iter::once(sid).collect()),
         status,
+        tags: kanban_domain::parse_csv_tags(args.tags.as_deref()),
         sort: args.sort.map(|s| s.to_sort_field()),
         sort_order: args.order.map(|o| o.to_sort_order()),
         archived,
@@ -357,11 +358,17 @@ fn build_create_options(args: &CardCreateArgs) -> Result<CreateCardOptions, Stri
         Some(d) => Some(parse_datetime_input(d)?),
         None => None,
     };
+    let tags = if args.tags.is_empty() {
+        None
+    } else {
+        Some(args.tags.clone())
+    };
     Ok(CreateCardOptions {
         description: args.description.clone(),
         priority,
         points: args.points,
         due_date,
+        tags,
         ..Default::default()
     })
 }
@@ -397,6 +404,13 @@ fn build_card_update(args: &CardUpdateArgs) -> Result<CardUpdate, String> {
                 Some(d) => FieldUpdate::Set(parse_datetime_input(d)?),
                 None => FieldUpdate::NoChange,
             }
+        },
+        tags: if args.clear_tags {
+            FieldUpdate::Clear
+        } else if !args.tags.is_empty() {
+            FieldUpdate::Set(args.tags.clone())
+        } else {
+            FieldUpdate::NoChange
         },
         sprint_id: FieldUpdate::NoChange,
     })
@@ -739,6 +753,7 @@ mod build_filter_tests {
             column: None,
             sprint: None,
             status: None,
+            tags: None,
             archived: false,
             include_archived: false,
             sort: None,

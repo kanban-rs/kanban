@@ -144,6 +144,7 @@ mod tests {
             points: Some(3),
             due_date: None,
             sprint_id: None,
+            tags: None,
         };
         let json = serde_json::to_string(&opts).unwrap();
         let back: crate::CreateCardOptions = serde_json::from_str(&json).unwrap();

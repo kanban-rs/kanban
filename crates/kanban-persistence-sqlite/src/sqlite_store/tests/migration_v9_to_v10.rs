@@ -33,7 +33,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Pool, Sqlite};
 use tempfile::TempDir;
 
-use super::super::{SqliteStore, SCHEMA};
+use super::super::{SqliteStore, SCHEMA, SUPPORTED_SCHEMA_VERSION};
 use super::make_rt;
 
 fn fixture_path() -> std::path::PathBuf {
@@ -435,7 +435,7 @@ fn test_migrate_v9_to_v10_bumps_schema_version_to_10() {
             .fetch_one(store.pool())
             .await
             .unwrap();
-        assert_eq!(version, 13);
+        assert_eq!(version, SUPPORTED_SCHEMA_VERSION);
     });
 }
 
