@@ -2332,6 +2332,7 @@ async fn test_mcp_list_archived_cards_includes_board_id() {
                 order: None,
                 page: None,
                 page_size: None,
+                tags: None,
             }))
             .await
             .unwrap(),
@@ -2410,6 +2411,7 @@ async fn test_mcp_list_cards_archived_selector() {
         order: None,
         page: None,
         page_size: None,
+        tags: None,
     };
 
     // default / exclude: live only, no archived_at.
@@ -3067,6 +3069,7 @@ async fn test_list_archived_cards_returns_card_summary_shape() {
                 order: None,
                 page: None,
                 page_size: None,
+                tags: None,
             }))
             .await
             .unwrap(),
@@ -3579,6 +3582,7 @@ async fn test_update_card_status_done_lands_in_configured_column_via_mcp() {
             due_date: None,
             clear_due_date: None,
             points: None,
+            tags: None,
         }))
         .await
         .unwrap();

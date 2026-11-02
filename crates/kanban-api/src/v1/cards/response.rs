@@ -32,6 +32,8 @@ pub struct CardResponse {
     pub position: i32,
     pub due_date: Option<DateTime<Utc>>,
     pub points: Option<u8>,
+    #[serde(default)]
+    pub tags: Vec<String>,
     pub card_number: u32,
     pub sprint_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
@@ -76,8 +78,7 @@ impl From<&Card> for CardResponse {
             completed_at,
             sprint_logs: _,
             prefix,
-            // Not part of the HTTP card projection yet (a later leaf).
-            tags: _,
+            tags,
         } = card;
         Self {
             id: *id,
@@ -91,6 +92,7 @@ impl From<&Card> for CardResponse {
             position: *position,
             due_date: *due_date,
             points: *points,
+            tags: tags.clone(),
             card_number: *card_number,
             sprint_id: *sprint_id,
             created_at: *created_at,

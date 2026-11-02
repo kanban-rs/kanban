@@ -119,6 +119,7 @@ pub(crate) fn card_from_response(resp: &CardResponse) -> Card {
         position,
         due_date,
         points,
+        tags,
         card_number,
         sprint_id,
         created_at,
@@ -137,13 +138,13 @@ pub(crate) fn card_from_response(resp: &CardResponse) -> Card {
         position,
         due_date,
         points,
+        tags,
         card_number,
         prefix,
         sprint_id,
         created_at,
         updated_at,
         completed_at,
-        tags: Vec::new(),
         sprint_logs: Vec::new(),
     }
 }
