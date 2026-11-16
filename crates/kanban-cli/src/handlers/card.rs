@@ -482,6 +482,18 @@ mod card_board_id_tests {
         fn upsert_prefix(&self, prefix: kanban_domain::Prefix) -> KanbanResult<()> {
             self.inner.upsert_prefix(prefix)
         }
+        fn get_label(&self, _name: &str) -> KanbanResult<Option<kanban_domain::Label>> {
+            unimplemented!()
+        }
+        fn list_labels(&self) -> KanbanResult<Vec<kanban_domain::Label>> {
+            unimplemented!()
+        }
+        fn upsert_label(&self, _label: kanban_domain::Label) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn delete_label(&self, _name: &str) -> KanbanResult<()> {
+            unimplemented!()
+        }
         fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
             self.inner.get_board(id)
         }

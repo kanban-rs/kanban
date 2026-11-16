@@ -3,7 +3,7 @@ use crate::KanbanResult;
 use crate::{
     AmbiguousMatch, ArchivedBoard, ArchivedCard, BatchResolutionCause, BatchResolutionFailure,
     Board, BoardUpdate, Card, CardSummary, CardUpdate, Column, ColumnUpdate, CreateCardOptions,
-    KanbanError, Sprint, SprintUpdate,
+    KanbanError, Label, Sprint, SprintUpdate,
 };
 use uuid::Uuid;
 
@@ -124,6 +124,16 @@ pub trait KanbanOperations {
     fn complete_sprint(&mut self, id: Uuid) -> KanbanResult<Sprint>;
     fn cancel_sprint(&mut self, id: Uuid) -> KanbanResult<Sprint>;
     fn delete_sprint(&mut self, id: Uuid) -> KanbanResult<()>;
+
+    // Label operations
+    /// List all labels in the global registry.
+    fn list_labels(&self) -> KanbanResult<Vec<Label>>;
+    /// Get a label by its exact name (case-sensitive).
+    fn get_label(&self, name: &str) -> KanbanResult<Option<Label>>;
+    /// Create or update a label (upsert by name).
+    fn upsert_label(&mut self, label: Label) -> KanbanResult<Label>;
+    /// Delete a label by name.
+    fn delete_label(&mut self, name: String) -> KanbanResult<()>;
 
     // Import/Export
     fn export_board(&self, board_id: Option<Uuid>) -> KanbanResult<String>;

@@ -25,6 +25,8 @@ pub enum Commands {
     Card(CardCommand),
     /// Card-relation operations (parent/child)
     Relation(RelationCommand),
+    /// Label operations (global taxonomy registry)
+    Label(LabelCommand),
     /// Sprint operations
     Sprint(SprintCommand),
     /// Export board data
@@ -696,6 +698,46 @@ pub struct SprintUpdateArgs {
     pub clear_start_date: bool,
     #[arg(long)]
     pub clear_end_date: bool,
+}
+
+// Label commands
+#[derive(Args)]
+pub struct LabelCommand {
+    #[command(subcommand)]
+    pub action: LabelAction,
+}
+
+#[derive(Subcommand)]
+pub enum LabelAction {
+    /// List all labels in the global registry
+    List {
+        #[arg(long)]
+        page: Option<u32>,
+        #[arg(long)]
+        page_size: Option<u32>,
+    },
+    /// Get a label by its exact name
+    Get {
+        /// Exact name of the label (case-sensitive)
+        name: String,
+    },
+    /// Create or update a label (upsert by name)
+    Upsert {
+        /// Exact name of the label (case-sensitive; identity key)
+        #[arg(long)]
+        name: String,
+        /// CSS-style colour, e.g. '#ff0000' or 'red'
+        #[arg(long)]
+        color: Option<String>,
+        /// Free-text description
+        #[arg(long)]
+        description: Option<String>,
+    },
+    /// Delete a label by its exact name
+    Delete {
+        /// Exact name of the label (case-sensitive)
+        name: String,
+    },
 }
 
 // Migrate command

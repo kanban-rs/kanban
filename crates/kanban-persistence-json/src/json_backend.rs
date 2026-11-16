@@ -210,6 +210,20 @@ impl DataStore for JsonDataStore {
         self.with_mutate(|s| s.upsert_prefix(prefix))
     }
 
+    // Label
+    fn get_label(&self, name: &str) -> KanbanResult<Option<kanban_domain::Label>> {
+        self.with_read(|s| s.get_label(name))
+    }
+    fn list_labels(&self) -> KanbanResult<Vec<kanban_domain::Label>> {
+        self.with_read(|s| s.list_labels())
+    }
+    fn upsert_label(&self, label: kanban_domain::Label) -> KanbanResult<()> {
+        self.with_mutate(|s| s.upsert_label(label))
+    }
+    fn delete_label(&self, name: &str) -> KanbanResult<()> {
+        self.with_mutate(|s| s.delete_label(name))
+    }
+
     // Board
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
         self.with_read(|s| s.get_board(id))

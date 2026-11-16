@@ -1,6 +1,7 @@
 pub mod board;
 pub mod card;
 pub mod column;
+pub mod labels;
 pub mod sprint;
 pub mod transfer;
 
@@ -24,3 +25,4 @@ pub use sprint::{
     UpdateSprintRequest,
 };
 pub use transfer::{ExportBoardRequest, ImportBoardRequest};
+pub use labels::{DeleteLabelRequest, GetLabelRequest, ListLabelsRequest, UpsertLabelRequest};

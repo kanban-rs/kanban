@@ -60,8 +60,8 @@ fn test_sqlite_migration_v13_to_v14_adds_tags_empty() {
         // Step 3: reopening triggers the 13 -> 14 migration
         let store = SqliteStore::open(&path).await.unwrap();
 
-        // Step 4: binary constant must be 14
-        assert_eq!(SUPPORTED_SCHEMA_VERSION, 14);
+        // Step 4: binary constant must be 15 (labels migration added v14 -> v15)
+        assert_eq!(SUPPORTED_SCHEMA_VERSION, 15);
 
         // Step 5: schema_version in the DB is now 14
         let version: u32 = sqlx::query_scalar("SELECT schema_version FROM metadata WHERE id = 1")

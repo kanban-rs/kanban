@@ -34,6 +34,7 @@ async fn test_load_initial_state_with_boards_refreshes_card_view() -> KanbanResu
         cards: vec![card],
         archived_cards: vec![],
         sprints: vec![],
+        labels: Vec::new(),
         graph: Default::default(),
         prefixes: Vec::new(),
     };

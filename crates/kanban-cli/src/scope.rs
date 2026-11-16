@@ -93,7 +93,8 @@ impl CommandScope {
             Commands::Import(_)
             | Commands::Completions { .. }
             | Commands::Migrate(_)
-            | Commands::Init { .. } => {}
+            | Commands::Init { .. }
+            | Commands::Label(_) => {}
         }
 
         scope

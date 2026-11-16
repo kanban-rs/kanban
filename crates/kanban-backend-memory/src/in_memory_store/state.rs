@@ -26,6 +26,8 @@ pub(super) struct StoreState {
     /// read or allocated from -- the mirror holds them so a save cannot drop
     /// what the V15 backfill wrote.
     pub(crate) prefixes: Vec<kanban_domain::Prefix>,
+    /// Global label registry, mirrored the same way as prefixes.
+    pub(crate) labels: Vec<kanban_domain::Label>,
 }
 
 impl StoreState {
@@ -40,6 +42,7 @@ impl StoreState {
             archived_boards: HashMap::new(),
             graph: DependencyGraph::new(),
             prefixes: Vec::new(),
+            labels: Vec::new(),
         }
     }
 

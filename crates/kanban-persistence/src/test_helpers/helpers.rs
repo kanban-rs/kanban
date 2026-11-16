@@ -145,6 +145,7 @@ pub fn fully_populated_snapshot() -> Snapshot {
         cards: vec![card, archived_live_card],
         archived_cards: vec![archived_card],
         sprints: vec![sprint],
+        labels: Vec::new(),
         graph,
         prefixes: vec![
             Prefix {

@@ -52,6 +52,7 @@ pub fn read_full_snapshot(store: &dyn DataStore) -> KanbanResult<Snapshot> {
         sprints: store.list_all_sprints()?,
         graph: store.get_graph()?,
         prefixes: store.list_prefixes()?,
+        labels: store.list_labels()?,
     })
 }
 
@@ -75,6 +76,9 @@ pub fn write_full_snapshot(store: &dyn DataStore, snapshot: Snapshot) -> KanbanR
     // snapshot written without them restarts every namespace at 1.
     for prefix in snapshot.prefixes {
         store.upsert_prefix(prefix)?;
+    }
+    for label in snapshot.labels {
+        store.upsert_label(label)?;
     }
     for board in snapshot.boards {
         store.upsert_board(board)?;
@@ -168,6 +172,18 @@ mod tests {
         }
         fn upsert_prefix(&self, prefix: kanban_domain::Prefix) -> KanbanResult<()> {
             self.0.upsert_prefix(prefix)
+        }
+        fn get_label(&self, name: &str) -> KanbanResult<Option<kanban_domain::Label>> {
+            self.0.get_label(name)
+        }
+        fn list_labels(&self) -> KanbanResult<Vec<kanban_domain::Label>> {
+            self.0.list_labels()
+        }
+        fn upsert_label(&self, label: kanban_domain::Label) -> KanbanResult<()> {
+            self.0.upsert_label(label)
+        }
+        fn delete_label(&self, name: &str) -> KanbanResult<()> {
+            self.0.delete_label(name)
         }
 
         fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
@@ -633,6 +649,18 @@ mod tests {
         }
         fn upsert_prefix(&self, prefix: kanban_domain::Prefix) -> KanbanResult<()> {
             self.inner.upsert_prefix(prefix)
+        }
+        fn get_label(&self, name: &str) -> KanbanResult<Option<kanban_domain::Label>> {
+            self.inner.get_label(name)
+        }
+        fn list_labels(&self) -> KanbanResult<Vec<kanban_domain::Label>> {
+            self.inner.list_labels()
+        }
+        fn upsert_label(&self, label: kanban_domain::Label) -> KanbanResult<()> {
+            self.inner.upsert_label(label)
+        }
+        fn delete_label(&self, name: &str) -> KanbanResult<()> {
+            self.inner.delete_label(name)
         }
         fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
             self.inner.get_board(id)

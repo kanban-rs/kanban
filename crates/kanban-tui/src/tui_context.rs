@@ -388,6 +388,17 @@ impl MutationOperations for TuiContext {
         let r = self.inner.delete_sprint_impl(id);
         self.with_flush(r)
     }
+    fn upsert_label_impl(
+        &mut self,
+        label: kanban_domain::Label,
+    ) -> KanbanResult<(kanban_domain::Label, Invalidation)> {
+        let r = self.inner.upsert_label_impl(label);
+        self.with_flush(r)
+    }
+    fn delete_label_impl(&mut self, name: String) -> KanbanResult<Invalidation> {
+        let r = self.inner.delete_label_impl(name);
+        self.with_flush(r)
+    }
     fn import_board_impl(&mut self, data: &str) -> KanbanResult<(Board, Invalidation)> {
         let r = self.inner.import_board_impl(data);
         self.with_flush(r)
@@ -775,6 +786,27 @@ impl KanbanOperations for TuiContext {
 
     fn delete_sprint(&mut self, id: Uuid) -> KanbanResult<()> {
         let r = self.inner.delete_sprint(id);
+        self.with_flush(r)
+    }
+
+    fn list_labels(&self) -> KanbanResult<Vec<kanban_domain::Label>> {
+        self.inner.list_labels()
+    }
+
+    fn get_label(&self, name: &str) -> KanbanResult<Option<kanban_domain::Label>> {
+        self.inner.get_label(name)
+    }
+
+    fn upsert_label(
+        &mut self,
+        label: kanban_domain::Label,
+    ) -> KanbanResult<kanban_domain::Label> {
+        let r = self.inner.upsert_label(label);
+        self.with_flush(r)
+    }
+
+    fn delete_label(&mut self, name: String) -> KanbanResult<()> {
+        let r = self.inner.delete_label(name);
         self.with_flush(r)
     }
 

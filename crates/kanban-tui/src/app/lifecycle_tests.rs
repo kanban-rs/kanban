@@ -181,6 +181,21 @@ macro_rules! delegate_data_store {
         fn upsert_prefix(&self, prefix: kanban_domain::Prefix) -> kanban_domain::KanbanResult<()> {
             self.inner.as_data_store().upsert_prefix(prefix)
         }
+        fn get_label(
+            &self,
+            name: &str,
+        ) -> kanban_domain::KanbanResult<Option<kanban_domain::Label>> {
+            self.inner.as_data_store().get_label(name)
+        }
+        fn list_labels(&self) -> kanban_domain::KanbanResult<Vec<kanban_domain::Label>> {
+            self.inner.as_data_store().list_labels()
+        }
+        fn upsert_label(&self, label: kanban_domain::Label) -> kanban_domain::KanbanResult<()> {
+            self.inner.as_data_store().upsert_label(label)
+        }
+        fn delete_label(&self, name: &str) -> kanban_domain::KanbanResult<()> {
+            self.inner.as_data_store().delete_label(name)
+        }
         fn get_column(
             &self,
             id: uuid::Uuid,

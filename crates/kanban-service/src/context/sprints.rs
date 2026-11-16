@@ -390,6 +390,7 @@ impl KanbanContext {
                 sprints,
                 graph,
                 prefixes,
+                labels: self.backend.as_data_store().list_labels()?,
             }
         } else {
             crate::store_adapter::read_full_snapshot(self.backend.as_data_store())?

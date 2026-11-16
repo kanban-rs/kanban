@@ -89,6 +89,85 @@ impl DataStore for SqliteStore {
         }))
     }
 
+    // Label
+
+    fn get_label(&self, name: &str) -> KanbanResult<Option<kanban_domain::Label>> {
+        let name = name.to_string();
+        run(self.db_conn(move |conn| {
+            Box::pin(async move {
+                let row: Option<(String, Option<String>, Option<String>)> =
+                    sqlx::query_as("SELECT name, color, description FROM labels WHERE name = ?")
+                        .bind(&name)
+                        .fetch_optional(&mut *conn)
+                        .await
+                        .map_err(db_err)?;
+                Ok(row.map(|(name, color, description)| kanban_domain::Label {
+                    name,
+                    color,
+                    description,
+                }))
+            })
+        }))
+    }
+
+    fn list_labels(&self) -> KanbanResult<Vec<kanban_domain::Label>> {
+        run(self.db_conn(|conn| {
+            Box::pin(async move {
+                let rows: Vec<(String, Option<String>, Option<String>)> =
+                    sqlx::query_as("SELECT name, color, description FROM labels ORDER BY name ASC")
+                        .fetch_all(&mut *conn)
+                        .await
+                        .map_err(db_err)?;
+                Ok(rows
+                    .into_iter()
+                    .map(|(name, color, description)| kanban_domain::Label {
+                        name,
+                        color,
+                        description,
+                    })
+                    .collect())
+            })
+        }))
+    }
+
+    fn upsert_label(&self, label: kanban_domain::Label) -> KanbanResult<()> {
+        let name = label.name.clone();
+        let color = label.color.clone();
+        let description = label.description.clone();
+        run(self.db_conn(move |conn| {
+            Box::pin(async move {
+                sqlx::query(
+                    "INSERT INTO labels (name, color, description)
+                     VALUES (?, ?, ?)
+                     ON CONFLICT(name) DO UPDATE SET
+                         color = excluded.color,
+                         description = excluded.description",
+                )
+                .bind(name)
+                .bind(color)
+                .bind(description)
+                .execute(&mut *conn)
+                .await
+                .map_err(db_err)?;
+                Ok(())
+            })
+        }))
+    }
+
+    fn delete_label(&self, name: &str) -> KanbanResult<()> {
+        let name = name.to_string();
+        run(self.db_conn(move |conn| {
+            Box::pin(async move {
+                sqlx::query("DELETE FROM labels WHERE name = ?")
+                    .bind(&name)
+                    .execute(&mut *conn)
+                    .await
+                    .map_err(db_err)?;
+                Ok(())
+            })
+        }))
+    }
+
     // Board
 
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {

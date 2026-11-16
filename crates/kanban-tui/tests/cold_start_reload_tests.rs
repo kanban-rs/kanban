@@ -59,6 +59,7 @@ async fn test_cold_start_after_a_sprint_log_migration_loads_the_migrated_state()
         cards: vec![card.clone()],
         archived_cards: vec![],
         sprints: vec![sprint],
+        labels: Vec::new(),
         graph: Default::default(),
         prefixes: Vec::new(),
     };
@@ -108,6 +109,7 @@ async fn test_delete_board_key_after_cold_start_opens_delete_confirm() {
         cards: vec![card.clone()],
         archived_cards: vec![],
         sprints: vec![sprint.clone()],
+        labels: Vec::new(),
         graph: Default::default(),
         prefixes: Vec::new(),
     };

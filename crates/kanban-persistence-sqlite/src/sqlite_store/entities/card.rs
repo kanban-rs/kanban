@@ -93,6 +93,29 @@ impl SqliteStore {
             .map_err(db_err)?;
         }
 
+        // Keep `card_labels` in sync with `card.tags`: delete old rows,
+        // register each label in the global `labels` table, and re-insert
+        // the association rows. `cards.tags` itself is written by the INSERT
+        // above; `card_labels` is the normalized registry-backed representation.
+        sqlx::query("DELETE FROM card_labels WHERE card_id = ?")
+            .bind(&id)
+            .execute(&mut *conn)
+            .await
+            .map_err(db_err)?;
+        for tag in &card.tags {
+            sqlx::query("INSERT OR IGNORE INTO labels (name) VALUES (?)")
+                .bind(tag)
+                .execute(&mut *conn)
+                .await
+                .map_err(db_err)?;
+            sqlx::query("INSERT OR IGNORE INTO card_labels (card_id, label_name) VALUES (?, ?)")
+                .bind(&id)
+                .bind(tag)
+                .execute(&mut *conn)
+                .await
+                .map_err(db_err)?;
+        }
+
         Ok(())
     }
 

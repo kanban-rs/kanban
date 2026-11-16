@@ -32,6 +32,7 @@ pub use requests::sprint::{
     UpdateSprintRequest,
 };
 pub use requests::transfer::{ExportBoardRequest, ImportBoardRequest};
+pub use requests::labels::{DeleteLabelRequest, GetLabelRequest, ListLabelsRequest, UpsertLabelRequest};
 
 use context::McpContext;
 use kanban_domain::KanbanResult;
@@ -70,6 +71,7 @@ impl KanbanMcpServer {
                 + Self::card_relations_router()
                 + Self::card_batch_router()
                 + Self::sprint_router()
+                + Self::label_router()
                 + Self::transfer_router(),
         })
     }

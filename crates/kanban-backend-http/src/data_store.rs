@@ -93,6 +93,19 @@ impl DataStore for HttpBackend {
         Err(KanbanError::unsupported("upsert_prefix"))
     }
 
+    fn get_label(&self, _name: &str) -> KanbanResult<Option<kanban_domain::Label>> {
+        Err(KanbanError::unsupported("get_label"))
+    }
+    fn list_labels(&self) -> KanbanResult<Vec<kanban_domain::Label>> {
+        Err(KanbanError::unsupported("list_labels"))
+    }
+    fn upsert_label(&self, _label: kanban_domain::Label) -> KanbanResult<()> {
+        Err(KanbanError::unsupported("upsert_label"))
+    }
+    fn delete_label(&self, _name: &str) -> KanbanResult<()> {
+        Err(KanbanError::unsupported("delete_label"))
+    }
+
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
         self.block_on(async {
             let resp: Option<BoardResponse> = self.get_json(&format!("/v1/boards/{id}")).await?;

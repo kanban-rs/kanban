@@ -109,6 +109,20 @@ impl DataStore for RecordingStore {
     fn upsert_prefix(&self, prefix: Prefix) -> KanbanResult<()> {
         self.inner.upsert_prefix(prefix)
     }
+    fn get_label(&self, name: &str) -> KanbanResult<Option<kanban_domain::Label>> {
+        self.record("get_label", vec![]);
+        self.inner.get_label(name)
+    }
+    fn list_labels(&self) -> KanbanResult<Vec<kanban_domain::Label>> {
+        self.record("list_labels", vec![]);
+        self.inner.list_labels()
+    }
+    fn upsert_label(&self, label: kanban_domain::Label) -> KanbanResult<()> {
+        self.inner.upsert_label(label)
+    }
+    fn delete_label(&self, name: &str) -> KanbanResult<()> {
+        self.inner.delete_label(name)
+    }
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
         self.record("get_board", vec![id]);
         self.inner.get_board(id)

@@ -24,6 +24,7 @@ async fn json_app_with_archived_card() -> (App, uuid::Uuid) {
         cards: vec![card],
         archived_cards: vec![ArchivedCard::new(card_id, board_id)],
         sprints: vec![],
+        labels: Vec::new(),
         graph: Default::default(),
         prefixes: Vec::new(),
     };
@@ -53,6 +54,7 @@ async fn json_app_with_archived_board() -> (App, uuid::Uuid) {
         cards: vec![],
         archived_cards: vec![],
         sprints: vec![],
+        labels: Vec::new(),
         graph: Default::default(),
         prefixes: Vec::new(),
     };

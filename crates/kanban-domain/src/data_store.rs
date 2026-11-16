@@ -32,6 +32,23 @@ pub trait DataStore: Send + Sync {
     /// row.
     fn upsert_prefix(&self, prefix: Prefix) -> KanbanResult<()>;
 
+    // Label
+    //
+    // A globally-scoped taxonomy entry (name, colour, description). The `name`
+    // field is the natural primary key; `upsert_label` is keyed by name, so
+    // two callers that both write `Label { name: "bug", … }` converge on one
+    // row. `delete_label` also drops every `card_labels` association.
+    //
+    // Deliberately NOT defaulted: the same reasoning as `upsert_prefix` — a
+    // default would silently hide the fact that a new concrete backend was
+    // left unimplemented.
+
+    /// Look a label up by its exact name (case-sensitive).
+    fn get_label(&self, name: &str) -> KanbanResult<Option<crate::Label>>;
+    fn list_labels(&self) -> KanbanResult<Vec<crate::Label>>;
+    fn upsert_label(&self, label: crate::Label) -> KanbanResult<()>;
+    fn delete_label(&self, name: &str) -> KanbanResult<()>;
+
     // Column
     fn get_column(&self, id: Uuid) -> KanbanResult<Option<Column>>;
     fn list_columns_by_board(&self, board_id: Uuid) -> KanbanResult<Vec<Column>>;
@@ -342,6 +359,18 @@ mod tests {
         }
         fn upsert_prefix(&self, _prefix: Prefix) -> KanbanResult<()> {
             unimplemented!("FloorStore does not model prefixes")
+        }
+        fn get_label(&self, _name: &str) -> KanbanResult<Option<crate::Label>> {
+            unimplemented!("FloorStore does not model labels")
+        }
+        fn list_labels(&self) -> KanbanResult<Vec<crate::Label>> {
+            unimplemented!("FloorStore does not model labels")
+        }
+        fn upsert_label(&self, _label: crate::Label) -> KanbanResult<()> {
+            unimplemented!("FloorStore does not model labels")
+        }
+        fn delete_label(&self, _name: &str) -> KanbanResult<()> {
+            unimplemented!("FloorStore does not model labels")
         }
         fn get_board(&self, _id: Uuid) -> KanbanResult<Option<Board>> {
             unimplemented!()

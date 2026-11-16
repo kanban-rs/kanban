@@ -2,7 +2,7 @@ use super::KanbanContext;
 use kanban_domain::commands::Command;
 use kanban_domain::{
     Board, BoardCreateOutcome, BoardUpdate, Card, CardCreateOutcome, CardUpdate, Column,
-    ColumnCreateOutcome, ColumnUpdate, CreateCardOptions, Invalidation, KanbanResult,
+    ColumnCreateOutcome, ColumnUpdate, CreateCardOptions, Invalidation, KanbanResult, Label,
     MutationOperations, NewBoard, NewCard, NewColumn, RelatesKind, Severity, Sprint,
     SprintCreateOutcome, SprintUpdate,
 };
@@ -270,6 +270,13 @@ impl MutationOperations for KanbanContext {
         auto_consume_name: bool,
     ) -> KanbanResult<(SprintCreateOutcome, Invalidation)> {
         KanbanContext::create_or_replace_sprint(self, board_id, id, name, prefix, auto_consume_name)
+    }
+
+    fn upsert_label_impl(&mut self, label: Label) -> KanbanResult<(Label, Invalidation)> {
+        KanbanContext::upsert_label_impl(self, label)
+    }
+    fn delete_label_impl(&mut self, name: String) -> KanbanResult<Invalidation> {
+        KanbanContext::delete_label_impl(self, name)
     }
 
     fn execute(&mut self, commands: Vec<Command>) -> KanbanResult<Invalidation> {

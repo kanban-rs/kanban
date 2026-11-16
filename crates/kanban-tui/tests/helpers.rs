@@ -126,6 +126,18 @@ impl DataStore for CountingBackend {
     fn upsert_prefix(&self, prefix: kanban_domain::Prefix) -> KanbanResult<()> {
         self.inner.upsert_prefix(prefix)
     }
+    fn get_label(&self, name: &str) -> KanbanResult<Option<kanban_domain::Label>> {
+        self.inner.get_label(name)
+    }
+    fn list_labels(&self) -> KanbanResult<Vec<kanban_domain::Label>> {
+        self.inner.list_labels()
+    }
+    fn upsert_label(&self, label: kanban_domain::Label) -> KanbanResult<()> {
+        self.inner.upsert_label(label)
+    }
+    fn delete_label(&self, name: &str) -> KanbanResult<()> {
+        self.inner.delete_label(name)
+    }
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
         self.record("get_board", vec![id]);
         self.inner.get_board(id)
@@ -373,6 +385,18 @@ impl DataStore for SnapshotCountingBackend {
     fn upsert_prefix(&self, prefix: kanban_domain::Prefix) -> KanbanResult<()> {
         self.inner.upsert_prefix(prefix)
     }
+    fn get_label(&self, name: &str) -> KanbanResult<Option<kanban_domain::Label>> {
+        self.inner.get_label(name)
+    }
+    fn list_labels(&self) -> KanbanResult<Vec<kanban_domain::Label>> {
+        self.inner.list_labels()
+    }
+    fn upsert_label(&self, label: kanban_domain::Label) -> KanbanResult<()> {
+        self.inner.upsert_label(label)
+    }
+    fn delete_label(&self, name: &str) -> KanbanResult<()> {
+        self.inner.delete_label(name)
+    }
 
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
         self.inner.get_board(id)
@@ -577,6 +601,18 @@ impl DataStore for FailingSnapshotBackend {
     fn upsert_prefix(&self, prefix: kanban_domain::Prefix) -> KanbanResult<()> {
         self.inner.upsert_prefix(prefix)
     }
+    fn get_label(&self, name: &str) -> KanbanResult<Option<kanban_domain::Label>> {
+        self.inner.get_label(name)
+    }
+    fn list_labels(&self) -> KanbanResult<Vec<kanban_domain::Label>> {
+        self.inner.list_labels()
+    }
+    fn upsert_label(&self, label: kanban_domain::Label) -> KanbanResult<()> {
+        self.inner.upsert_label(label)
+    }
+    fn delete_label(&self, name: &str) -> KanbanResult<()> {
+        self.inner.delete_label(name)
+    }
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
         self.inner.get_board(id)
     }
@@ -777,6 +813,18 @@ impl DataStore for FailingBoardListBackend {
     }
     fn upsert_prefix(&self, prefix: kanban_domain::Prefix) -> KanbanResult<()> {
         self.inner.upsert_prefix(prefix)
+    }
+    fn get_label(&self, name: &str) -> KanbanResult<Option<kanban_domain::Label>> {
+        self.inner.get_label(name)
+    }
+    fn list_labels(&self) -> KanbanResult<Vec<kanban_domain::Label>> {
+        self.inner.list_labels()
+    }
+    fn upsert_label(&self, label: kanban_domain::Label) -> KanbanResult<()> {
+        self.inner.upsert_label(label)
+    }
+    fn delete_label(&self, name: &str) -> KanbanResult<()> {
+        self.inner.delete_label(name)
     }
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
         self.inner.get_board(id)
@@ -1108,6 +1156,7 @@ pub async fn create_test_json_file(dir: &std::path::Path, name: &str, boards: &[
         cards: vec![],
         archived_cards: vec![],
         sprints: vec![],
+        labels: Vec::new(),
         graph: Default::default(),
         prefixes: Vec::new(),
     };
@@ -1139,6 +1188,7 @@ pub async fn create_test_sqlite_file(dir: &std::path::Path, name: &str, boards: 
         cards: vec![],
         archived_cards: vec![],
         sprints: vec![],
+        labels: Vec::new(),
         graph: Default::default(),
         prefixes: Vec::new(),
     };

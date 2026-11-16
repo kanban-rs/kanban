@@ -9,7 +9,9 @@
 //! This type is pure data with no UI dependencies, making it suitable for
 //! use by both TUI and future API server implementations.
 
-use crate::{ArchivedBoard, ArchivedCard, Board, Card, Column, DependencyGraph, Prefix, Sprint};
+use crate::{
+    ArchivedBoard, ArchivedCard, Board, Card, Column, DependencyGraph, Label, Prefix, Sprint,
+};
 use serde::{Deserialize, Serialize};
 
 /// Point-in-time capture of all kanban data.
@@ -59,6 +61,15 @@ pub struct Snapshot {
     /// upgrading.
     #[serde(default)]
     pub prefixes: Vec<Prefix>,
+
+    /// Global label (taxonomy) registry — one entry per known label name,
+    /// with optional colour and description.
+    ///
+    /// Carried here for the same reason as `prefixes`: the JSON backend
+    /// round-trips via this struct, so a field absent from it is lost on
+    /// every save.
+    #[serde(default)]
+    pub labels: Vec<Label>,
 }
 
 impl Snapshot {
@@ -85,6 +96,7 @@ impl Snapshot {
             graph,
             archived_boards: Vec::new(),
             prefixes: Vec::new(),
+            labels: Vec::new(),
         }
     }
 

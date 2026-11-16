@@ -48,6 +48,18 @@ impl DataStore for CountingBackend {
     fn upsert_prefix(&self, prefix: kanban_domain::Prefix) -> KanbanResult<()> {
         self.inner.upsert_prefix(prefix)
     }
+    fn get_label(&self, name: &str) -> KanbanResult<Option<kanban_domain::Label>> {
+        self.inner.get_label(name)
+    }
+    fn list_labels(&self) -> KanbanResult<Vec<kanban_domain::Label>> {
+        self.inner.list_labels()
+    }
+    fn upsert_label(&self, label: kanban_domain::Label) -> KanbanResult<()> {
+        self.inner.upsert_label(label)
+    }
+    fn delete_label(&self, name: &str) -> KanbanResult<()> {
+        self.inner.delete_label(name)
+    }
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
         self.inner.get_board(id)
     }

@@ -274,7 +274,10 @@ impl KanbanMcpServer {
                 .map(FieldUpdate::Set)
                 .unwrap_or(FieldUpdate::NoChange),
             due_date,
-            tags: req.tags.map(FieldUpdate::Set).unwrap_or(FieldUpdate::NoChange),
+            tags: req
+                .tags
+                .map(FieldUpdate::Set)
+                .unwrap_or(FieldUpdate::NoChange),
             sprint_id: FieldUpdate::NoChange,
         };
         let card = locked_write(&self.ctx, |ctx| {
@@ -2252,7 +2255,9 @@ mod tests {
                 .await
                 .unwrap(),
         );
-        let items = filtered["items"].as_array().expect("list response must have items");
+        let items = filtered["items"]
+            .as_array()
+            .expect("list response must have items");
         assert_eq!(
             items.len(),
             1,
@@ -2281,7 +2286,9 @@ mod tests {
                 .await
                 .unwrap(),
         );
-        let all_items = all["items"].as_array().expect("list response must have items");
+        let all_items = all["items"]
+            .as_array()
+            .expect("list response must have items");
         assert!(
             all_items.len() >= 2,
             "no tag filter must return at least the two seeded cards"
@@ -2313,7 +2320,10 @@ mod tests {
                 .await
                 .unwrap(),
         );
-        let card_id = created["id"].as_str().expect("card id must be a string").to_string();
+        let card_id = created["id"]
+            .as_str()
+            .expect("card id must be a string")
+            .to_string();
         let fetched = text_payload(
             &seeded
                 .server

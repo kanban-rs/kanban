@@ -218,6 +218,7 @@ mod active_card_helpers {
             cards: app.ctx.data_store().list_all_cards().unwrap(),
             archived_cards: app.ctx.data_store().list_archived_cards().unwrap(),
             sprints: app.ctx.data_store().list_all_sprints().unwrap(),
+            labels: app.ctx.data_store().list_labels().unwrap(),
             graph: app.ctx.data_store().get_graph().unwrap(),
             prefixes: Vec::new(),
         };
