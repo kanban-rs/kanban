@@ -183,7 +183,7 @@ fn render_section(
     let title_style = if focused {
         bold_highlight()
     } else {
-        label_text()
+        normal_text()
     };
     let block = Block::default()
         .title(Line::from(Span::styled(title.to_string(), title_style)))
@@ -219,7 +219,7 @@ fn render_row(row: LabelRow, is_selected: bool, highlight_bg: Color, app: &App) 
     };
     match row {
         LabelRow::Header(_) => Line::default(),
-        LabelRow::Note(text) => Line::from(Span::styled(format!("  {text}"), label_text())),
+        LabelRow::Note(text) => Line::from(Span::styled(format!("  {text}"), normal_text())),
         LabelRow::Applied(i) => Line::from(vec![
             Span::styled("[✓] ".to_string(), style),
             Span::styled(app.label_manager.applied[i].clone(), style),
@@ -237,7 +237,7 @@ fn render_row(row: LabelRow, is_selected: bool, highlight_bg: Color, app: &App) 
                 Span::styled(label.name.clone(), style),
             ];
             if let Some(desc) = &label.description {
-                spans.push(Span::styled(format!("  {desc}"), label_text()));
+                spans.push(Span::styled(format!("  {desc}"), normal_text()));
             }
             Line::from(spans)
         }
@@ -258,7 +258,7 @@ fn render_hint(frame: &mut Frame, area: Rect, focus: Section) {
     };
     let hint = Paragraph::new(text).style(
         Style::default()
-            .fg(LABEL_TEXT)
+            .fg(NORMAL_TEXT)
             .add_modifier(Modifier::ITALIC),
     );
     frame.render_widget(hint, area);
