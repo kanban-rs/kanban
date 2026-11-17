@@ -7,7 +7,7 @@
 #   B4: Apply "urgent" to KAN-12 only (sets the [-] partial state).
 #   B5: Multi-select KAN-12, KAN-13, KAN-14.
 #   B6: Open Labels from multi-select. Three marks visible:
-#       [-] urgent   (partial: on 1 of 3)
+#       [-]  urgent   (partial: on 1 of 3)
 #       [ ]  storage (none)
 #       [ ]  bug     (none)
 #       Create "critical" → fills all 3  → [check].
@@ -33,18 +33,34 @@ Set Framerate 16
 Set TypingSpeed 75ms
 
 # ── B1: Launch + select board ───────────────────────────────────────────────
-Type "kanban demo.json"
+Type "cargo run --bin kanban demo.json"
 Enter
 Sleep 1200ms
-# One board, "Kanban". j → Enter.
-Type "j"
-Sleep 500ms
 Enter
 Sleep 1200ms
+Type "c" # Move cards out of the way
+Sleep 100ms
+Type "h"
+Sleep 100ms
+Type "c"
+Sleep 100ms
+Type "h"
+Sleep 100ms
+Type "c"
+Sleep 100ms
+Type "h"
+Sleep 100ms
+Type "n"
+Sleep 400ms
+Type "Labels!"
+Sleep 400ms
+Enter
+Sleep 200ms
 
-# ── B2: KAN-1 detail, create three labels ──────────────────────────────────
+# ── B2: Labels! detail, create three labels ──────────────────────────────────
 # KAN-1 is the first card in the TODO column.
-Type "l"
+Enter    # open Labels! detail view
+Type "l" # open Labels (Manage Labels key in detail view)
 Sleep 900ms
 # Registry is empty.  entries = [Note("(no labels)"), Create].
 # Cursor on Create, already in INSERT mode (red border).
@@ -54,19 +70,27 @@ Sleep 900ms
 Type "storage"
 Sleep 400ms
 Enter
-Sleep 600ms
-# Cursor is on Create (INSERT mode) — type "urgent" directly, no j needed.
+Sleep 500ms
+# Hit j to clear the popup
+Type "j"
+Sleep 100ms
+# Cursor is on Create (INSERT mode) — type "urgent"
 Type "urgent"
 Sleep 400ms
 Enter
-Sleep 600ms
+Sleep 500ms
+# Hit j to clear the popup
+Type "j"
+Sleep 100ms
 # Cursor is on the "urgent" row (NORMAL) — j → Create, then type "bug".
 Type "j"
 Sleep 200ms
 Type "bug"
 Sleep 400ms
 Enter
-Sleep 600ms
+Sleep 500ms
+Type "j"
+Sleep 100ms
 # [check] storage   [check] urgent   [check] bug
 Escape
 Sleep 500ms
