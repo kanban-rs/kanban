@@ -481,7 +481,10 @@ async fn test_i_in_normal_mode_enters_insert_mode_without_typing() {
     let (mut app, _) = card_with_labels_fixture();
     select_create_row(&mut app);
     // create_insert is false (default) = NORMAL mode.
-    assert!(!app.label_manager.create_insert, "must start in NORMAL mode");
+    assert!(
+        !app.label_manager.create_insert,
+        "must start in NORMAL mode"
+    );
     let mut terminal = headless_terminal();
     let events = EventHandler::new();
 
@@ -513,7 +516,10 @@ async fn test_n_in_normal_mode_enters_insert_mode_without_typing() {
     // mode without typing the 'n' character.
     let (mut app, _) = card_with_labels_fixture();
     select_create_row(&mut app);
-    assert!(!app.label_manager.create_insert, "must start in NORMAL mode");
+    assert!(
+        !app.label_manager.create_insert,
+        "must start in NORMAL mode"
+    );
     let mut terminal = headless_terminal();
     let events = EventHandler::new();
 
@@ -545,10 +551,7 @@ async fn test_i_in_insert_mode_is_typed_as_character() {
 
     app.handle_manage_labels_popup(KeyCode::Char('i'), &mut terminal, &events);
 
-    assert!(
-        app.label_manager.create_insert,
-        "must stay in INSERT mode"
-    );
+    assert!(app.label_manager.create_insert, "must stay in INSERT mode");
     assert_eq!(
         app.input.as_str(),
         "i",

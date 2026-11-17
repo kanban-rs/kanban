@@ -1,13 +1,13 @@
 //! The Manage Labels dialog.
 //!
-//! The dialog is an outer "Manage Labels" block containing two bordered
-//! sub-sections: the **Labels** list (one scrollable box whose rows are
-//! internally divided by a muted divisor into "on at least one card" above and
-//! "on none" below), and the **New label** input box. The box holding the
-//! current cursor row is the *focused* section (accent border + bold title)
-//! while the other uses a neutral border, so both the user and the program can
-//! see where the cursor is. The cursor is a row-background highlight inside the
-//! focused box, and the footer hint is context-aware of that section.
+//! The dialog is an outer "Labels" block containing two bordered sub-sections:
+//! the labels list (a scrollable box, internally divided by a muted divisor
+//! into "on at least one card" above and "on none" below), and the **New label**
+//! input box. The box holding the current cursor row is the *focused* section
+//! (accent border) while the other uses a neutral border, so both the user and
+//! the program can see where the cursor is. The cursor is a row-background
+//! highlight inside the focused box, and the footer hint is context-aware
+//! of that section.
 use crate::app::{App, LabelRow};
 use crate::components::centered_rect_abs;
 use crate::components::radio_list::scroll_offset_to_show;
@@ -95,7 +95,7 @@ pub fn render_manage_labels_popup(app: &App, frame: &mut Frame) {
     frame.render_widget(Clear, area);
 
     let outer_block = Block::default()
-        .title("Manage Labels")
+        .title("Labels")
         .borders(Borders::ALL)
         .border_style(focused_border())
         .style(popup_bg());
@@ -123,7 +123,7 @@ pub fn render_manage_labels_popup(app: &App, frame: &mut Frame) {
     render_section(
         frame,
         chunks[0],
-        "Labels",
+        "",
         focus == Section::Labels,
         false,
         &labels_body,
