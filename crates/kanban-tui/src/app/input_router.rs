@@ -51,6 +51,10 @@ impl App {
                 | AppMode::Dialog(DialogMode::SetSprintCardPrefix)
                 | AppMode::Dialog(DialogMode::ChooseStorageFile)
                 | AppMode::Dialog(DialogMode::EditBackgroundHighlight)
+                // Manage Labels' "New label" row is a text input, so the dialog
+                // suppresses `q`-quit and `?`-help while it is open (Esc closes it);
+                // this mirrors the other input-capturing dialogs.
+                | AppMode::Dialog(DialogMode::ManageLabels)
         );
 
         if matches!(key.code, KeyCode::Char('q') | KeyCode::Char('Q'))

@@ -63,6 +63,22 @@ fn card_with_labels_fixture() -> (App, uuid::Uuid) {
     (app, card.id)
 }
 
+/// Move the dialog cursor onto the "New label" (Create) row, found by scanning
+/// the flat entry list so this does not depend on the header/notes layout.
+fn select_create_row(app: &mut App) {
+    let entries = app.label_manager.entries();
+    let idx = entries
+        .iter()
+        .position(|r| matches!(r, kanban_tui::app::LabelRow::Create))
+        .expect("dialog must contain a Create row");
+    app.label_manager.selection.set(Some(idx));
+    assert_eq!(
+        app.label_manager.current_row(),
+        Some(kanban_tui::app::LabelRow::Create),
+        "cursor must be on the New label input row"
+    );
+}
+
 #[test]
 fn test_handle_manage_labels_opens_dialog_with_applied_and_registry() {
     let (app, card_id) = card_with_labels_fixture();
@@ -89,10 +105,12 @@ fn test_handle_manage_labels_opens_dialog_with_applied_and_registry() {
         .collect();
     assert_eq!(registry_names, vec!["design".to_string(), "p1".to_string()]);
 
+    // The cursor starts on the first selectable row — the applied "design"
+    // row (index 1), just past the "Applied to this card" section header.
     assert_eq!(
-        app.label_manager.selection.get(),
-        Some(0),
-        "cursor must start on the first row"
+        app.label_manager.current_row(),
+        Some(kanban_tui::app::LabelRow::Applied(0)),
+        "cursor must start on the first applied row"
     );
 }
 
@@ -112,9 +130,11 @@ async fn test_handle_manage_labels_popup_esc_closes_dialog() {
 }
 
 #[tokio::test]
-async fn test_handle_manage_labels_popup_x_on_applied_row_removes_from_card() {
+async fn test_handle_manage_labels_popup_enter_on_applied_row_removes_from_card() {
     let (mut app, card_id) = card_with_labels_fixture();
-    // selection is 0 → applied row for "design"
+    // The cursor starts on the applied "design" row. Removing a label from the
+    // card is Enter's job in the Applied section (x and e are reserved for the
+    // Labels section).
     assert_eq!(
         app.label_manager.current_row(),
         Some(kanban_tui::app::LabelRow::Applied(0))
@@ -123,7 +143,7 @@ async fn test_handle_manage_labels_popup_x_on_applied_row_removes_from_card() {
     let mut terminal = headless_terminal();
     let events = EventHandler::new();
 
-    app.handle_manage_labels_popup(KeyCode::Char('x'), &mut terminal, &events);
+    app.handle_manage_labels_popup(KeyCode::Enter, &mut terminal, &events);
 
     let card = app.ctx.get_card(card_id).unwrap().unwrap();
     assert!(
@@ -143,13 +163,19 @@ async fn test_handle_manage_labels_popup_x_on_applied_row_removes_from_card() {
 #[tokio::test]
 async fn test_handle_manage_labels_popup_enter_on_registry_row_applies_to_card() {
     let (mut app, card_id) = card_with_labels_fixture();
-    // Navigate to "p1" (registry row at flat index 1 = applied.len()[1] + registry_idx 0)
-    // applied=["design"], registry=["design","p1"]
-    // Flat: 0=Applied(design), 1=Registry(design), 2=Registry(p1), 3=Create
-    app.label_manager.selection.set(Some(2));
+    // Put the cursor on the "p1" registry row (found by scanning the flat
+    // list, so this does not depend on the header/notes layout).
+    let target = kanban_tui::app::LabelRow::Registry(1);
+    let idx = app
+        .label_manager
+        .entries()
+        .iter()
+        .position(|r| *r == target)
+        .expect("the 'p1' registry row must exist");
+    app.label_manager.selection.set(Some(idx));
     assert_eq!(
         app.label_manager.current_row(),
-        Some(kanban_tui::app::LabelRow::Registry(1)),
+        Some(target),
         "cursor must be on 'p1' registry row"
     );
 
@@ -179,6 +205,108 @@ fn test_handle_manage_labels_declines_when_card_not_loaded() {
         AppMode::Dialog(DialogMode::ManageLabels),
         "dialog must not open when there is no active card"
     );
+}
+
+#[tokio::test]
+async fn test_new_label_row_captures_typed_chars() {
+    let (mut app, _) = card_with_labels_fixture();
+    select_create_row(&mut app);
+
+    let mut terminal = headless_terminal();
+    let events = EventHandler::new();
+    app.handle_manage_labels_popup(KeyCode::Char('u'), &mut terminal, &events);
+    assert_eq!(app.input.as_str(), "u");
+    assert_eq!(
+        app.mode,
+        AppMode::Dialog(DialogMode::ManageLabels),
+        "dialog must stay open while typing"
+    );
+}
+
+#[tokio::test]
+async fn test_new_label_row_backspace_edits() {
+    let (mut app, _) = card_with_labels_fixture();
+    select_create_row(&mut app);
+    let mut terminal = headless_terminal();
+    let events = EventHandler::new();
+    app.handle_manage_labels_popup(KeyCode::Char('a'), &mut terminal, &events);
+    app.handle_manage_labels_popup(KeyCode::Char('b'), &mut terminal, &events);
+    assert_eq!(app.input.as_str(), "ab");
+    app.handle_manage_labels_popup(KeyCode::Backspace, &mut terminal, &events);
+    assert_eq!(app.input.as_str(), "a");
+}
+
+#[tokio::test]
+async fn test_new_label_row_enter_with_name_creates_and_applies() {
+    let (mut app, card_id) = card_with_labels_fixture();
+    select_create_row(&mut app);
+    let mut terminal = headless_terminal();
+    let events = EventHandler::new();
+    for c in "urgent".chars() {
+        app.handle_manage_labels_popup(KeyCode::Char(c), &mut terminal, &events);
+    }
+    assert_eq!(app.input.as_str(), "urgent");
+    app.handle_manage_labels_popup(KeyCode::Enter, &mut terminal, &events);
+
+    // Registry gained the label ...
+    let labels = app.ctx.list_labels().unwrap();
+    assert!(
+        labels.iter().any(|l| l.name == "urgent"),
+        "registry must contain 'urgent', got: {:?}",
+        labels.iter().map(|l| l.name.as_str()).collect::<Vec<_>>()
+    );
+    // ... and it is applied to the managed card.
+    let card = app.ctx.get_card(card_id).unwrap().unwrap();
+    assert!(
+        card.tags.contains(&"urgent".to_string()),
+        "card must carry 'urgent', got: {:?}",
+        card.tags
+    );
+    // Input clears after creating, and the dialog stays open to show the result.
+    assert!(app.input.is_empty());
+    assert_eq!(app.mode, AppMode::Dialog(DialogMode::ManageLabels));
+}
+
+#[tokio::test]
+async fn test_new_label_row_space_is_typed_not_confirmed() {
+    let (mut app, _) = card_with_labels_fixture();
+    select_create_row(&mut app);
+    let mut terminal = headless_terminal();
+    let events = EventHandler::new();
+    // A space is an ordinary typed character on the input row, not a confirm:
+    // it must land in the buffer (and keep the cursor on the create row) rather
+    // than falling through to `resolve()` and opening the editor mid-typing.
+    app.handle_manage_labels_popup(KeyCode::Char('a'), &mut terminal, &events);
+    app.handle_manage_labels_popup(KeyCode::Char(' '), &mut terminal, &events);
+    app.handle_manage_labels_popup(KeyCode::Char('b'), &mut terminal, &events);
+    assert_eq!(
+        app.input.as_str(),
+        "a b",
+        "the space must be part of the typed name"
+    );
+    assert_eq!(
+        app.label_manager.current_row(),
+        Some(kanban_tui::app::LabelRow::Create),
+        "cursor must remain on the New label input row"
+    );
+    assert_eq!(app.mode, AppMode::Dialog(DialogMode::ManageLabels));
+}
+
+#[tokio::test]
+async fn test_new_label_row_esc_closes_dialog() {
+    let (mut app, _) = card_with_labels_fixture();
+    select_create_row(&mut app);
+    let mut terminal = headless_terminal();
+    let events = EventHandler::new();
+    app.handle_manage_labels_popup(KeyCode::Char('u'), &mut terminal, &events);
+    assert_eq!(app.input.as_str(), "u");
+    app.handle_manage_labels_popup(KeyCode::Esc, &mut terminal, &events);
+    assert_ne!(
+        app.mode,
+        AppMode::Dialog(DialogMode::ManageLabels),
+        "Esc on the input row must close the dialog"
+    );
+    assert!(app.input.is_empty(), "input must be cleared on Esc");
 }
 
 #[test]

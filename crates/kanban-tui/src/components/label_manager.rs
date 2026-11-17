@@ -157,7 +157,19 @@ pub fn render_manage_labels_popup(app: &App, frame: &mut Frame) {
         &create_body,
         app,
     );
+    if focus == Section::Create {
+        set_create_input_cursor(frame, chunks[4], app);
+    }
     render_hint(frame, chunks[5], focus);
+}
+
+/// Place the terminal caret in the "New label" box so the row reads as a live
+/// text field: the box's inner left (one column after the border), one row down
+/// for the title, plus the visible width before the caret.
+fn set_create_input_cursor(frame: &mut Frame, box_area: Rect, app: &App) {
+    let offset = app.input.cursor_byte_offset().min(app.input.as_str().len());
+    let before = app.input.as_str()[..offset].chars().count();
+    frame.set_cursor_position((box_area.x + 1 + before as u16, box_area.y + 1));
 }
 
 /// Draw one sub-section box: a bordered block with a title (accented when
@@ -241,7 +253,20 @@ fn render_row(row: LabelRow, is_selected: bool, highlight_bg: Color, app: &App) 
             }
             Line::from(spans)
         }
-        LabelRow::Create => Line::from(Span::styled("Type label name...".to_string(), style)),
+        LabelRow::Create => {
+            let text = app.input.as_str();
+            if text.is_empty() {
+                // A live input box shows a muted placeholder until the user types.
+                Line::from(Span::styled(
+                    "Type label name...".to_string(),
+                    Style::default()
+                        .fg(Color::Rgb(160, 160, 160))
+                        .add_modifier(Modifier::ITALIC),
+                ))
+            } else {
+                Line::from(Span::styled(text.to_string(), style))
+            }
+        }
     }
 }
 
@@ -252,7 +277,9 @@ fn render_hint(frame: &mut Frame, area: Rect, focus: Section) {
         Section::Registry => {
             "j/k: navigate   Enter: apply to card   x: delete   e: edit   Esc: close"
         }
-        Section::Create => "j/k: navigate   Enter: create new label   Esc: close",
+        Section::Create => {
+            "type a name, then Enter: create   Enter (empty): full editor   Esc: close"
+        }
     };
     let hint = Paragraph::new(text).style(
         Style::default()

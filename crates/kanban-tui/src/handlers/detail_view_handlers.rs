@@ -1,7 +1,8 @@
 use crate::app::{
-    App, AppMode, BoardField, BoardFocus, CardField, CardFocus, DialogMode, LabelAction,
+    App, AppMode, BoardField, BoardFocus, CardField, CardFocus, DialogMode, LabelAction, LabelRow,
     SprintTaskPanel,
 };
+use crate::dialog::{handle_dialog_input, DialogAction};
 use crate::editor::edit_in_external_editor;
 use crate::events::EventHandler;
 use crossterm::event::KeyCode;
@@ -1283,6 +1284,39 @@ impl App {
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
         event_handler: &EventHandler,
     ) -> bool {
+        // The "New label" row is a proper input: while the cursor is on it,
+        // keystrokes are captured into the shared dialog input (typing,
+        // backspace, cursor moves), Enter confirms (creating the label from the
+        // typed name, or opening the shape editor when the input is empty), and
+        // Esc closes the dialog. Every other row keeps the list navigation and
+        // the apply / remove / delete / edit actions.
+        if matches!(self.label_manager.current_row(), Some(LabelRow::Create)) {
+            match handle_dialog_input(&mut self.input, key_code, true) {
+                DialogAction::Confirm => {
+                    if self.input.is_empty() {
+                        self.input.clear();
+                        // Empty: open the full shape editor to set name, color
+                        // and description (the pre-existing create path).
+                        return self.edit_label(terminal, event_handler, None);
+                    }
+                    let name = self.input.as_str().trim().to_string();
+                    self.input.clear();
+                    self.create_label_from_input(name);
+                    return false;
+                }
+                DialogAction::Cancel => {
+                    self.input.clear();
+                    self.label_manager.selection.clear();
+                    self.pop_mode();
+                    return false;
+                }
+                // Any other key is consumed here (a typed character, or an
+                // unhandled one). Consuming it keeps a key such as space from
+                // falling through to the list's `resolve()`, where `Char(' ')`
+                // on the create row would open the full editor mid-typing.
+                DialogAction::None => return false,
+            }
+        }
         let card_ids = self.label_manager.card_ids.clone();
         if card_ids.is_empty() {
             return false;
@@ -1329,6 +1363,44 @@ impl App {
             Err(e) => {
                 tracing::error!("Failed to apply label: {e}");
                 self.set_error(format!("Failed to apply label: {e}"));
+            }
+        }
+    }
+
+    /// Create a label from a typed name (no color or description) and apply it
+    /// to every managed card, so the "New label" row reads as a fast path for
+    /// "just make a label named X". The full shape editor (name + color +
+    /// description) is still reachable by confirming the row with an empty
+    /// input (the `edit_label` create path).
+    fn create_label_from_input(&mut self, name: String) {
+        let label = Label::named(name);
+        let name = label.name.clone();
+        match self.ctx.upsert_label_impl(label) {
+            Ok((_, inv)) => {
+                self.resolve_after_command(inv);
+                let card_ids = self.label_manager.card_ids.clone();
+                if !card_ids.is_empty() {
+                    if let Ok((_, inv)) = self
+                        .ctx
+                        .assign_label_to_cards_impl(name.clone(), card_ids.clone())
+                    {
+                        self.resolve_after_command(inv);
+                    }
+                    let n = card_ids.len();
+                    let scope = if n == 1 {
+                        "card".to_string()
+                    } else {
+                        format!("{n} cards")
+                    };
+                    self.set_success(format!("Label \"{name}\" created and applied to {scope}"));
+                } else {
+                    self.set_success(format!("Label \"{name}\" created"));
+                }
+                self.refresh_label_manager(&card_ids);
+            }
+            Err(e) => {
+                tracing::error!("Failed to create label: {e}");
+                self.set_error(format!("Failed to create label: {e}"));
             }
         }
     }
