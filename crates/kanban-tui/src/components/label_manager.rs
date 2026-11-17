@@ -274,18 +274,23 @@ fn render_row(row: LabelRow, is_selected: bool, highlight_bg: Color, app: &App) 
 /// row the hint is a live input prompt: it reads one way while the row is still
 /// empty (type to create, the full editor is reachable) and a simpler way once
 /// the user has typed a name (Enter just creates it), so no action repeats.
-fn hint_text(focus: Section, create_has_text: bool) -> &'static str {
+fn hint_text(focus: Section, create_has_text: bool) -> String {
     match focus {
-        Section::Applied => "j/k: navigate   Enter: remove from card   Esc: close",
+        Section::Applied => "j/k: navigate   Enter: remove from card   Esc: close".to_string(),
         Section::Registry => {
-            "j/k: navigate   Enter: apply to card   x: delete   e: edit   Esc: close"
+            "j/k: navigate   Enter: apply to card   x: delete   e: edit   Esc: close".to_string()
         }
         Section::Create => {
-            if create_has_text {
-                "press Enter to create   Esc to close"
+            const CLOSING: &str = "   Esc to close";
+            let front = if create_has_text {
+                "Enter to create"
             } else {
-                "type a name to create   Enter to open the full editor   Esc to close"
-            }
+                "Enter to open the full editor"
+            };
+            // Pad the front to the longest option so the closing stays at a fixed
+            // column and never shifts while the user types.
+            let width = "Enter to open the full editor".len();
+            format!("{front:<width$}{CLOSING}")
         }
     }
 }
@@ -339,18 +344,25 @@ mod tests {
     }
 
     #[test]
-    fn create_hint_adapts_to_input_and_never_repeats_an_action() {
-        // Empty row: the fast path is to type, and the full editor is reachable.
+    fn create_hint_adapts_to_input_and_keeps_its_closing_fixed() {
+        let empty = hint_text(Section::Create, false);
+        let typed = hint_text(Section::Create, true);
+
+        // Empty: Enter opens the full editor; both states name their action once.
+        assert_eq!(empty, "Enter to open the full editor   Esc to close");
+        assert!(typed.contains("Enter to create"), "typed: {typed}");
+        assert_eq!(typed.matches("Enter").count(), 1, "typed: {typed}");
+        assert_eq!(empty.matches("Enter").count(), 1, "empty: {empty}");
+
+        // The closing sits at the same column in both states, so it never jumps
+        // as the user types.
         assert_eq!(
-            hint_text(Section::Create, false),
-            "type a name to create   Enter to open the full editor   Esc to close"
+            empty.rfind("Esc to close"),
+            typed.rfind("Esc to close"),
+            "closing column must be stable, empty: {empty:?} typed: {typed:?}"
         );
-        // Typed row: Enter just creates it.
-        assert_eq!(
-            hint_text(Section::Create, true),
-            "press Enter to create   Esc to close"
-        );
-        // The other sections are unaffected by the input state.
+
+        // The other sections are unaffected by whether a name has been typed.
         assert_eq!(
             hint_text(Section::Applied, true),
             hint_text(Section::Applied, false)
