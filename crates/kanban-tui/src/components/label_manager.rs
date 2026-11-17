@@ -1,15 +1,13 @@
 //! Render for the Manage Labels dialog (`DialogMode::ManageLabels`).
 //!
-//! Follows the sprint-picker / relationship-list convention: one bordered block
-//! containing a single flat, scrollable list where section headers are
-//! non-selectable rows (yellow + bold) interspersed between selectable item
-//! rows, a blank line separates each section, the cursor is a row-background
-//! highlight, and a one-line key-hint footer sits at the bottom.
-//!
-//! The box hugs its content: it is sized to the number of rows (so a short
-//! dialog stays a compact, well-proportioned popup rather than a tall empty
-//! box) and capped at 78% of the terminal height so a large registry still
-//! scrolls and a small terminal is never overflowed.
+//! The dialog is an outer "Manage Labels" block containing three bordered
+//! sub-sections: the labels **Applied** to the card, the global **Labels**
+//! registry, and the **New label** action row. Because each section lives in
+//! its own box, the box that holds the current cursor row (the *focused*
+//! section) is accented (bright border + bold title) while the other two use
+//! a neutral border, so both the user and the program can see which section
+//! the cursor is in. The cursor is a row-background highlight inside the
+//! focused box, and the footer hint is context-aware of that section.
 use crate::app::{App, LabelRow};
 use crate::components::centered_rect_abs;
 use crate::components::radio_list::scroll_offset_to_show;
@@ -22,132 +20,210 @@ use ratatui::{
     Frame,
 };
 
-/// Box rows accounted for beyond the list itself: two border rows, a row of
-/// top and bottom padding (margin), and the one-line key-hint footer.
-const BOX_OVERHEAD: usize = 5;
+/// Dialog height target, as a fraction of the terminal (capped at the terminal
+/// itself), plus the per-section body sizing used to split it between boxes.
+const OUTER_PERCENT: usize = 85;
+const SECTION_GAP: usize = 1;
+const HINT_HEIGHT: usize = 1;
+const APPLIED_MAX_BODY: usize = 8;
+const REGISTRY_MIN_BODY: usize = 5;
+const CREATE_BODY: usize = 1;
+
+/// The three dialog sub-sections. The one holding the cursor row is the
+/// focused section (accent border + bold title + context-aware hint).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Section {
+    Applied,
+    Registry,
+    Create,
+}
+
+/// Which section a flat selectable row belongs to.
+fn section_of(row: &LabelRow) -> Option<Section> {
+    match row {
+        LabelRow::Applied(_) => Some(Section::Applied),
+        LabelRow::Registry(_) => Some(Section::Registry),
+        LabelRow::Create => Some(Section::Create),
+        LabelRow::Header(_) | LabelRow::Note(_) => None,
+    }
+}
+
+/// Group the flat entry list into the three section bodies (in applied,
+/// registry, create order). Header rows become the box titles and are not part
+/// of any body; `Note` rows (the "(none…)" hint for an empty section) stay in
+/// their section.
+fn split_body(entries: &[LabelRow]) -> (Vec<LabelRow>, Vec<LabelRow>, Vec<LabelRow>) {
+    let mut applied = Vec::new();
+    let mut registry = Vec::new();
+    let mut create = Vec::new();
+    let mut current = Section::Applied;
+    for row in entries {
+        match row {
+            LabelRow::Header(h) => {
+                current = match *h {
+                    "Labels" => Section::Registry,
+                    "Create" => Section::Create,
+                    _ => Section::Applied,
+                };
+            }
+            _ => match current {
+                Section::Applied => applied.push(*row),
+                Section::Registry => registry.push(*row),
+                Section::Create => create.push(*row),
+            },
+        }
+    }
+    (applied, registry, create)
+}
 
 pub fn render_manage_labels_popup(app: &App, frame: &mut Frame) {
     let frame_area = frame.area();
 
-    let entries = app.label_manager.entries();
-    // Blank spacer before every section header except the first.
-    let spacers = entries
-        .iter()
-        .filter(|row| matches!(row, LabelRow::Header(_)))
-        .count()
-        .saturating_sub(1);
-    let visual = entries.len() + spacers;
-    // Cap the box at ~78% of the terminal height (long registries scroll)
-    // and never exceed the terminal itself / go below a usable minimum.
-    let cap = (frame_area.height * 78 / 100).max(10);
-    let height = ((visual + BOX_OVERHEAD) as u16)
-        .min(cap)
-        .min(frame_area.height)
-        .max(8);
+    let (applied_body, registry_body, create_body) = split_body(&app.label_manager.entries());
 
-    let area = centered_rect_abs(72, height, frame_area);
+    let cursor_row = app.label_manager.current_row();
+    let focus = cursor_row
+        .and_then(|r| section_of(&r))
+        .unwrap_or(Section::Applied);
+
+    // Each box is 2 border rows + its body. Applied is capped (long lists
+    // scroll); the registry box absorbs the remaining height.
+    let applied_box_h = 2 + applied_body.len().clamp(1, APPLIED_MAX_BODY);
+    let create_box_h = 2 + CREATE_BODY;
+    let registry_min_box_h = 2 + REGISTRY_MIN_BODY;
+
+    // Comfortable, mostly-fixed outer height: ~85% of the terminal, clamped to
+    // what fits and to the minimum that keeps every box well-proportioned.
+    let inner_min =
+        applied_box_h + 2 * SECTION_GAP + registry_min_box_h + create_box_h + HINT_HEIGHT;
+    let outer_min = inner_min + 2;
+    let frame_h = frame_area.height as usize;
+    let target = (frame_h * OUTER_PERCENT) / 100;
+    let outer_h = if outer_min > frame_h {
+        frame_h
+    } else {
+        target.max(outer_min).min(frame_h)
+    };
+
+    let area = centered_rect_abs(80, outer_h as u16, frame_area);
     frame.render_widget(Clear, area);
 
-    let block = Block::default()
+    let outer_block = Block::default()
         .title("Manage Labels")
         .borders(Borders::ALL)
         .border_style(focused_border())
         .style(popup_bg());
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    let inner_rect = outer_block.inner(area);
+    frame.render_widget(outer_block, area);
+
+    // The registry box takes the remainder so the whole outer area is used.
+    let inner_h = inner_rect.height as usize;
+    let consumed = applied_box_h + 2 * SECTION_GAP + create_box_h + HINT_HEIGHT;
+    let registry_box_h = inner_h.saturating_sub(consumed).max(registry_min_box_h) as u16;
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .margin(1)
-        .constraints([Constraint::Min(2), Constraint::Length(1)])
-        .split(inner);
+        .constraints([
+            Constraint::Length(applied_box_h as u16),
+            Constraint::Length(SECTION_GAP as u16),
+            Constraint::Length(registry_box_h),
+            Constraint::Length(SECTION_GAP as u16),
+            Constraint::Length(create_box_h as u16),
+            Constraint::Length(HINT_HEIGHT as u16),
+        ])
+        .split(inner_rect);
 
-    render_entries(app, frame, chunks[0]);
-    render_instructions(frame, chunks[1]);
+    render_section(
+        frame,
+        chunks[0],
+        "Applied to this card",
+        focus == Section::Applied,
+        &applied_body,
+        app,
+    );
+    render_section(
+        frame,
+        chunks[2],
+        "Labels",
+        focus == Section::Registry,
+        &registry_body,
+        app,
+    );
+    render_section(
+        frame,
+        chunks[4],
+        "New label",
+        focus == Section::Create,
+        &create_body,
+        app,
+    );
+    render_hint(frame, chunks[5], focus);
 }
 
-/// Map a state (navigation) row index to its visual row index, accounting for
-/// the spacer lines inserted before each section header except the first.
-fn visual_index(state_index: usize, entries: &[LabelRow]) -> usize {
-    let spacers_before = entries
-        .iter()
-        .take(state_index)
-        .filter(|row| matches!(row, LabelRow::Header(_)))
-        .count()
-        .saturating_sub(1);
-    state_index + spacers_before
-}
-
-/// Build the flat, display-ready list: one line per state entry, with a blank
-/// spacer line before every section header except the first.
-fn build_visual_lines(
-    selected: Option<usize>,
-    entries: &[LabelRow],
+/// Draw one sub-section box: a bordered block with a title (accented when
+/// focused) and a scrollable body whose current row is background-highlighted.
+fn render_section(
+    frame: &mut Frame,
+    area: Rect,
+    title: &'static str,
+    focused: bool,
+    body: &[LabelRow],
     app: &App,
-    highlight_bg: Color,
-) -> Vec<Line<'static>> {
-    let mut out: Vec<Line<'static>> = Vec::with_capacity(entries.len());
-    let mut seen_header = false;
-    for (i, row) in entries.iter().enumerate() {
-        if matches!(row, LabelRow::Header(_)) {
-            if seen_header {
-                out.push(Line::default());
-            }
-            seen_header = true;
-        }
-        out.push(render_row(*row, Some(i) == selected, highlight_bg, app));
-    }
-    out
-}
-
-fn render_entries(app: &App, frame: &mut Frame, area: Rect) {
-    if area.height == 0 {
+) {
+    if area.height < 2 {
         return;
     }
-    let entries = app.label_manager.entries();
-    let selected = app.label_manager.selection.get();
     let highlight_bg = app.highlight_bg();
-
-    let lines = build_visual_lines(selected, &entries, app, highlight_bg);
-    let total = lines.len();
-    let height = area.height as usize;
-    let sel_visual = selected
-        .map(|s| visual_index(s.min(entries.len().saturating_sub(1)), &entries))
-        .unwrap_or(0);
-    let scroll = if total == 0 {
-        0
+    let cursor_row = app.label_manager.current_row();
+    let border = if focused {
+        focused_border()
     } else {
-        scroll_offset_to_show(sel_visual, total, height)
+        unfocused_border()
     };
-    let paragraph = Paragraph::new(lines).scroll((scroll as u16, 0));
-    frame.render_widget(paragraph, area);
+    let title_style = if focused {
+        bold_highlight()
+    } else {
+        label_text()
+    };
+    let block = Block::default()
+        .title(Line::from(Span::styled(title.to_string(), title_style)))
+        .borders(Borders::ALL)
+        .border_style(border)
+        .style(popup_bg());
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    if inner.height == 0 {
+        return;
+    }
+
+    let lines: Vec<Line<'static>> = body
+        .iter()
+        .map(|row| render_row(*row, Some(*row) == cursor_row, highlight_bg, app))
+        .collect();
+    let selected_local = body.iter().position(|row| Some(*row) == cursor_row);
+    let scroll = match selected_local {
+        Some(local) => scroll_offset_to_show(local, lines.len(), inner.height as usize),
+        None => 0,
+    };
+    frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), inner);
 }
 
-fn row_style(is_selected: bool, highlight_bg: ratatui::style::Color) -> Style {
-    if is_selected {
+/// Row-level rendering inside a section box. `Header` rows become section
+/// titles, so this arm is only defensive.
+fn render_row(row: LabelRow, is_selected: bool, highlight_bg: Color, app: &App) -> Line<'static> {
+    use std::collections::HashSet;
+    let style = if is_selected {
         normal_text().bg(highlight_bg)
     } else {
         normal_text()
-    }
-}
-
-fn render_row(
-    row: LabelRow,
-    is_selected: bool,
-    highlight_bg: ratatui::style::Color,
-    app: &App,
-) -> Line<'static> {
-    use std::collections::HashSet;
+    };
     match row {
-        LabelRow::Header(text) => Line::from(Span::styled(text.to_string(), bold_highlight())),
+        LabelRow::Header(_) => Line::default(),
         LabelRow::Note(text) => Line::from(Span::styled(format!("  {text}"), label_text())),
-        LabelRow::Applied(i) => {
-            let style = row_style(is_selected, highlight_bg);
-            Line::from(vec![
-                Span::styled("[✓] ".to_string(), style),
-                Span::styled(app.label_manager.applied[i].clone(), style),
-            ])
-        }
+        LabelRow::Applied(i) => Line::from(vec![
+            Span::styled("[✓] ".to_string(), style),
+            Span::styled(app.label_manager.applied[i].clone(), style),
+        ]),
         LabelRow::Registry(i) => {
             let label = &app.label_manager.registry[i];
             let applied: HashSet<&String> = app.label_manager.applied.iter().collect();
@@ -156,7 +232,6 @@ fn render_row(
             } else {
                 "[ ]"
             };
-            let style = row_style(is_selected, highlight_bg);
             let mut spans: Vec<Span> = vec![
                 Span::styled(format!("{check} "), style),
                 Span::styled(label.name.clone(), style),
@@ -166,23 +241,27 @@ fn render_row(
             }
             Line::from(spans)
         }
-        LabelRow::Create => {
-            let style = row_style(is_selected, highlight_bg);
-            Line::from(Span::styled("New label…".to_string(), style))
-        }
+        LabelRow::Create => Line::from(Span::styled("New label…".to_string(), style)),
     }
 }
 
-fn render_instructions(frame: &mut Frame, area: Rect) {
-    let instructions = Paragraph::new(
-        "j/k: navigate   Enter: apply / remove   x: delete   e: edit   n: new   Esc: close",
-    )
-    .style(
+/// The context-aware footer hint, describing the keys for the focused section.
+fn render_hint(frame: &mut Frame, area: Rect, focus: Section) {
+    let text = match focus {
+        Section::Applied => {
+            "j/k: navigate   Enter: remove from card   x: remove   e: edit   Esc: close"
+        }
+        Section::Registry => {
+            "j/k: navigate   Enter: apply to card   x: delete   e: edit   Esc: close"
+        }
+        Section::Create => "j/k: navigate   Enter: create new label   Esc: close",
+    };
+    let hint = Paragraph::new(text).style(
         Style::default()
             .fg(LABEL_TEXT)
             .add_modifier(Modifier::ITALIC),
     );
-    frame.render_widget(instructions, area);
+    frame.render_widget(hint, area);
 }
 
 #[cfg(test)]
@@ -198,25 +277,29 @@ mod tests {
     }
 
     #[test]
-    fn spacers_are_inserted_before_each_section_header_except_the_first() {
-        // applied has items, registry has items -> rows:
-        // H, A, H, R, R, H, Create  (3 headers -> 2 spacers -> 9 visual lines)
+    fn split_body_separates_three_sections() {
         let app = state(&["bug"], &["bug", "design"]);
-        let lines = build_visual_lines(None, &app.label_manager.entries(), &app, Color::DarkGray);
-        assert_eq!(lines.len(), 9);
-        // The blank spacers sit immediately before the "Labels" and "Create"
-        // section headers, i.e. at visual indices 2 and 6.
-        let blanks: Vec<usize> = (0..lines.len())
-            .filter(|i| lines[*i].spans.iter().all(|s| s.content.as_ref() == ""))
-            .collect();
-        assert_eq!(blanks, vec![2, 6]);
+        let (applied, registry, create) = split_body(&app.label_manager.entries());
+        assert_eq!(applied, vec![LabelRow::Applied(0)]);
+        assert_eq!(registry, vec![LabelRow::Registry(0), LabelRow::Registry(1)]);
+        assert_eq!(create, vec![LabelRow::Create]);
     }
 
     #[test]
-    fn empty_registry_and_applied_still_separate_three_sections() {
-        // H, note, H, note, H, Create (3 headers -> 2 spacers -> 8 visual lines)
+    fn split_body_empty_sections_keep_the_note() {
         let app = state(&[], &[]);
-        let lines = build_visual_lines(None, &app.label_manager.entries(), &app, Color::DarkGray);
-        assert_eq!(lines.len(), 8);
+        let (applied, registry, create) = split_body(&app.label_manager.entries());
+        assert_eq!(applied, vec![LabelRow::Note("(none)")]);
+        assert_eq!(registry, vec![LabelRow::Note("(none defined yet)")]);
+        assert_eq!(create, vec![LabelRow::Create]);
+    }
+
+    #[test]
+    fn section_of_maps_selectable_rows() {
+        assert_eq!(section_of(&LabelRow::Applied(3)), Some(Section::Applied));
+        assert_eq!(section_of(&LabelRow::Registry(1)), Some(Section::Registry));
+        assert_eq!(section_of(&LabelRow::Create), Some(Section::Create));
+        assert_eq!(section_of(&LabelRow::Header("Labels")), None);
+        assert_eq!(section_of(&LabelRow::Note("(none)")), None);
     }
 }

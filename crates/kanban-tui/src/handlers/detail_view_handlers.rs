@@ -1416,7 +1416,15 @@ impl App {
             )
             .unwrap_or_else(|_| "{}".to_string())
         } else {
-            serde_json::to_string_pretty(&initial).unwrap_or_else(|_| "{}".to_string())
+            // Edit: emit all three fields too, using "" for a missing
+            // color/description, so the editor shows and can edit the full
+            // label (serialising the Label struct would drop the None fields).
+            serde_json::to_string_pretty(&serde_json::json!({
+                "name": initial.name,
+                "color": initial.color.as_deref().unwrap_or(""),
+                "description": initial.description.as_deref().unwrap_or(""),
+            }))
+            .unwrap_or_else(|_| "{}".to_string())
         };
         let temp_file = std::env::temp_dir().join(match &label_name {
             Some(name) => format!("kanban-label-{name}.json"),
@@ -1460,6 +1468,24 @@ impl App {
                     match self.ctx.upsert_label_impl(label.clone()) {
                         Ok((_, inv)) => {
                             self.resolve_after_command(inv);
+                            // A rename upserts by the new name, so the old
+                            // registry entry would otherwise linger as a
+                            // duplicate. Delete it now that the new one exists.
+                            if renamed {
+                                if let Some(old) = &label_name {
+                                    match self.ctx.delete_label_impl(old.clone()) {
+                                        Ok(dinv) => self.resolve_after_command(dinv),
+                                        Err(e) => {
+                                            tracing::error!(
+                                                "Failed to delete old label '{old}' after rename: {e}"
+                                            );
+                                            self.set_error(format!(
+                                                "Saved label but could not delete the old '{old}': {e}"
+                                            ));
+                                        }
+                                    }
+                                }
+                            }
                             self.set_success(format!("Label \"{}\" saved", label.name));
                             let card_ids = self.label_manager.card_ids.clone();
                             if !card_ids.is_empty() {

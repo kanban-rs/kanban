@@ -207,16 +207,14 @@ impl LabelManagerState {
                 self.navigate_up();
                 LabelAction::NavigateUp
             }
-            // Create is reachable from any row.
-            KeyCode::Char('n') | KeyCode::Char('N') => LabelAction::CreateLabel,
-            // `e` edits the label under the cursor (or creates when on the
-            // create row).
+            // `e` edits the label under the cursor. Creating is reserved for
+            // Enter/space on the create row, so `e` is a no-op there.
             KeyCode::Char('e') => match self.current_row() {
                 Some(LabelRow::Applied(i)) => LabelAction::EditLabel(self.applied[i].clone()),
                 Some(LabelRow::Registry(i)) => {
                     LabelAction::EditLabel(self.registry[i].name.clone())
                 }
-                Some(LabelRow::Create) => LabelAction::CreateLabel,
+                Some(LabelRow::Create) => LabelAction::None,
                 Some(LabelRow::Header(_)) | Some(LabelRow::Note(_)) | None => LabelAction::None,
             },
             // `x` removes: from the card (applied) or from the registry.
@@ -309,9 +307,15 @@ mod tests {
             s.resolve(crossterm::event::KeyCode::Enter),
             LabelAction::CreateLabel
         );
+        // Creating is reserved for Enter/space on the create row: `n` no
+        // longer creates, and `e` on the create row is a no-op.
         assert_eq!(
             s.resolve(crossterm::event::KeyCode::Char('n')),
-            LabelAction::CreateLabel
+            LabelAction::None
+        );
+        assert_eq!(
+            s.resolve(crossterm::event::KeyCode::Char('e')),
+            LabelAction::None
         );
     }
 
