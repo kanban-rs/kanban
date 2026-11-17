@@ -1364,7 +1364,17 @@ impl App {
             },
         };
 
-        let json = serde_json::to_string_pretty(&initial).unwrap_or_else(|_| "{}".to_string());
+        let json = if label_name.is_none() {
+            // Create: emit all three fields as empty strings so the user sees
+            // the full label shape in the editor (skip_serializing_if drops the
+            // None color/description otherwise, leaving only "name").
+            serde_json::to_string_pretty(
+                &serde_json::json!({ "name": "", "color": "", "description": "" }),
+            )
+            .unwrap_or_else(|_| "{}".to_string())
+        } else {
+            serde_json::to_string_pretty(&initial).unwrap_or_else(|_| "{}".to_string())
+        };
         let temp_file = std::env::temp_dir().join(match &label_name {
             Some(name) => format!("kanban-label-{name}.json"),
             None => "kanban-new-label.json".to_string(),
@@ -1387,6 +1397,11 @@ impl App {
                     label.color = label.color.and_then(trimmed_or_none);
                     label.description = label.description.and_then(trimmed_or_none);
                     if label.name.is_empty() {
+                        if label_name.is_none() {
+                            // Create mode: closing the editor without a name is
+                            // a no-op (user bailed before entering a name).
+                            return true;
+                        }
                         self.set_error("Label name is required");
                         return true;
                     }
