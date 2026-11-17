@@ -1,5 +1,7 @@
 use super::KanbanContext;
-use kanban_domain::commands::{CardCommand, Command, DeleteLabel, LabelCommand, UpdateCard, UpsertLabel};
+use kanban_domain::commands::{
+    CardCommand, Command, DeleteLabel, LabelCommand, UpdateCard, UpsertLabel,
+};
 use kanban_domain::{CardUpdate, FieldUpdate, Invalidation, KanbanError, KanbanResult, Label};
 use uuid::Uuid;
 

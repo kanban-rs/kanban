@@ -41,7 +41,10 @@ async fn test_assign_registers_missing_label_and_tags_all_cards() {
 
     assert_eq!(count, 2, "both cards must report as applied");
 
-    let label = ctx.get_label("urgent").unwrap().expect("label auto-registered");
+    let label = ctx
+        .get_label("urgent")
+        .unwrap()
+        .expect("label auto-registered");
     assert_eq!(label.name, "urgent");
     assert!(label.color.is_none(), "auto-registration carries no color");
     assert!(
@@ -102,7 +105,10 @@ async fn test_assign_twice_does_not_duplicate_the_tag() {
         vec!["dup".to_string()],
         "re-assigning a card must not append the tag again"
     );
-    assert_eq!(ctx.get_card(card_b).unwrap().unwrap().tags, vec!["dup".to_string()]);
+    assert_eq!(
+        ctx.get_card(card_b).unwrap().unwrap().tags,
+        vec!["dup".to_string()]
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -134,7 +140,8 @@ async fn test_remove_keeps_registry_strips_only_the_named_label() {
     let (mut ctx, card_a, card_b) = seeded().await;
 
     // Give card a two tags: "keep" and "drop".
-    ctx.assign_label_to_cards_impl("keep".to_string(), vec![card_a]).unwrap();
+    ctx.assign_label_to_cards_impl("keep".to_string(), vec![card_a])
+        .unwrap();
     ctx.assign_label_to_cards_impl("drop".to_string(), vec![card_a, card_b])
         .unwrap();
 

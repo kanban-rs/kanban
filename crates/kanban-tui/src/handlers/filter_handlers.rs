@@ -130,46 +130,40 @@ impl App {
                         }
                     }
                 },
-                KeyCode::Char(' ') => {
-                    if dialog_state.current_section == FilterDialogSection::Sprints {
-                        if dialog_state.item_selection == 0 {
-                            dialog_state.filters.show_unassigned_sprints =
-                                !dialog_state.filters.show_unassigned_sprints;
-                            tracing::info!(
-                                "Toggled unassigned sprints filter: {}",
-                                dialog_state.filters.show_unassigned_sprints
-                            );
-                            self.apply_filters();
-                        } else {
-                            match &board_sprints {
-                                Some(LoadState::Loaded(sprints)) => {
-                                    let sprint_idx = dialog_state.item_selection - 1;
-                                    if let Some(sprint) = sprints.get(sprint_idx) {
-                                        let sprint_id = sprint.id;
-                                        if dialog_state
-                                            .filters
-                                            .selected_sprint_ids
-                                            .contains(&sprint_id)
-                                        {
-                                            dialog_state
-                                                .filters
-                                                .selected_sprint_ids
-                                                .remove(&sprint_id);
-                                        } else {
-                                            dialog_state
-                                                .filters
-                                                .selected_sprint_ids
-                                                .insert(sprint_id);
-                                        }
-                                        tracing::info!("Toggled sprint: {sprint_id}");
-                                        self.apply_filters();
+                KeyCode::Char(' ')
+                    if dialog_state.current_section == FilterDialogSection::Sprints =>
+                {
+                    if dialog_state.item_selection == 0 {
+                        dialog_state.filters.show_unassigned_sprints =
+                            !dialog_state.filters.show_unassigned_sprints;
+                        tracing::info!(
+                            "Toggled unassigned sprints filter: {}",
+                            dialog_state.filters.show_unassigned_sprints
+                        );
+                        self.apply_filters();
+                    } else {
+                        match &board_sprints {
+                            Some(LoadState::Loaded(sprints)) => {
+                                let sprint_idx = dialog_state.item_selection - 1;
+                                if let Some(sprint) = sprints.get(sprint_idx) {
+                                    let sprint_id = sprint.id;
+                                    if dialog_state
+                                        .filters
+                                        .selected_sprint_ids
+                                        .contains(&sprint_id)
+                                    {
+                                        dialog_state.filters.selected_sprint_ids.remove(&sprint_id);
+                                    } else {
+                                        dialog_state.filters.selected_sprint_ids.insert(sprint_id);
                                     }
+                                    tracing::info!("Toggled sprint: {sprint_id}");
+                                    self.apply_filters();
                                 }
-                                Some(_) => {
-                                    self.set_error("Sprints are not loaded yet".to_string());
-                                }
-                                None => {}
                             }
+                            Some(_) => {
+                                self.set_error("Sprints are not loaded yet".to_string());
+                            }
+                            None => {}
                         }
                     }
                 }

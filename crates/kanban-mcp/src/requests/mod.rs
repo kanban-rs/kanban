@@ -19,10 +19,10 @@ pub use column::{
     CreateColumnParams, DeleteColumnRequest, GetColumnRequest, ListColumnsRequest,
     ReorderColumnRequest, UpdateColumnRequest,
 };
+pub use labels::{DeleteLabelRequest, GetLabelRequest, ListLabelsRequest, UpsertLabelRequest};
 pub use sprint::{
     ActivateSprintRequest, CancelSprintRequest, CarryOverSprintCardsRequest, CompleteSprintRequest,
     CreateSprintParams, DeleteSprintRequest, GetSprintRequest, ListSprintsRequest,
     UpdateSprintRequest,
 };
 pub use transfer::{ExportBoardRequest, ImportBoardRequest};
-pub use labels::{DeleteLabelRequest, GetLabelRequest, ListLabelsRequest, UpsertLabelRequest};

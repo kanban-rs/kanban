@@ -1,8 +1,8 @@
 use super::types::default_store_manager;
 use super::{
-    AnimationState, App, AppMode, DialogInputState, FilterState, FocusState, MigrationState,
-    MultiSelectState, PersistenceState, RelationshipState, SelectionHub, SprintViewState,
-    StorageBackendChoice, UiState, ViewState,
+    AnimationState, App, AppMode, DialogInputState, FilterState, FocusState, LabelManagerState,
+    MigrationState, MultiSelectState, PersistenceState, RelationshipState, SelectionHub,
+    SprintViewState, StorageBackendChoice, UiState, ViewState,
 };
 use crate::tui_context::TuiContext;
 use kanban_core::InputState;
@@ -129,6 +129,7 @@ impl App {
             model: Model::default(),
             controller,
             relationship: RelationshipState::default(),
+            label_manager: LabelManagerState::default(),
             save_error: None,
             pending_key: None,
             has_data_file: has_explicit_file,

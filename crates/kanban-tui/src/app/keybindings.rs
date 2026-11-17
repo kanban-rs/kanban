@@ -205,6 +205,7 @@ impl App {
             KeybindingAction::JumpHalfViewportDown => self.handle_jump_half_viewport_down(),
             KeybindingAction::ManageParents => self.handle_manage_parents(),
             KeybindingAction::ManageChildren => self.handle_manage_children(),
+            KeybindingAction::ManageLabels => self.handle_manage_labels(),
             KeybindingAction::CarryOver => self.carry_over_active_sprint_if_eligible(),
             KeybindingAction::Undo => {
                 if let Err(e) = self.undo() {

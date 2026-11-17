@@ -43,12 +43,8 @@ pub fn write_router() -> Router<AppState> {
 /// `GET /v1/labels` — every label in the global registry, keyed by name.
 async fn list_labels(State(state): State<AppState>) -> Result<Json<Vec<LabelResponse>>, AppError> {
     let session = state.lock_session().await;
-    let labels = session
-        .list_labels()
-        .map_err(|e| AppError::from(&e))?;
-    Ok(Json(
-        labels.iter().map(LabelResponse::from).collect(),
-    ))
+    let labels = session.list_labels().map_err(|e| AppError::from(&e))?;
+    Ok(Json(labels.iter().map(LabelResponse::from).collect()))
 }
 
 /// `PUT /v1/labels/{name}` — create the label (201) or replace it in full
@@ -115,10 +111,9 @@ async fn assign_label_cards_route(
     let (succeeded, invalidation) = {
         let mut ctx = state.lock_for_write(client).await;
         let ids = req.card_ids.clone();
-        let (_count, invalidation) = crate::state::mutate(
-            &mut ctx,
-            |c| c.assign_label_to_cards_impl(name, req.card_ids),
-        )
+        let (_count, invalidation) = crate::state::mutate(&mut ctx, |c| {
+            c.assign_label_to_cards_impl(name, req.card_ids)
+        })
         .map_err(|e| AppError::from(&e))?;
         state
             .persist_unscoped_change(&ctx, ChangeKind::Updated, &invalidation)
@@ -145,10 +140,9 @@ async fn remove_label_cards_route(
     let (succeeded, invalidation) = {
         let mut ctx = state.lock_for_write(client).await;
         let ids = req.card_ids.clone();
-        let (_count, invalidation) = crate::state::mutate(
-            &mut ctx,
-            |c| c.remove_label_from_cards_impl(name, req.card_ids),
-        )
+        let (_count, invalidation) = crate::state::mutate(&mut ctx, |c| {
+            c.remove_label_from_cards_impl(name, req.card_ids)
+        })
         .map_err(|e| AppError::from(&e))?;
         state
             .persist_unscoped_change(&ctx, ChangeKind::Updated, &invalidation)

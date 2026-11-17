@@ -205,13 +205,17 @@ impl KanbanOperations for Session {
     }
 
     fn assign_label_to_cards(&mut self, label_name: &str, card_ids: &[Uuid]) -> KanbanResult<()> {
-        mutate(self, |c| c.assign_label_to_cards_impl(label_name.to_string(), card_ids.to_vec()))
-            .map(|(_n, _invalidation)| ())
+        mutate(self, |c| {
+            c.assign_label_to_cards_impl(label_name.to_string(), card_ids.to_vec())
+        })
+        .map(|(_n, _invalidation)| ())
     }
 
     fn remove_label_from_cards(&mut self, label_name: &str, card_ids: &[Uuid]) -> KanbanResult<()> {
-        mutate(self, |c| c.remove_label_from_cards_impl(label_name.to_string(), card_ids.to_vec()))
-            .map(|(_n, _invalidation)| ())
+        mutate(self, |c| {
+            c.remove_label_from_cards_impl(label_name.to_string(), card_ids.to_vec())
+        })
+        .map(|(_n, _invalidation)| ())
     }
 
     fn export_board(&self, board_id: Option<Uuid>) -> KanbanResult<String> {

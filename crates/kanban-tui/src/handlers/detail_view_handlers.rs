@@ -1,5 +1,6 @@
 use crate::app::{
-    App, AppMode, BoardField, BoardFocus, CardField, CardFocus, DialogMode, SprintTaskPanel,
+    App, AppMode, BoardField, BoardFocus, CardField, CardFocus, DialogMode, LabelAction,
+    SprintTaskPanel,
 };
 use crate::editor::edit_in_external_editor;
 use crate::events::EventHandler;
@@ -7,8 +8,8 @@ use crossterm::event::KeyCode;
 use kanban_core::Editable;
 use kanban_domain::card_lifecycle::sorted_board_columns;
 use kanban_domain::{
-    BoardSettingsDto, CardMetadataDto, Column, DependencyGraph, FieldSearcher, LoadState,
-    MutationOperations, Searcher,
+    BoardSettingsDto, CardMetadataDto, Column, DependencyGraph, FieldSearcher, KanbanOperations,
+    Label, LoadState, MutationOperations, Searcher,
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
@@ -315,6 +316,9 @@ impl App {
             }
             KeyCode::Char('R') => {
                 self.handle_manage_children();
+            }
+            KeyCode::Char('l') => {
+                self.handle_manage_labels();
             }
             KeyCode::Enter => match self.focus.card_focus {
                 CardFocus::Parents => self.navigate_to_selected_parent(),
@@ -1208,6 +1212,256 @@ impl App {
         self.relationship.search.clear();
 
         self.open_dialog(DialogMode::ManageParents);
+    }
+
+    /// Open the Manage Labels dialog for the active card, priming the applied
+    /// set (`Card.tags`) and a snapshot of the global label registry.
+    pub fn handle_manage_labels(&mut self) {
+        let Some(active_id) = self.selection.active_card_id else {
+            return;
+        };
+        let Some(card) = self.model.card_by_id_state(active_id).loaded().copied() else {
+            return;
+        };
+        let applied = card.tags.clone();
+        let registry = match self.ctx.list_labels() {
+            Ok(labels) => labels,
+            Err(e) => {
+                self.set_error(format!("Failed to load labels: {e}"));
+                return;
+            }
+        };
+        self.label_manager.refresh(applied, registry);
+        if self.label_manager.selection.get().is_none() {
+            self.label_manager.selection.set(Some(0));
+        }
+        self.open_dialog(DialogMode::ManageLabels);
+    }
+
+    /// Dispatch a key press in the Manage Labels dialog to the service.
+    pub fn handle_manage_labels_popup(
+        &mut self,
+        key_code: KeyCode,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        event_handler: &EventHandler,
+    ) -> bool {
+        let Some(card_id) = self.selection.active_card_id else {
+            return false;
+        };
+        let action = self.label_manager.resolve(key_code);
+        match action {
+            LabelAction::Close => {
+                self.label_manager.selection.clear();
+                self.pop_mode();
+            }
+            LabelAction::NavigateDown | LabelAction::NavigateUp => {
+                // resolve() already moved the cursor; nothing more to do.
+            }
+            LabelAction::RemoveFromCard(name) => {
+                self.remove_label_from_card(&name, card_id);
+            }
+            LabelAction::ApplyToCard(name) => self.apply_label_to_card(&name, card_id),
+            LabelAction::DeleteLabel(name) => self.delete_label(&name),
+            LabelAction::EditLabel(name) => {
+                return self.edit_label(terminal, event_handler, Some(name));
+            }
+            LabelAction::CreateLabel => return self.edit_label(terminal, event_handler, None),
+            LabelAction::None => {}
+        }
+        false
+    }
+
+    /// Apply a registry label to the active card (auto-registering it if
+    /// missing), then re-read the card and registry back into the dialog.
+    fn apply_label_to_card(&mut self, label_name: &str, card_id: uuid::Uuid) {
+        match self
+            .ctx
+            .assign_label_to_cards_impl(label_name.to_string(), vec![card_id])
+        {
+            Ok((_, inv)) => {
+                self.resolve_after_command(inv);
+                self.set_success(format!("Label \"{label_name}\" applied to card"));
+                self.refresh_label_manager(card_id);
+            }
+            Err(e) => {
+                tracing::error!("Failed to apply label: {e}");
+                self.set_error(format!("Failed to apply label: {e}"));
+            }
+        }
+    }
+
+    /// Remove a label from the active card, leaving the registry entry intact.
+    fn remove_label_from_card(&mut self, label_name: &str, card_id: uuid::Uuid) {
+        match self
+            .ctx
+            .remove_label_from_cards_impl(label_name.to_string(), vec![card_id])
+        {
+            Ok((_, inv)) => {
+                self.resolve_after_command(inv);
+                self.set_success(format!("Label \"{label_name}\" removed from card"));
+                self.refresh_label_manager(card_id);
+            }
+            Err(e) => {
+                tracing::error!("Failed to remove label: {e}");
+                self.set_error(format!("Failed to remove label: {e}"));
+            }
+        }
+    }
+
+    /// Delete a label from the global registry. If the active card still
+    /// carries it, we also remove it from the card so the card is never left
+    /// pointing at a label that no longer exists.
+    fn delete_label(&mut self, label_name: &str) {
+        let Some(card_id) = self.selection.active_card_id else {
+            return;
+        };
+        match self.ctx.delete_label_impl(label_name.to_string()) {
+            Ok(inv) => {
+                self.resolve_after_command(inv);
+                // A card's tag may now point at a deleted registry entry; if
+                // the active card still carries it, drop it too.
+                if let Some(card) = self.model.card_by_id_state(card_id).loaded().copied() {
+                    if card.tags.iter().any(|t| t == label_name) {
+                        if let Ok((_, inv2)) = self
+                            .ctx
+                            .remove_label_from_cards_impl(label_name.to_string(), vec![card_id])
+                        {
+                            self.resolve_after_command(inv2);
+                        }
+                    }
+                }
+                self.set_success(format!("Label \"{label_name}\" deleted"));
+                self.refresh_label_manager(card_id);
+            }
+            Err(e) => {
+                tracing::error!("Failed to delete label: {e}");
+                self.set_error(format!("Failed to delete label: {e}"));
+            }
+        }
+    }
+
+    /// Open the JSON label editor to edit (Some name) or create (None) a
+    /// label, then upsert it and refresh the dialog. Rename (edit path) keeps
+    /// the active card pointing at the label under its new name.
+    fn edit_label(
+        &mut self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        event_handler: &EventHandler,
+        label_name: Option<String>,
+    ) -> bool {
+        let initial = match &label_name {
+            Some(name) => match self.ctx.get_label(name) {
+                Ok(label) => label.unwrap_or_else(|| Label::named(name)),
+                Err(e) => {
+                    self.set_error(format!("Failed to load label: {e}"));
+                    return false;
+                }
+            },
+            None => Label {
+                name: String::new(),
+                color: None,
+                description: None,
+            },
+        };
+
+        let json = serde_json::to_string_pretty(&initial).unwrap_or_else(|_| "{}".to_string());
+        let temp_file = std::env::temp_dir().join(match &label_name {
+            Some(name) => format!("kanban-label-{name}.json"),
+            None => "kanban-new-label.json".to_string(),
+        });
+
+        match edit_in_external_editor(terminal, event_handler, temp_file, &json) {
+            Ok(Some(new_content)) => match serde_json::from_str::<Label>(&new_content) {
+                Ok(mut label) => {
+                    // Trim whitespace and normalise empty Option fields so a
+                    // user leaving a field blank is stored as None, not as "".
+                    label.name = label.name.trim().to_string();
+                    let trimmed_or_none = |field: String| -> Option<String> {
+                        let t = field.trim();
+                        if t.is_empty() {
+                            None
+                        } else {
+                            Some(t.to_string())
+                        }
+                    };
+                    label.color = label.color.and_then(trimmed_or_none);
+                    label.description = label.description.and_then(trimmed_or_none);
+                    if label.name.is_empty() {
+                        self.set_error("Label name is required");
+                        return true;
+                    }
+                    // A rename is an edit (Some old name) whose new name differs.
+                    let renamed = label_name.as_deref() != Some(label.name.as_str());
+                    // Renaming: drop the old name from the active card so it
+                    // does not point at a stale registry entry.
+                    if renamed {
+                        if let Some(card_id) = self.selection.active_card_id {
+                            if let Some(card) =
+                                self.model.card_by_id_state(card_id).loaded().copied()
+                            {
+                                if let Some(old) = &label_name {
+                                    if card.tags.iter().any(|t| t == old) {
+                                        if let Ok((_, inv)) = self.ctx.remove_label_from_cards_impl(
+                                            old.clone(),
+                                            vec![card_id],
+                                        ) {
+                                            self.resolve_after_command(inv);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    match self.ctx.upsert_label_impl(label.clone()) {
+                        Ok((_, inv)) => {
+                            self.resolve_after_command(inv);
+                            self.set_success(format!("Label \"{}\" saved", label.name));
+                            if let Some(card_id) = self.selection.active_card_id {
+                                self.refresh_label_manager(card_id);
+                                // After a rename, re-apply the new name to the
+                                // active card so it keeps the label.
+                                if renamed {
+                                    if let Ok((_, inv)) = self.ctx.assign_label_to_cards_impl(
+                                        label.name.clone(),
+                                        vec![card_id],
+                                    ) {
+                                        self.resolve_after_command(inv);
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to upsert label: {e}");
+                            self.set_error(format!("Failed to upsert label: {e}"));
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to parse label JSON: {e}");
+                    self.set_error(format!("Failed to parse label JSON: {e}"));
+                }
+            },
+            Ok(None) => {}
+            Err(e) => {
+                tracing::error!("Failed to edit label: {e}");
+                self.set_error(format!("Failed to edit label: {e}"));
+            }
+        }
+        true
+    }
+
+    /// Re-read the active card's `tags` and the global registry into the
+    /// dialog state, preserving the cursor where possible.
+    fn refresh_label_manager(&mut self, card_id: uuid::Uuid) {
+        let applied = self
+            .model
+            .card_by_id_state(card_id)
+            .loaded()
+            .copied()
+            .map(|c| c.tags.clone())
+            .unwrap_or_default();
+        let registry = self.ctx.list_labels().unwrap_or_default();
+        self.label_manager.refresh(applied, registry);
     }
 
     pub fn handle_manage_children(&mut self) {

@@ -180,6 +180,10 @@ impl App {
                 }
                 DialogMode::ManageParents => self.handle_manage_parents_popup(key.code),
                 DialogMode::ManageChildren => self.handle_manage_children_popup(key.code),
+                DialogMode::ManageLabels => {
+                    should_restart_events =
+                        self.handle_manage_labels_popup(key.code, terminal, event_handler)
+                }
                 DialogMode::CarryOverSprint => self.handle_carry_over_sprint_popup(key.code),
                 DialogMode::ExportBoards => self.handle_export_boards_dialog(key.code),
                 DialogMode::ChooseStorageFile => self.handle_choose_storage_file_dialog(key.code),

@@ -87,9 +87,7 @@ impl KanbanMcpServer {
         to_call_tool_result(&label)
     }
 
-    #[tool(
-        description = "Create or update a label in the global registry (upsert by name)"
-    )]
+    #[tool(description = "Create or update a label in the global registry (upsert by name)")]
     pub async fn tool_upsert_label(
         &self,
         Parameters(req): Parameters<UpsertLabelRequest>,
