@@ -163,7 +163,7 @@ fn set_create_input_cursor(frame: &mut Frame, box_area: Rect, app: &App) {
 
 /// Draw one section box: a bordered block with a title (accented when focused)
 /// and a scrollable body whose current row is background-highlighted.
-/// When `focused && insert_mode`, the border is green (active-typing state);
+/// When `focused && insert_mode`, the border is red (active-typing state);
 /// when `focused && !insert_mode`, the border is cyan (normal / selected).
 fn render_section(
     frame: &mut Frame,

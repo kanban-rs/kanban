@@ -417,7 +417,7 @@ async fn test_navigating_to_create_row_enters_insert_mode() {
     );
     assert!(
         app.label_manager.create_insert,
-        "navigating to the Create row must activate insert mode (green border)"
+        "navigating to the Create row must activate insert mode (red border)"
     );
 }
 

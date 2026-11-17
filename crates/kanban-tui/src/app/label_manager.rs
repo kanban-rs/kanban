@@ -109,7 +109,7 @@ pub struct LabelManagerState {
     /// Shared cursor over the flat [`Self::entries`] list.
     pub selection: SelectionState,
     /// `true` while the cursor is on the Create row and in active-typing
-    /// (insert) mode: green border, typed chars go into the input buffer,
+    /// (insert) mode: red border, typed chars go into the input buffer,
     /// and ESC returns to normal mode instead of closing the dialog.
     /// Set to `true` when the cursor arrives at the Create row via navigation,
     /// or when a character is typed from normal mode. Set to `false` when
@@ -282,7 +282,7 @@ impl LabelManagerState {
             .get()
             .filter(|i| self.entries().get(*i).copied().is_some_and(is_selectable));
         self.selection.set(keep.or_else(|| self.first_selectable()));
-        // If the cursor lands on the Create row, start in insert mode (green)
+        // If the cursor lands on the Create row, start in insert mode (red)
         // so the user can immediately type a name without an extra key press.
         self.create_insert =
             self.selection.get().and_then(|i| self.row_at(i)) == Some(LabelRow::Create);

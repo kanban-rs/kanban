@@ -1291,7 +1291,7 @@ impl App {
         // The "New label" row has two sub-states (create_insert on
         // LabelManagerState):
         //
-        //   INSERT (green border)  – cursor arrived via navigation or the user
+        //   INSERT (red border)  – cursor arrived via navigation or the user
         //                            typed a character; typed chars fill the
         //                            input buffer, j/k are typed as chars,
         //                            ESC → normal mode, Enter confirms.
