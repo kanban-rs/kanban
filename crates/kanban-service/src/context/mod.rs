@@ -324,6 +324,16 @@ impl KanbanOperations for KanbanContext {
         KanbanContext::delete_label_impl(self, name).map(|_| ())
     }
 
+    fn assign_label_to_cards(&mut self, label_name: &str, card_ids: &[Uuid]) -> KanbanResult<()> {
+        KanbanContext::assign_label_to_cards_impl(self, label_name.to_string(), card_ids.to_vec())
+            .map(|_| ())
+    }
+
+    fn remove_label_from_cards(&mut self, label_name: &str, card_ids: &[Uuid]) -> KanbanResult<()> {
+        KanbanContext::remove_label_from_cards_impl(self, label_name.to_string(), card_ids.to_vec())
+            .map(|_| ())
+    }
+
     fn export_board(&self, board_id: Option<Uuid>) -> KanbanResult<String> {
         KanbanContext::export_board_impl(self, board_id)
     }

@@ -279,6 +279,22 @@ impl MutationOperations for KanbanContext {
         KanbanContext::delete_label_impl(self, name)
     }
 
+    fn assign_label_to_cards_impl(
+        &mut self,
+        label_name: String,
+        card_ids: Vec<Uuid>,
+    ) -> KanbanResult<(usize, Invalidation)> {
+        KanbanContext::assign_label_to_cards_impl(self, label_name, card_ids)
+    }
+
+    fn remove_label_from_cards_impl(
+        &mut self,
+        label_name: String,
+        card_ids: Vec<Uuid>,
+    ) -> KanbanResult<(usize, Invalidation)> {
+        KanbanContext::remove_label_from_cards_impl(self, label_name, card_ids)
+    }
+
     fn execute(&mut self, commands: Vec<Command>) -> KanbanResult<Invalidation> {
         KanbanContext::execute(self, commands)
     }

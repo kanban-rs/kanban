@@ -194,6 +194,16 @@ pub trait MutationOperations {
 
     fn upsert_label_impl(&mut self, label: Label) -> KanbanResult<(Label, Invalidation)>;
     fn delete_label_impl(&mut self, name: String) -> KanbanResult<Invalidation>;
+    fn assign_label_to_cards_impl(
+        &mut self,
+        label_name: String,
+        card_ids: Vec<Uuid>,
+    ) -> KanbanResult<(usize, Invalidation)>;
+    fn remove_label_from_cards_impl(
+        &mut self,
+        label_name: String,
+        card_ids: Vec<Uuid>,
+    ) -> KanbanResult<(usize, Invalidation)>;
 
     fn execute(&mut self, commands: Vec<Command>) -> KanbanResult<Invalidation>;
 }
@@ -213,8 +223,8 @@ mod tests {
         let decl = &src[..src.find("#[cfg(test)]").unwrap()];
         assert_eq!(
             decl.matches("\n    fn ").count(),
-            46,
-            "MutationOperations must declare exactly 46 methods"
+            48,
+            "MutationOperations must declare exactly 48 methods"
         );
         assert!(
             !decl.contains("\n    }"),

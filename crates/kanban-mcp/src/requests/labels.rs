@@ -30,3 +30,19 @@ pub struct DeleteLabelRequest {
     #[schemars(description = "Exact name of the label to delete (case-sensitive)")]
     pub name: String,
 }
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct AssignLabelToCardsRequest {
+    #[schemars(description = "Exact name of the label to add (case-sensitive)")]
+    pub label_name: String,
+    #[schemars(description = "Card UUIDs or identifiers (e.g. ['KAN-1', 'KAN-2', '42'])")]
+    pub card_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct RemoveLabelFromCardsRequest {
+    #[schemars(description = "Exact name of the label to remove (case-sensitive)")]
+    pub label_name: String,
+    #[schemars(description = "Card UUIDs or identifiers (e.g. ['KAN-1', 'KAN-2', '42'])")]
+    pub card_ids: Vec<String>,
+}

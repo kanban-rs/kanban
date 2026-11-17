@@ -430,6 +430,14 @@ impl KanbanOperations for McpContext {
         self.inner.delete_label(name)
     }
 
+    fn assign_label_to_cards(&mut self, label_name: &str, card_ids: &[Uuid]) -> KanbanResult<()> {
+        self.inner.assign_label_to_cards(label_name, card_ids)
+    }
+
+    fn remove_label_from_cards(&mut self, label_name: &str, card_ids: &[Uuid]) -> KanbanResult<()> {
+        self.inner.remove_label_from_cards(label_name, card_ids)
+    }
+
     // ========================================================================
     // Import/Export
     // ========================================================================

@@ -1,8 +1,10 @@
 use crate::helpers::{
     core_err_to_mcp, kanban_err_to_mcp, locked_read, locked_write, to_call_tool_result,
+    to_call_tool_result_json,
 };
 use crate::requests::labels::{
-    DeleteLabelRequest, GetLabelRequest, ListLabelsRequest, UpsertLabelRequest,
+    AssignLabelToCardsRequest, DeleteLabelRequest, GetLabelRequest, ListLabelsRequest,
+    RemoveLabelFromCardsRequest, UpsertLabelRequest,
 };
 use crate::scope::{ToolScope, ToolScoped};
 use crate::KanbanMcpServer;
@@ -33,6 +35,18 @@ impl ToolScoped for UpsertLabelRequest {
 }
 
 impl ToolScoped for DeleteLabelRequest {
+    fn scope(&self) -> ToolScope {
+        ToolScope::default()
+    }
+}
+
+impl ToolScoped for AssignLabelToCardsRequest {
+    fn scope(&self) -> ToolScope {
+        ToolScope::default()
+    }
+}
+
+impl ToolScoped for RemoveLabelFromCardsRequest {
     fn scope(&self) -> ToolScope {
         ToolScope::default()
     }
@@ -111,5 +125,47 @@ impl KanbanMcpServer {
         })
         .await?;
         to_call_tool_result(&())
+    }
+
+    #[tool(
+        description = "Add a label to multiple cards at once. The label is auto-registered if it does not exist yet. IDs may be UUIDs or identifiers (e.g. 'KAN-1', '42')."
+    )]
+    pub async fn tool_assign_label_to_cards(
+        &self,
+        Parameters(req): Parameters<AssignLabelToCardsRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let scope = req.scope();
+        let count = locked_write(&self.ctx, |ctx| {
+            let _ = ctx.model_for(&scope);
+            let ids = ctx
+                .resolve_card_ids(&req.card_ids)
+                .map_err(kanban_err_to_mcp)?;
+            ctx.mutate(|c| c.assign_label_to_cards_impl(req.label_name.clone(), ids))
+                .map(|(count, _inv)| count)
+                .map_err(kanban_err_to_mcp)
+        })
+        .await?;
+        to_call_tool_result_json(serde_json::json!({"assigned_count": count}))
+    }
+
+    #[tool(
+        description = "Remove a label from multiple cards at once. The label itself is kept in the registry. IDs may be UUIDs or identifiers (e.g. 'KAN-1', '42')."
+    )]
+    pub async fn tool_remove_label_from_cards(
+        &self,
+        Parameters(req): Parameters<RemoveLabelFromCardsRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let scope = req.scope();
+        let count = locked_write(&self.ctx, |ctx| {
+            let _ = ctx.model_for(&scope);
+            let ids = ctx
+                .resolve_card_ids(&req.card_ids)
+                .map_err(kanban_err_to_mcp)?;
+            ctx.mutate(|c| c.remove_label_from_cards_impl(req.label_name.clone(), ids))
+                .map(|(count, _inv)| count)
+                .map_err(kanban_err_to_mcp)
+        })
+        .await?;
+        to_call_tool_result_json(serde_json::json!({"removed_count": count}))
     }
 }

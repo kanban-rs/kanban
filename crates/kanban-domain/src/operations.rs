@@ -134,6 +134,21 @@ pub trait KanbanOperations {
     fn upsert_label(&mut self, label: Label) -> KanbanResult<Label>;
     /// Delete a label by name.
     fn delete_label(&mut self, name: String) -> KanbanResult<()>;
+    /// Add a label to a batch of cards by id. If the label is not yet in the
+    /// global registry it is auto-registered (empty color/description); an
+    /// existing label's color/description are left untouched.
+    fn assign_label_to_cards(
+        &mut self,
+        label_name: &str,
+        card_ids: &[Uuid],
+    ) -> KanbanResult<()>;
+    /// Remove a label from a batch of cards by id. The global registry entry
+    /// is left intact; cards that do not carry the label are unaffected.
+    fn remove_label_from_cards(
+        &mut self,
+        label_name: &str,
+        card_ids: &[Uuid],
+    ) -> KanbanResult<()>;
 
     // Import/Export
     fn export_board(&self, board_id: Option<Uuid>) -> KanbanResult<String>;
