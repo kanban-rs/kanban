@@ -332,6 +332,14 @@ impl App {
                 self.pending_key = None;
                 self.handle_card_selection_toggle();
             }
+            KeyCode::Char('m') => {
+                self.pending_key = None;
+                // Manage labels on the focused card, or on every multi-selected
+                // card when selection is active. No-op on the boards panel.
+                if self.focus.active == Focus::Cards {
+                    self.handle_manage_labels_from_list();
+                }
+            }
             KeyCode::Char('V') => {
                 self.pending_key = None;
                 self.handle_toggle_task_list_view();

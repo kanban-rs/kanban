@@ -25,7 +25,7 @@ pub mod relationship;
 pub use relationship::RelationshipState;
 
 pub mod label_manager;
-pub use label_manager::{LabelAction, LabelManagerState, LabelRow};
+pub use label_manager::{intersect_tags, LabelAction, LabelManagerState, LabelRow};
 
 pub mod view;
 pub use view::ViewState;

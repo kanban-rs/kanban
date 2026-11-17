@@ -1,10 +1,16 @@
 //! Render for the Manage Labels dialog (`DialogMode::ManageLabels`).
-use crate::app::App;
+//!
+//! Follows the sprint-picker / relationship-list convention: one bordered block
+//! containing a single flat, scrollable list where section headers are
+//! non-selectable rows (yellow + bold) interspersed between selectable item
+//! rows, plus a one-line key-hint footer.
+use crate::app::{App, LabelRow};
 use crate::components::centered_rect;
+use crate::components::radio_list::scroll_offset_to_show;
 use crate::theme::*;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
     Frame,
@@ -22,43 +28,43 @@ pub fn render_manage_labels_popup(app: &App, frame: &mut Frame) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let selection = app.label_manager.selection.get();
-    let applied_count = app.label_manager.applied.len();
-    let create_idx = app.label_manager.total_rows().saturating_sub(1);
-
-    let applied_active = selection.is_some_and(|s| s < applied_count);
-    let registry_active = selection.is_some_and(|s| s >= applied_count && s < create_idx);
-    let create_active = selection == Some(create_idx);
-
-    let applied_height = (applied_count.max(1) + 3) as u16;
-
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .margin(1)
-        .constraints([
-            Constraint::Length(applied_height),
-            Constraint::Length(1),
-            Constraint::Min(4),
-            Constraint::Length(4),
-            Constraint::Length(1),
-        ])
+        .constraints([Constraint::Min(3), Constraint::Length(1)])
         .split(inner);
 
-    render_applied_section(app, frame, chunks[0], applied_active);
-    render_registry_section(app, frame, chunks[2], registry_active);
-    render_create_row(app, frame, chunks[3], create_active);
-    render_instructions(frame, chunks[4]);
+    render_entries(app, frame, chunks[0]);
+    render_instructions(frame, chunks[1]);
 }
 
-fn section_border(active: bool) -> Style {
-    if active {
-        focused_border()
-    } else {
-        Style::default()
+fn render_entries(app: &App, frame: &mut Frame, area: Rect) {
+    if area.height == 0 {
+        return;
     }
+    let entries = app.label_manager.entries();
+    let selected = app.label_manager.selection.get();
+    let highlight_bg = app.highlight_bg();
+
+    let lines: Vec<Line> = entries
+        .iter()
+        .enumerate()
+        .map(|(i, row)| render_row(*row, selected == Some(i), highlight_bg, app))
+        .collect();
+
+    let total = lines.len();
+    let height = area.height as usize;
+    let scroll = if total == 0 {
+        0
+    } else {
+        let sel = selected.unwrap_or(0).min(total - 1);
+        scroll_offset_to_show(sel, total, height)
+    };
+    let paragraph = Paragraph::new(lines).scroll((scroll as u16, 0));
+    frame.render_widget(paragraph, area);
 }
 
-fn row_style(is_selected: bool, highlight_bg: Color) -> Style {
+fn row_style(is_selected: bool, highlight_bg: ratatui::style::Color) -> Style {
     if is_selected {
         normal_text().bg(highlight_bg)
     } else {
@@ -66,110 +72,46 @@ fn row_style(is_selected: bool, highlight_bg: Color) -> Style {
     }
 }
 
-fn render_applied_section(app: &App, frame: &mut Frame, area: Rect, active: bool) {
-    let highlight_bg = app.highlight_bg();
-    let selected = app.label_manager.selection.get();
-
-    let mut lines: Vec<Line> = vec![Line::from(Span::styled(
-        "Applied to this card",
-        if active {
-            bold_highlight()
-        } else {
-            normal_text()
-        },
-    ))];
-
-    for (i, name) in app.label_manager.applied.iter().enumerate() {
-        let is_selected = selected == Some(i);
-        let style = row_style(is_selected, highlight_bg);
-        let cursor = if is_selected { "> " } else { "  " };
-        lines.push(Line::from(vec![
-            Span::styled(cursor.to_string(), style),
-            Span::styled("[✓] ".to_string(), style),
-            Span::styled(name.clone(), style),
-        ]));
-    }
-    if app.label_manager.applied.is_empty() {
-        lines.push(Line::from(Span::styled("  (none)", label_text())));
-    }
-
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(section_border(active));
-    frame.render_widget(Paragraph::new(lines).block(block), area);
-}
-
-fn render_registry_section(app: &App, frame: &mut Frame, area: Rect, active: bool) {
+fn render_row(
+    row: LabelRow,
+    is_selected: bool,
+    highlight_bg: ratatui::style::Color,
+    app: &App,
+) -> Line<'static> {
     use std::collections::HashSet;
-    let highlight_bg = app.highlight_bg();
-    let selected = app.label_manager.selection.get();
-    let base = app.label_manager.applied.len();
-    let applied: HashSet<&String> = app.label_manager.applied.iter().collect();
-
-    let mut lines: Vec<Line> = vec![Line::from(Span::styled(
-        "Labels",
-        if active {
-            bold_highlight()
-        } else {
-            normal_text()
-        },
-    ))];
-
-    for (i, label) in app.label_manager.registry.iter().enumerate() {
-        let flat_idx = base + i;
-        let is_selected = selected == Some(flat_idx);
-        let style = row_style(is_selected, highlight_bg);
-        let cursor = if is_selected { "> " } else { "  " };
-        let check = if applied.contains(&label.name) {
-            "[✓]"
-        } else {
-            "[ ]"
-        };
-
-        let mut spans: Vec<Span> = vec![
-            Span::styled(cursor.to_string(), style),
-            Span::styled(format!("{check} "), style),
-            Span::styled(label.name.clone(), style),
-        ];
-        if let Some(desc) = &label.description {
-            spans.push(Span::styled(format!("  {desc}"), label_text()));
+    match row {
+        LabelRow::Header(text) => Line::from(Span::styled(text.to_string(), bold_highlight())),
+        LabelRow::Note(text) => Line::from(Span::styled(format!("  {text}"), label_text())),
+        LabelRow::Applied(i) => {
+            let style = row_style(is_selected, highlight_bg);
+            Line::from(vec![
+                Span::styled("[✓] ".to_string(), style),
+                Span::styled(app.label_manager.applied[i].clone(), style),
+            ])
         }
-        lines.push(Line::from(spans));
-    }
-    if app.label_manager.registry.is_empty() {
-        lines.push(Line::from(Span::styled(
-            "  (none defined yet)",
-            label_text(),
-        )));
-    }
-
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(section_border(active));
-    frame.render_widget(Paragraph::new(lines).block(block), area);
-}
-
-fn render_create_row(_app: &App, frame: &mut Frame, area: Rect, active: bool) {
-    let border = if active {
-        Style::default().fg(Color::Yellow)
-    } else {
-        Style::default().fg(Color::Gray)
-    };
-
-    let lines = vec![
-        Line::from(Span::styled(
-            "Create",
-            if active {
-                bold_highlight()
+        LabelRow::Registry(i) => {
+            let label = &app.label_manager.registry[i];
+            let applied: HashSet<&String> = app.label_manager.applied.iter().collect();
+            let check = if applied.contains(&label.name) {
+                "[✓]"
             } else {
-                normal_text()
-            },
-        )),
-        Line::from(Span::styled("  Enter or n: open editor", label_text())),
-    ];
-
-    let block = Block::default().borders(Borders::ALL).border_style(border);
-    frame.render_widget(Paragraph::new(lines).block(block), area);
+                "[ ]"
+            };
+            let style = row_style(is_selected, highlight_bg);
+            let mut spans: Vec<Span> = vec![
+                Span::styled(format!("{check} "), style),
+                Span::styled(label.name.clone(), style),
+            ];
+            if let Some(desc) = &label.description {
+                spans.push(Span::styled(format!("  {desc}"), label_text()));
+            }
+            Line::from(spans)
+        }
+        LabelRow::Create => {
+            let style = row_style(is_selected, highlight_bg);
+            Line::from(Span::styled("New label…".to_string(), style))
+        }
+    }
 }
 
 fn render_instructions(frame: &mut Frame, area: Rect) {
