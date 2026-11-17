@@ -92,24 +92,28 @@ fn test_handle_manage_labels_opens_dialog_with_applied_and_registry() {
     let card = app.ctx.get_card(card_id).unwrap().unwrap();
     assert_eq!(card.tags, vec!["design".to_string()]);
 
-    assert_eq!(
-        app.label_manager.applied,
-        vec!["design".to_string()],
-        "applied list must reflect the card's tags"
+    // The managed card carries the card's tags, and the row list reflects them:
+    // design (applied) ordered above p1 (not applied).
+    assert!(
+        app.label_manager
+            .cards
+            .iter()
+            .any(|c| c.tags == vec!["design"]),
+        "managed card must carry the card's tags, got: {:?}",
+        app.label_manager.cards
     );
-    let registry_names: Vec<_> = app
+    let row_names: Vec<_> = app
         .label_manager
-        .registry
+        .rows
         .iter()
-        .map(|l| l.name.clone())
+        .map(|r| r.name.clone())
         .collect();
-    assert_eq!(registry_names, vec!["design".to_string(), "p1".to_string()]);
+    assert_eq!(row_names, vec!["design".to_string(), "p1".to_string()]);
 
-    // The cursor starts on the first selectable row — the applied "design"
-    // row (index 1), just past the "Applied to this card" section header.
+    // The cursor starts on the first selectable row — the applied "design" row.
     assert_eq!(
         app.label_manager.current_row(),
-        Some(kanban_tui::app::LabelRow::Applied(0)),
+        Some(kanban_tui::app::LabelRow::Label(0)),
         "cursor must start on the first applied row"
     );
 }
@@ -133,11 +137,10 @@ async fn test_handle_manage_labels_popup_esc_closes_dialog() {
 async fn test_handle_manage_labels_popup_enter_on_applied_row_removes_from_card() {
     let (mut app, card_id) = card_with_labels_fixture();
     // The cursor starts on the applied "design" row. Removing a label from the
-    // card is Enter's job in the Applied section (x and e are reserved for the
-    // Labels section).
+    // card is Enter's job (x and e are reserved for defined labels).
     assert_eq!(
         app.label_manager.current_row(),
-        Some(kanban_tui::app::LabelRow::Applied(0))
+        Some(kanban_tui::app::LabelRow::Label(0))
     );
 
     let mut terminal = headless_terminal();
@@ -163,20 +166,26 @@ async fn test_handle_manage_labels_popup_enter_on_applied_row_removes_from_card(
 #[tokio::test]
 async fn test_handle_manage_labels_popup_enter_on_registry_row_applies_to_card() {
     let (mut app, card_id) = card_with_labels_fixture();
-    // Put the cursor on the "p1" registry row (found by scanning the flat
-    // list, so this does not depend on the header/notes layout).
-    let target = kanban_tui::app::LabelRow::Registry(1);
+    // Put the cursor on the "p1" row, found by its name so this does not depend
+    // on the divider/rows layout.
+    let row_index = app
+        .label_manager
+        .rows
+        .iter()
+        .position(|r| r.name == "p1")
+        .expect("the 'p1' row must exist");
+    let target = kanban_tui::app::LabelRow::Label(row_index);
     let idx = app
         .label_manager
         .entries()
         .iter()
         .position(|r| *r == target)
-        .expect("the 'p1' registry row must exist");
+        .expect("the 'p1' flat row must exist");
     app.label_manager.selection.set(Some(idx));
     assert_eq!(
         app.label_manager.current_row(),
         Some(target),
-        "cursor must be on 'p1' registry row"
+        "cursor must be on the 'p1' row"
     );
 
     let mut terminal = headless_terminal();

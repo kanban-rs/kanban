@@ -1,12 +1,12 @@
-//! Render for the Manage Labels dialog (`DialogMode::ManageLabels`).
+//! The Manage Labels dialog.
 //!
-//! The dialog is an outer "Manage Labels" block containing three bordered
-//! sub-sections: the labels **Applied** to the card, the global **Labels**
-//! registry, and the **New label** action row. Because each section lives in
-//! its own box, the box that holds the current cursor row (the *focused*
-//! section) is accented (bright border + bold title) while the other two use
-//! a neutral border, so both the user and the program can see which section
-//! the cursor is in. The cursor is a row-background highlight inside the
+//! The dialog is an outer "Manage Labels" block containing two bordered
+//! sub-sections: the **Labels** list (one scrollable box whose rows are
+//! internally divided by a muted divisor into "on at least one card" above and
+//! "on none" below), and the **New label** input box. The box holding the
+//! current cursor row is the *focused* section (accent border + bold title)
+//! while the other uses a neutral border, so both the user and the program can
+//! see where the cursor is. The cursor is a row-background highlight inside the
 //! focused box, and the footer hint is context-aware of that section.
 use crate::app::{App, LabelRow};
 use crate::components::centered_rect_abs;
@@ -22,81 +22,66 @@ use ratatui::{
 };
 
 /// Dialog height target, as a fraction of the terminal (capped at the terminal
-/// itself), plus the per-section body sizing used to split it between boxes.
+/// itself), plus the per-box body sizing used to split it between the two boxes.
 const OUTER_PERCENT: usize = 85;
 const SECTION_GAP: usize = 1;
 const HINT_HEIGHT: usize = 1;
-const APPLIED_MAX_BODY: usize = 8;
-const REGISTRY_MIN_BODY: usize = 5;
+/// The labels box is the scrollable one: its body is at least this tall and it
+/// absorbs the dialog's remaining height.
+const LABELS_MIN_BODY: usize = 4;
+/// The "New label" input body is a single text line.
 const CREATE_BODY: usize = 1;
+/// A partial label shows its card keys, collapsing to a count beyond this many.
+const PARTIAL_KEY_LIMIT: usize = 5;
 
-/// The three dialog sub-sections. The one holding the cursor row is the
-/// focused section (accent border + bold title + context-aware hint).
+/// The two dialog sub-sections. The one holding the cursor row is the focused
+/// section (accent border + bold title + context-aware hint).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Section {
-    Applied,
-    Registry,
+    Labels,
     Create,
 }
 
-/// Which section a flat selectable row belongs to.
+/// Which section a flat row belongs to.
 fn section_of(row: &LabelRow) -> Option<Section> {
     match row {
-        LabelRow::Applied(_) => Some(Section::Applied),
-        LabelRow::Registry(_) => Some(Section::Registry),
+        LabelRow::Label(_) => Some(Section::Labels),
         LabelRow::Create => Some(Section::Create),
-        LabelRow::Header(_) | LabelRow::Note(_) => None,
+        LabelRow::Divider | LabelRow::Note(_) => None,
     }
 }
 
-/// Group the flat entry list into the three section bodies (in applied,
-/// registry, create order). Header rows become the box titles and are not part
-/// of any body; `Note` rows (the "(none…)" hint for an empty section) stay in
-/// their section.
-fn split_body(entries: &[LabelRow]) -> (Vec<LabelRow>, Vec<LabelRow>, Vec<LabelRow>) {
-    let mut applied = Vec::new();
-    let mut registry = Vec::new();
+/// Group the flat entry list into the two section bodies: everything except the
+/// `Create` row belongs to the Labels box, the `Create` row to the New-label box.
+fn split_body(entries: &[LabelRow]) -> (Vec<LabelRow>, Vec<LabelRow>) {
+    let mut labels = Vec::new();
     let mut create = Vec::new();
-    let mut current = Section::Applied;
     for row in entries {
-        match row {
-            LabelRow::Header(h) => {
-                current = match *h {
-                    "Labels" => Section::Registry,
-                    "Create" => Section::Create,
-                    _ => Section::Applied,
-                };
-            }
-            _ => match current {
-                Section::Applied => applied.push(*row),
-                Section::Registry => registry.push(*row),
-                Section::Create => create.push(*row),
-            },
+        if *row == LabelRow::Create {
+            create.push(*row);
+        } else {
+            labels.push(*row);
         }
     }
-    (applied, registry, create)
+    (labels, create)
 }
 
 pub fn render_manage_labels_popup(app: &App, frame: &mut Frame) {
     let frame_area = frame.area();
 
-    let (applied_body, registry_body, create_body) = split_body(&app.label_manager.entries());
+    let (labels_body, create_body) = split_body(&app.label_manager.entries());
 
     let cursor_row = app.label_manager.current_row();
     let focus = cursor_row
         .and_then(|r| section_of(&r))
-        .unwrap_or(Section::Applied);
+        .unwrap_or(Section::Labels);
 
-    // Each box is 2 border rows + its body. Applied is capped (long lists
-    // scroll); the registry box absorbs the remaining height.
-    let applied_box_h = 2 + applied_body.len().clamp(1, APPLIED_MAX_BODY);
     let create_box_h = 2 + CREATE_BODY;
-    let registry_min_box_h = 2 + REGISTRY_MIN_BODY;
+    let labels_min_box_h = 2 + LABELS_MIN_BODY;
 
     // Comfortable, mostly-fixed outer height: ~85% of the terminal, clamped to
-    // what fits and to the minimum that keeps every box well-proportioned.
-    let inner_min =
-        applied_box_h + 2 * SECTION_GAP + registry_min_box_h + create_box_h + HINT_HEIGHT;
+    // what fits and to the minimum that keeps both boxes well-proportioned.
+    let inner_min = labels_min_box_h + 2 * SECTION_GAP + create_box_h + HINT_HEIGHT;
     let outer_min = inner_min + 2;
     let frame_h = frame_area.height as usize;
     let target = (frame_h * OUTER_PERCENT) / 100;
@@ -117,17 +102,16 @@ pub fn render_manage_labels_popup(app: &App, frame: &mut Frame) {
     let inner_rect = outer_block.inner(area);
     frame.render_widget(outer_block, area);
 
-    // The registry box takes the remainder so the whole outer area is used.
+    // The labels box takes the remainder so the whole outer area is used.
     let inner_h = inner_rect.height as usize;
-    let consumed = applied_box_h + 2 * SECTION_GAP + create_box_h + HINT_HEIGHT;
-    let registry_box_h = inner_h.saturating_sub(consumed).max(registry_min_box_h) as u16;
+    let labels_box_h = inner_h
+        .saturating_sub(create_box_h + 2 * SECTION_GAP + HINT_HEIGHT)
+        .max(labels_min_box_h) as u16;
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(applied_box_h as u16),
-            Constraint::Length(SECTION_GAP as u16),
-            Constraint::Length(registry_box_h),
+            Constraint::Length(labels_box_h),
             Constraint::Length(SECTION_GAP as u16),
             Constraint::Length(create_box_h as u16),
             Constraint::Length(HINT_HEIGHT as u16),
@@ -137,36 +121,27 @@ pub fn render_manage_labels_popup(app: &App, frame: &mut Frame) {
     render_section(
         frame,
         chunks[0],
-        "Applied to this card",
-        focus == Section::Applied,
-        &applied_body,
+        "Labels",
+        focus == Section::Labels,
+        &labels_body,
         app,
     );
     render_section(
         frame,
         chunks[2],
-        "Labels",
-        focus == Section::Registry,
-        &registry_body,
-        app,
-    );
-    render_section(
-        frame,
-        chunks[4],
         "New label",
         focus == Section::Create,
         &create_body,
         app,
     );
     if focus == Section::Create {
-        set_create_input_cursor(frame, chunks[4], app);
+        set_create_input_cursor(frame, chunks[2], app);
     }
-    render_hint(frame, chunks[5], focus, !app.input.as_str().is_empty());
+    render_hint(frame, chunks[3], focus, !app.input.as_str().is_empty());
 }
 
 /// Place the terminal caret in the "New label" box so the row reads as a live
-/// text field: the box's inner left (one column after the border), one row down
-/// for the title, plus the visible width before the caret.
+/// text field (positioned by the shared text-field component).
 fn set_create_input_cursor(frame: &mut Frame, box_area: Rect, app: &App) {
     set_text_field_caret(
         frame,
@@ -176,8 +151,8 @@ fn set_create_input_cursor(frame: &mut Frame, box_area: Rect, app: &App) {
     )
 }
 
-/// Draw one sub-section box: a bordered block with a title (accented when
-/// focused) and a scrollable body whose current row is background-highlighted.
+/// Draw one section box: a bordered block with a title (accented when focused)
+/// and a scrollable body whose current row is background-highlighted.
 fn render_section(
     frame: &mut Frame,
     area: Rect,
@@ -214,7 +189,15 @@ fn render_section(
 
     let lines: Vec<Line<'static>> = body
         .iter()
-        .map(|row| render_row(*row, Some(*row) == cursor_row, highlight_bg, app))
+        .map(|row| {
+            render_row(
+                *row,
+                Some(*row) == cursor_row,
+                highlight_bg,
+                inner.width as usize,
+                app,
+            )
+        })
         .collect();
     let selected_local = body.iter().position(|row| Some(*row) == cursor_row);
     let scroll = match selected_local {
@@ -224,36 +207,60 @@ fn render_section(
     frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), inner);
 }
 
-/// Row-level rendering inside a section box. `Header` rows become section
-/// titles, so this arm is only defensive.
-fn render_row(row: LabelRow, is_selected: bool, highlight_bg: Color, app: &App) -> Line<'static> {
-    use std::collections::HashSet;
+/// Build the one-line applied-mark suffix for a label: the mark, plus the
+/// trailing context (card keys for the partial state, otherwise the registry
+/// description, if any).
+fn applied_mark(item_name: &str, app: &App) -> (String, String) {
+    let total = app.label_manager.cards.len();
+    let keys = app.label_manager.applied_card_keys(item_name);
+    if total > 0 && keys.len() == total {
+        ("[✓]".to_string(), String::new())
+    } else if keys.is_empty() {
+        ("[ ]".to_string(), String::new())
+    } else {
+        let listing = if keys.len() > PARTIAL_KEY_LIMIT {
+            format!("{} cards…", keys.len())
+        } else {
+            keys.join(", ")
+        };
+        ("[-]".to_string(), listing)
+    }
+}
+
+/// Row-level rendering inside a section box.
+fn render_row(
+    row: LabelRow,
+    is_selected: bool,
+    highlight_bg: Color,
+    width: usize,
+    app: &App,
+) -> Line<'static> {
     let style = if is_selected {
         normal_text().bg(highlight_bg)
     } else {
         normal_text()
     };
     match row {
-        LabelRow::Header(_) => Line::default(),
+        // The internal divisor between the applied and not-applied groups: a
+        // full-width muted dash line (never selected).
+        LabelRow::Divider => Line::from(Span::styled("─".repeat(width.max(1)), normal_text())),
         LabelRow::Note(text) => Line::from(Span::styled(format!("  {text}"), normal_text())),
-        LabelRow::Applied(i) => Line::from(vec![
-            Span::styled("[✓] ".to_string(), style),
-            Span::styled(app.label_manager.applied[i].clone(), style),
-        ]),
-        LabelRow::Registry(i) => {
-            let label = &app.label_manager.registry[i];
-            let applied: HashSet<&String> = app.label_manager.applied.iter().collect();
-            let check = if applied.contains(&label.name) {
-                "[✓]"
+        LabelRow::Label(i) => {
+            let item = &app.label_manager.rows[i];
+            let (mark, listing) = applied_mark(&item.name, app);
+            // Partial state shows the cards it is on; otherwise the registry
+            // description (when the label is defined) stays visible.
+            let trailing = if listing.is_empty() {
+                item.description.clone().unwrap_or_default()
             } else {
-                "[ ]"
+                listing
             };
             let mut spans: Vec<Span> = vec![
-                Span::styled(format!("{check} "), style),
-                Span::styled(label.name.clone(), style),
+                Span::styled(format!("{mark} "), style),
+                Span::styled(item.name.clone(), style),
             ];
-            if let Some(desc) = &label.description {
-                spans.push(Span::styled(format!("  {desc}"), normal_text()));
+            if !trailing.is_empty() {
+                spans.push(Span::styled(format!("  {trailing}"), normal_text()));
             }
             Line::from(spans)
         }
@@ -272,9 +279,8 @@ fn render_row(row: LabelRow, is_selected: bool, highlight_bg: Color, app: &App) 
 /// the user has typed a name (Enter just creates it), so no action repeats.
 fn hint_text(focus: Section, create_has_text: bool) -> String {
     match focus {
-        Section::Applied => "j/k: navigate   Enter: remove from card   Esc: close".to_string(),
-        Section::Registry => {
-            "j/k: navigate   Enter: apply to card   x: delete   e: edit   Esc: close".to_string()
+        Section::Labels => {
+            "j/k: navigate   Enter: apply/remove   x: delete   e: edit   Esc: close".to_string()
         }
         Section::Create => {
             const CLOSING: &str = "   Esc to close";
@@ -305,38 +311,81 @@ mod tests {
     use super::*;
     use kanban_domain::Label;
 
-    fn state(applied: &[&str], registry: &[&str]) -> App {
+    /// Build an App whose label manager manages the given cards (key + tags)
+    /// against the given registry.
+    fn state(cards: Vec<(&str, Vec<&str>)>, registry: &[&str]) -> App {
         let mut app = App::default();
-        app.label_manager.applied = applied.iter().map(|s| s.to_string()).collect();
-        app.label_manager.registry = registry.iter().map(|s| Label::named(*s)).collect();
+        let managed: Vec<crate::app::ManagedCard> = cards
+            .into_iter()
+            .map(|(k, ts)| crate::app::ManagedCard {
+                key: k.to_string(),
+                tags: ts.into_iter().map(|s| s.to_string()).collect(),
+            })
+            .collect();
+        app.label_manager
+            .refresh(managed, registry.iter().map(|s| Label::named(*s)).collect());
         app
     }
 
     #[test]
-    fn split_body_separates_three_sections() {
-        let app = state(&["bug"], &["bug", "design"]);
-        let (applied, registry, create) = split_body(&app.label_manager.entries());
-        assert_eq!(applied, vec![LabelRow::Applied(0)]);
-        assert_eq!(registry, vec![LabelRow::Registry(0), LabelRow::Registry(1)]);
+    fn split_body_separates_labels_and_create() {
+        let app = state(vec![("KAN-1", vec!["design"])], &["design", "p1"]);
+        let (labels, create) = split_body(&app.label_manager.entries());
+        // design (applied), the internal divider, then p1 (not applied).
+        assert_eq!(
+            labels,
+            vec![LabelRow::Label(0), LabelRow::Divider, LabelRow::Label(1)]
+        );
         assert_eq!(create, vec![LabelRow::Create]);
     }
 
     #[test]
-    fn split_body_empty_sections_keep_the_note() {
-        let app = state(&[], &[]);
-        let (applied, registry, create) = split_body(&app.label_manager.entries());
-        assert_eq!(applied, vec![LabelRow::Note("(none)")]);
-        assert_eq!(registry, vec![LabelRow::Note("(none defined yet)")]);
+    fn split_body_empty_labels_keep_the_note() {
+        let app = state(vec![("KAN-1", vec![])], &[]);
+        let (labels, create) = split_body(&app.label_manager.entries());
+        assert_eq!(labels, vec![LabelRow::Note("(no labels)")]);
         assert_eq!(create, vec![LabelRow::Create]);
     }
 
     #[test]
     fn section_of_maps_selectable_rows() {
-        assert_eq!(section_of(&LabelRow::Applied(3)), Some(Section::Applied));
-        assert_eq!(section_of(&LabelRow::Registry(1)), Some(Section::Registry));
+        assert_eq!(section_of(&LabelRow::Label(3)), Some(Section::Labels));
         assert_eq!(section_of(&LabelRow::Create), Some(Section::Create));
-        assert_eq!(section_of(&LabelRow::Header("Labels")), None);
-        assert_eq!(section_of(&LabelRow::Note("(none)")), None);
+        assert_eq!(section_of(&LabelRow::Divider), None);
+        assert_eq!(section_of(&LabelRow::Note("nope")), None);
+    }
+
+    #[test]
+    fn partial_mark_lists_few_keys_and_collapses_many_to_a_count() {
+        let app = state(
+            vec![
+                ("KAN-1", vec!["p1"]),
+                ("KAN-2", vec!["p1"]),
+                ("KAN-3", vec![]),
+            ],
+            &["p1"],
+        );
+        let (mark, listing) = applied_mark("p1", &app);
+        assert_eq!(mark, "[-]");
+        assert_eq!(listing, "KAN-1, KAN-2");
+
+        // Six of seven cards carry p1 -> partial with more than PARTIAL_KEY_LIMIT
+        // card keys, which collapses to a count.
+        let app_many = state(
+            vec![
+                ("KAN-1", vec!["p1"]),
+                ("KAN-2", vec!["p1"]),
+                ("KAN-3", vec!["p1"]),
+                ("KAN-4", vec!["p1"]),
+                ("KAN-5", vec!["p1"]),
+                ("KAN-6", vec!["p1"]),
+                ("KAN-7", vec![]),
+            ],
+            &["p1"],
+        );
+        let (mark, listing) = applied_mark("p1", &app_many);
+        assert_eq!(mark, "[-]");
+        assert_eq!(listing, "6 cards…");
     }
 
     #[test]
@@ -358,14 +407,10 @@ mod tests {
             "closing column must be stable, empty: {empty:?} typed: {typed:?}"
         );
 
-        // The other sections are unaffected by whether a name has been typed.
+        // The Labels section hint is unaffected by whether a name has been typed.
         assert_eq!(
-            hint_text(Section::Applied, true),
-            hint_text(Section::Applied, false)
-        );
-        assert_eq!(
-            hint_text(Section::Registry, true),
-            hint_text(Section::Registry, false)
+            hint_text(Section::Labels, true),
+            hint_text(Section::Labels, false)
         );
     }
 }

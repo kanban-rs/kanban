@@ -1215,8 +1215,8 @@ impl App {
         self.open_dialog(DialogMode::ManageParents);
     }
 
-    /// Open the Manage Labels dialog for the active card, priming the applied
-    /// set (`Card.tags`) and a snapshot of the global label registry.
+    /// Open the Manage Labels dialog for the active card, priming the managed
+    /// card (its key + `Card.tags`) and a snapshot of the global label registry.
     pub fn handle_manage_labels(&mut self) {
         let Some(active_id) = self.selection.active_card_id else {
             return;
@@ -1224,7 +1224,6 @@ impl App {
         let Some(card) = self.model.card_by_id_state(active_id).loaded().copied() else {
             return;
         };
-        let applied = card.tags.clone();
         let registry = match self.ctx.list_labels() {
             Ok(labels) => labels,
             Err(e) => {
@@ -1232,11 +1231,14 @@ impl App {
                 return;
             }
         };
+        let cards = vec![crate::app::ManagedCard {
+            key: format!("{}-{}", card.prefix, card.card_number),
+            tags: card.tags.clone(),
+        }];
         self.label_manager.card_ids = vec![active_id];
-        // `refresh` defaults the cursor to the first selectable row (which is
-        // never a section header), so no separate initial-selection step is
-        // needed here.
-        self.label_manager.refresh(applied, registry);
+        // `refresh` defaults the cursor to the first selectable row, so no
+        // separate initial-selection step is needed here.
+        self.label_manager.refresh(cards, registry);
         self.open_dialog(DialogMode::ManageLabels);
     }
 
@@ -1266,14 +1268,16 @@ impl App {
                 return;
             }
         };
-        let per_card: Vec<Vec<String>> = card_ids
+        let cards: Vec<crate::app::ManagedCard> = card_ids
             .iter()
             .filter_map(|id| self.model.card_by_id_state(*id).loaded().copied())
-            .map(|c| c.tags.clone())
+            .map(|c| crate::app::ManagedCard {
+                key: format!("{}-{}", c.prefix, c.card_number),
+                tags: c.tags.clone(),
+            })
             .collect();
-        let applied = crate::app::intersect_tags(&per_card);
         self.label_manager.card_ids = card_ids;
-        self.label_manager.refresh(applied, registry);
+        self.label_manager.refresh(cards, registry);
         self.open_dialog(DialogMode::ManageLabels);
     }
 
@@ -1594,18 +1598,19 @@ impl App {
         true
     }
 
-    /// Re-read every managed card's `tags` (showing the labels they all share)
-    /// and the global registry into the dialog state, preserving the cursor
-    /// where possible.
+    /// Re-read every managed card's `tags` and the global registry into the
+    /// dialog state, preserving the cursor where possible.
     fn refresh_label_manager(&mut self, card_ids: &[uuid::Uuid]) {
-        let per_card: Vec<Vec<String>> = card_ids
+        let cards: Vec<crate::app::ManagedCard> = card_ids
             .iter()
             .filter_map(|id| self.model.card_by_id_state(*id).loaded().copied())
-            .map(|c| c.tags.clone())
+            .map(|c| crate::app::ManagedCard {
+                key: format!("{}-{}", c.prefix, c.card_number),
+                tags: c.tags.clone(),
+            })
             .collect();
-        let applied = crate::app::intersect_tags(&per_card);
         let registry = self.ctx.list_labels().unwrap_or_default();
-        self.label_manager.refresh(applied, registry);
+        self.label_manager.refresh(cards, registry);
     }
 
     /// Drop a tag from every managed card that still carries it (skipping ones

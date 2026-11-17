@@ -1,34 +1,48 @@
 //! State for the "Manage Labels" card dialog.
 //!
 //! The dialog is a single flat list (the same pattern as the sprint picker and
-//! the relationship lists): section headers are non-selectable rows
-//! interspersed between the selectable items, so `j`/`k` navigation skims over
-//! them and keeps the cursor on a real action row. [`LabelManagerState::entries`]
-//! is the source of truth for that flat ordering, and
-//! [`LabelManagerState::resolve`] maps a key to a semantic [`LabelAction`]
-//! based on whichever row the cursor is on, so the apply/remove/delete/create
-//! decision matrix stays pure and unit-testable.
+//! the relationship lists): one scrollable "Labels" box holding every label,
+//! plus the "New label" action row. The labels are internally divided by a
+//! non-selectable [`LabelRow::Divider`]: labels that are on at **least one** of
+//! the managed cards sit above it, labels on **none** sit below. Each label
+//! row carries one of three applied marks, derived from how many of the managed
+//! cards carry the label:
+//!
+//! * `[✓]` — on **every** selected card;
+//! * `[-]` — on **some but not all** (the partial / multiselect edge case,
+//!   shown with the keys of the cards it is on);
+//! * `[ ]` — on **none** of the selected cards.
+//!
+//! With a single managed card the partial state is unreachable, so the dialog
+//! collapses to the ordinary on-card / not-on-card toggle. [`LabelManagerState`]
+//! keeps the managed cards (identifier + their tags) and a computed
+//! [`LabelItem`] per label; [`LabelManagerState::entries`] is the source of
+//! truth for the flat ordering, and [`LabelManagerState::resolve`] maps a key
+//! to a semantic [`LabelAction`], so the apply/remove/delete/create decision
+//! matrix stays pure and unit-testable.
 use kanban_core::SelectionState;
 use kanban_domain::Label;
+use std::collections::HashSet;
 use uuid::Uuid;
 
 /// Which row the flat cursor is pointing at.
 ///
-/// `Header` and `Note` are non-selectable: the cursor never lands on them and
-/// they exist purely for layout (section titles and muted empty-state hints).
+/// [`LabelRow::Label`], [`LabelRow::Create`] are selectable; [`LabelRow::Divider`]
+/// and [`LabelRow::Note`] are not (the cursor skims over them). A `Label` row is
+/// a single entry in [`LabelManagerState::rows`], which unifies global-registry
+/// labels and stray tags (tags on a card with no registry definition) and is
+/// independent of applied state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LabelRow {
-    /// Section header label (e.g. "Applied to this card").
-    Header(&'static str),
-    /// Muted note shown when a section is empty (e.g. "(none)").
+    /// A label row: a global-registry label or a stray tag. Index into
+    /// [`LabelManagerState::rows`].
+    Label(usize),
+    /// The internal divider between "on at least one card" (above) and "on
+    /// none" (below). Non-selectable layout element.
+    Divider,
+    /// Muted note shown when the label list is empty (e.g. "(no labels)").
     Note(&'static str),
-    /// A label currently applied to the managed card. Index into
-    /// [`LabelManagerState::applied`].
-    Applied(usize),
-    /// A label from the global registry (may or may not be applied). Index
-    /// into [`LabelManagerState::registry`].
-    Registry(usize),
-    /// The "new label" row at the bottom of the list.
+    /// The "new label" input row at the bottom of the list.
     Create,
 }
 
@@ -38,11 +52,11 @@ pub enum LabelRow {
 pub enum LabelAction {
     /// No-op key (anything unhandled).
     None,
-    /// Remove this label from the card (registry entry left intact).
+    /// Remove this label from the managed card(s).
     RemoveFromCard(String),
-    /// Add this label to the card (auto-registers it if missing).
+    /// Add this label to the managed card(s) (auto-registers if missing).
     ApplyToCard(String),
-    /// Delete this label from the registry (and, if applied, from the card).
+    /// Delete this label from the registry (and, if applied, from the cards).
     DeleteLabel(String),
     /// Open the external editor to rename / edit this label.
     EditLabel(String),
@@ -56,18 +70,42 @@ pub enum LabelAction {
     Close,
 }
 
+/// A managed card reduced to what the dialog needs: its human-readable key
+/// (e.g. `KAN-12`, used for the partial-state listing) and its current tags.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ManagedCard {
+    /// Human-readable identifier, e.g. `KAN-12`.
+    pub key: String,
+    /// The card's tags (label names), in the card's own order.
+    pub tags: Vec<String>,
+}
+
+/// One computed label entry for the dialog list. A label is "on" a card when
+/// that card's `tags` contain this entry's `name`; see
+/// [`LabelManagerState::applied_card_keys`] for the per-card membership.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LabelItem {
+    /// The label name (tag string).
+    pub name: String,
+    /// Whether the label has a global registry definition. `false` for stray
+    /// tags, which then disable `x` (delete) and `e` (edit).
+    pub defined: bool,
+    /// The registry description, when the label is defined.
+    pub description: Option<String>,
+}
+
 /// Flat-list cursor state for [`super::DialogMode::ManageLabels`].
 pub struct LabelManagerState {
-    /// The cards this dialog manages. Usually one (opened from a card's detail
-    /// view) but may be several when opened from the card list with multi-select
-    /// active, in which case every change applies to all of them.
+    /// The ids of the managed cards. Usually one (opened from a card's detail
+    /// view) but several when opened from the card list with multi-select
+    /// active. Changes apply to all of them.
     pub card_ids: Vec<Uuid>,
-    /// Label names currently applied to the managed card(s) (`Card.tags`), in
-    /// the first card's own order. For multiple cards this is the intersection
-    /// of their tags — the labels common to all of them.
-    pub applied: Vec<String>,
-    /// Snapshot of the global label registry, taken when the dialog opened.
-    pub registry: Vec<Label>,
+    /// The managed cards (identifier + tags), aligned 1:1 with [`Self::card_ids`].
+    /// Drives the per-label applied state and the partial listing.
+    pub cards: Vec<ManagedCard>,
+    /// The computed label entries, ordered "on at least one" first (above the
+    /// divider), "on none" next, each group in a stable order.
+    pub rows: Vec<LabelItem>,
     /// Shared cursor over the flat [`Self::entries`] list.
     pub selection: SelectionState,
 }
@@ -76,64 +114,58 @@ impl Default for LabelManagerState {
     fn default() -> Self {
         Self {
             card_ids: Vec::new(),
-            applied: Vec::new(),
-            registry: Vec::new(),
+            cards: Vec::new(),
+            rows: Vec::new(),
             selection: SelectionState::new(),
         }
     }
 }
 
 fn is_selectable(row: LabelRow) -> bool {
-    matches!(
-        row,
-        LabelRow::Applied(_) | LabelRow::Registry(_) | LabelRow::Create
-    )
-}
-
-/// The labels common to every supplied card, kept in the first card's own tag
-/// order. The "Applied" section of the dialog shows exactly this: one card
-/// means its own tags; several cards means the labels all of them share.
-pub fn intersect_tags(per_card: &[Vec<String>]) -> Vec<String> {
-    let first = match per_card.first() {
-        Some(v) => v,
-        None => return Vec::new(),
-    };
-    first
-        .iter()
-        .filter(|tag| per_card[1..].iter().all(|tags| tags.contains(tag)))
-        .cloned()
-        .collect()
+    matches!(row, LabelRow::Label(_) | LabelRow::Create)
 }
 
 impl LabelManagerState {
-    /// The flat row list in layout order: an "Applied" header, then the
-    /// applied rows (or a "(none)" note), a "Labels" header, then the registry
-    /// rows (or a "(none defined yet)" note), and finally a "Create" header and
-    /// the actionable create row.
+    /// The managed cards that carry a given label, in managed-card order. Used
+    /// to decide the row's applied mark and to build the partial listing.
+    pub fn applied_card_keys(&self, name: &str) -> Vec<String> {
+        self.cards
+            .iter()
+            .filter(|c| c.tags.iter().any(|t| t == name))
+            .map(|c| c.key.clone())
+            .collect()
+    }
+
+    /// Whether a label is on every managed card (and at least one exists).
+    pub fn is_on_all_cards(&self, name: &str) -> bool {
+        !self.cards.is_empty() && self.cards.iter().all(|c| c.tags.iter().any(|t| t == name))
+    }
+
+    /// The flat row list in layout order: the label rows (on-at-least-one first,
+    /// then a [`LabelRow::Divider`], then on-none), or a "(no labels)" note
+    /// when there is nothing; then the `Create` row.
     pub fn entries(&self) -> Vec<LabelRow> {
         let mut e = Vec::new();
-        e.push(LabelRow::Header("Applied to this card"));
-        if self.applied.is_empty() {
-            e.push(LabelRow::Note("(none)"));
+        if self.rows.is_empty() {
+            e.push(LabelRow::Note("(no labels)"));
         } else {
-            for i in 0..self.applied.len() {
-                e.push(LabelRow::Applied(i));
+            let on_some = self
+                .rows
+                .iter()
+                .take_while(|r| !self.applied_card_keys(&r.name).is_empty())
+                .count();
+            for i in 0..self.rows.len() {
+                e.push(LabelRow::Label(i));
+                if i + 1 == on_some && on_some > 0 && on_some < self.rows.len() {
+                    e.push(LabelRow::Divider);
+                }
             }
         }
-        e.push(LabelRow::Header("Labels"));
-        if self.registry.is_empty() {
-            e.push(LabelRow::Note("(none defined yet)"));
-        } else {
-            for i in 0..self.registry.len() {
-                e.push(LabelRow::Registry(i));
-            }
-        }
-        e.push(LabelRow::Header("Create"));
         e.push(LabelRow::Create);
         e
     }
 
-    /// Total number of flat rows (selectable items plus their headers/notes).
+    /// Total number of flat rows (labels, divider, notes, create).
     pub fn total_rows(&self) -> usize {
         self.entries().len()
     }
@@ -148,13 +180,21 @@ impl LabelManagerState {
         self.selection.get().and_then(|i| self.row_at(i))
     }
 
+    /// The index into [`Self::rows`] if the cursor is on a label row.
+    fn current_label(&self) -> Option<usize> {
+        match self.current_row() {
+            Some(LabelRow::Label(i)) => Some(i),
+            _ => None,
+        }
+    }
+
     /// The first selectable flat index.
     pub fn first_selectable(&self) -> Option<usize> {
         let entries = self.entries();
         kanban_view::list_nav::first_selectable_index(entries.len(), |i| is_selectable(entries[i]))
     }
 
-    /// Move the cursor to the next selectable row, skimming over headers and
+    /// Move the cursor to the next selectable row, skimming over dividers and
     /// notes, clamped at the last row.
     pub fn navigate_down(&mut self) {
         let entries = self.entries();
@@ -167,7 +207,7 @@ impl LabelManagerState {
         }
     }
 
-    /// Move the cursor to the previous selectable row, skimming over headers
+    /// Move the cursor to the previous selectable row, skimming over dividers
     /// and notes, clamped at the first row.
     pub fn navigate_up(&mut self) {
         if let Some(prev) = kanban_view::list_nav::prev_selectable_index(
@@ -179,12 +219,55 @@ impl LabelManagerState {
         }
     }
 
-    /// Re-read the applied set and registry after a mutation, keeping the
-    /// cursor on a still-valid selectable row and otherwise defaulting to the
-    /// first selectable row.
-    pub fn refresh(&mut self, applied: Vec<String>, registry: Vec<Label>) {
-        self.applied = applied;
-        self.registry = registry;
+    /// Build the computed label entries from the managed cards and the global
+    /// registry, then re-pin the cursor.
+    ///
+    /// The entry set is the registry's labels plus any tag on a managed card
+    /// that has no registry definition (so it can still be shown and removed).
+    /// Entries are ordered "on at least one card" first (registry order, then
+    /// stray tags), then "on none of the cards" (registry order).
+    pub fn refresh(&mut self, cards: Vec<ManagedCard>, registry: Vec<Label>) {
+        let mut defined_applied: Vec<LabelItem> = Vec::new();
+        let mut defined_not: Vec<LabelItem> = Vec::new();
+        let mut seen: HashSet<String> = HashSet::new();
+        for label in &registry {
+            seen.insert(label.name.clone());
+            let item = LabelItem {
+                name: label.name.clone(),
+                defined: true,
+                description: label.description.clone(),
+            };
+            let on_some = cards
+                .iter()
+                .any(|c| c.tags.iter().any(|t| t == &label.name));
+            if on_some {
+                defined_applied.push(item);
+            } else {
+                defined_not.push(item);
+            }
+        }
+        let mut strays: Vec<LabelItem> = Vec::new();
+        for card in &cards {
+            for tag in &card.tags {
+                if seen.contains(tag) {
+                    continue;
+                }
+                seen.insert(tag.clone());
+                // A stray tag is on at least one card (this one is), so it goes
+                // in the applied group; x/e are disabled via `defined == false`.
+                strays.push(LabelItem {
+                    name: tag.clone(),
+                    defined: false,
+                    description: None,
+                });
+            }
+        }
+        let mut rows = Vec::new();
+        rows.append(&mut defined_applied);
+        rows.append(&mut strays);
+        rows.append(&mut defined_not);
+        self.cards = cards;
+        self.rows = rows;
         let keep = self
             .selection
             .get()
@@ -195,6 +278,11 @@ impl LabelManagerState {
     /// Map a key press to the action the cursor row demands. `j`/`k` move the
     /// cursor in-place, so the returned [`LabelAction::NavigateDown`]/`NavigateUp`
     /// arms are informational no-ops in the handler.
+    ///
+    /// Enter/space converges the set to a consistent state: a label already on
+    /// **every** managed card is removed from all of them; a label on **some or
+    /// none** is applied to all (filling the gaps). For a single card this is
+    /// the ordinary apply/remove toggle.
     pub fn resolve(&mut self, key: crossterm::event::KeyCode) -> LabelAction {
         use crossterm::event::KeyCode;
         match key {
@@ -207,40 +295,34 @@ impl LabelManagerState {
                 self.navigate_up();
                 LabelAction::NavigateUp
             }
-            // `e` edits a registry label, from the Labels section. In the
-            // Applied section editing belongs in the Labels section, and
-            // creating is reserved for Enter/space on the create row, so `e`
-            // is a no-op on every row except registry labels.
-            KeyCode::Char('e') => match self.current_row() {
-                Some(LabelRow::Registry(i)) => {
-                    LabelAction::EditLabel(self.registry[i].name.clone())
+            // `e` edits a label that has a global definition. Stray tags have no
+            // registry definition to edit, so `e` is a no-op on them.
+            KeyCode::Char('e') => match self.current_label() {
+                Some(i) if self.rows[i].defined => {
+                    LabelAction::EditLabel(self.rows[i].name.clone())
                 }
-                Some(LabelRow::Applied(_))
-                | Some(LabelRow::Create)
-                | Some(LabelRow::Header(_))
-                | Some(LabelRow::Note(_))
-                | None => LabelAction::None,
+                _ => LabelAction::None,
             },
-            // `x` deletes a registry label (from the Labels section). Removing
-            // an applied label from the card is Enter's job, so `x` is a no-op
-            // on applied rows and rows without a registry label.
-            KeyCode::Char('x') => match self.current_row() {
-                Some(LabelRow::Registry(i)) => {
-                    LabelAction::DeleteLabel(self.registry[i].name.clone())
+            // `x` deletes a label that has a global definition. Stray tags have
+            // no registry entry to delete (removing them from the cards is
+            // Enter's job), so `x` is a no-op on them.
+            KeyCode::Char('x') => match self.current_label() {
+                Some(i) if self.rows[i].defined => {
+                    LabelAction::DeleteLabel(self.rows[i].name.clone())
                 }
-                Some(LabelRow::Applied(_)) | Some(LabelRow::Create) | None => LabelAction::None,
-                Some(LabelRow::Header(_)) | Some(LabelRow::Note(_)) => LabelAction::None,
+                _ => LabelAction::None,
             },
-            // Enter/space: set contextually. On an applied label it removes it
-            // from the card; on a registry label it applies it to the card; on
-            // the create row it opens the create editor.
             KeyCode::Enter | KeyCode::Char(' ') => match self.current_row() {
-                Some(LabelRow::Applied(i)) => LabelAction::RemoveFromCard(self.applied[i].clone()),
-                Some(LabelRow::Registry(i)) => {
-                    LabelAction::ApplyToCard(self.registry[i].name.clone())
+                Some(LabelRow::Label(i)) => {
+                    let name = self.rows[i].name.clone();
+                    if self.is_on_all_cards(&name) {
+                        LabelAction::RemoveFromCard(name)
+                    } else {
+                        LabelAction::ApplyToCard(name)
+                    }
                 }
                 Some(LabelRow::Create) => LabelAction::CreateLabel,
-                Some(LabelRow::Header(_)) | Some(LabelRow::Note(_)) | None => LabelAction::None,
+                Some(LabelRow::Divider) | Some(LabelRow::Note(_)) | None => LabelAction::None,
             },
             _ => LabelAction::None,
         }
@@ -251,241 +333,222 @@ impl LabelManagerState {
 mod tests {
     use super::*;
 
-    fn label(name: &str) -> Label {
-        Label::named(name)
-    }
-
-    fn state(applied: Vec<&str>, registry: Vec<&str>) -> LabelManagerState {
-        LabelManagerState {
-            card_ids: Vec::new(),
-            applied: applied.into_iter().map(|s| s.to_string()).collect(),
-            registry: registry.into_iter().map(|s| label(s)).collect(),
-            selection: SelectionState::new(),
+    fn card(key: &str, tags: Vec<&str>) -> ManagedCard {
+        ManagedCard {
+            key: key.to_string(),
+            tags: tags.into_iter().map(|t| t.to_string()).collect(),
         }
     }
 
+    fn make(cards: Vec<ManagedCard>, registry: Vec<&str>) -> LabelManagerState {
+        let mut s = LabelManagerState::default();
+        s.refresh(
+            cards,
+            registry.into_iter().map(|n| Label::named(n)).collect(),
+        );
+        s
+    }
+
     #[test]
-    fn resolve_applied_row_enter_removes_only() {
-        let mut s = state(vec!["bug", "p1"], vec!["bug"]);
-        s.selection.set(Some(1)); // flat 1 = the only-applied "bug" row
+    fn single_card_binary_applied_and_not_applied_groups() {
+        // KAN-1 has "design"; registry is design + p1.
+        let s = make(vec![card("KAN-1", vec!["design"])], vec!["design", "p1"]);
+        // Rows ordered on-some first: design (applied), then p1 (not).
+        assert_eq!(
+            s.rows.iter().map(|r| r.name.clone()).collect::<Vec<_>>(),
+            vec!["design", "p1"]
+        );
+        // Flat layout: Label(design), Divider, Label(p1), Create.
+        assert_eq!(s.row_at(0), Some(LabelRow::Label(0)));
+        assert_eq!(s.row_at(1), Some(LabelRow::Divider));
+        assert_eq!(s.row_at(2), Some(LabelRow::Label(1)));
+        assert_eq!(s.row_at(3), Some(LabelRow::Create));
+
+        // The first selectable row is design (the applied one).
+        let mut s = s;
+        s.refresh(
+            vec![card("KAN-1", vec!["design"])],
+            vec![Label::named("design"), Label::named("p1")],
+        );
+        assert_eq!(s.current_row(), Some(LabelRow::Label(0)));
+    }
+
+    #[test]
+    fn enter_on_card_applied_label_removes_it() {
+        let mut s = make(vec![card("KAN-1", vec!["design"])], vec!["design", "p1"]);
+        s.selection.set(Some(0)); // design, on all cards here (single card with it)
         assert_eq!(
             s.resolve(crossterm::event::KeyCode::Enter),
-            LabelAction::RemoveFromCard("bug".into())
+            LabelAction::RemoveFromCard("design".into())
         );
-        // In the Applied section only Enter acts; `x` and `e` are reserved
-        // for the Labels section, so they are no-ops on applied rows.
+    }
+
+    #[test]
+    fn enter_on_not_applied_label_applies_it() {
+        let mut s = make(vec![card("KAN-1", vec!["design"])], vec!["design", "p1"]);
+        s.selection.set(Some(2)); // p1, on none
+        assert_eq!(
+            s.resolve(crossterm::event::KeyCode::Enter),
+            LabelAction::ApplyToCard("p1".into())
+        );
+    }
+
+    #[test]
+    fn multi_card_apply_to_all_on_partial_and_remove_on_full() {
+        // "all" is on every card; "some" is on two of three; "none" on zero.
+        let cards = vec![
+            card("KAN-12", vec!["all", "some"]),
+            card("KAN-13", vec!["all", "some"]),
+            card("KAN-17", vec!["all"]),
+        ];
+        let mut s = make(cards, vec!["all", "some", "none"]);
+        assert_eq!(
+            s.applied_card_keys("all"),
+            vec!["KAN-12", "KAN-13", "KAN-17"]
+        );
+        assert_eq!(s.applied_card_keys("some"), vec!["KAN-12", "KAN-13"]);
+        assert!(s.applied_card_keys("none").is_empty());
+        assert!(s.is_on_all_cards("all"), "all is on every card");
+        assert!(!s.is_on_all_cards("some"), "some is on only two");
+
+        // On-all label: Enter removes it from the set.
+        s.selection.set(Some(0)); // "all"
+        assert_eq!(
+            s.resolve(crossterm::event::KeyCode::Enter),
+            LabelAction::RemoveFromCard("all".into())
+        );
+        // Partial label: Enter applies it to all (fills KAN-17).
+        s.selection.set(Some(1)); // "some"
+        assert_eq!(
+            s.resolve(crossterm::event::KeyCode::Enter),
+            LabelAction::ApplyToCard("some".into())
+        );
+        // Zero label: Enter applies it to all.
+        s.selection.set(Some(3)); // "none" (after the divider at 2)
+        assert_eq!(
+            s.resolve(crossterm::event::KeyCode::Enter),
+            LabelAction::ApplyToCard("none".into())
+        );
+    }
+
+    #[test]
+    fn stray_tag_applied_group_but_x_and_e_are_noops() {
+        // KAN-1 carries "stray", which has no registry definition; registry is empty.
+        let mut s = make(vec![card("KAN-1", vec!["stray"])], vec![]);
+        assert_eq!(s.rows.len(), 1);
+        assert!(!s.rows[0].defined);
+        // Single card with the tag -> on-all -> Enter removes it.
+        s.selection.set(Some(0));
+        assert_eq!(
+            s.resolve(crossterm::event::KeyCode::Enter),
+            LabelAction::RemoveFromCard("stray".into())
+        );
+        // x and e need a registry definition, so they are no-ops on the stray.
         assert_eq!(
             s.resolve(crossterm::event::KeyCode::Char('x')),
-            LabelAction::None
+            LabelAction::None,
+            "x must be a no-op on a stray tag"
         );
         assert_eq!(
             s.resolve(crossterm::event::KeyCode::Char('e')),
-            LabelAction::None
+            LabelAction::None,
+            "e must be a no-op on a stray tag"
         );
     }
 
     #[test]
-    fn resolve_registry_row_enter_applies_to_card() {
-        let mut s = state(vec!["bug"], vec!["bug", "design"]);
-        // entries: 0 hdr, 1 Applied0, 2 hdr, 3 Registry0, 4 Registry1, 5 hdr, 6 Create
-        s.selection.set(Some(4));
-        assert_eq!(s.row_at(4), Some(LabelRow::Registry(1)));
-        assert_eq!(
-            s.resolve(crossterm::event::KeyCode::Enter),
-            LabelAction::ApplyToCard("design".into())
-        );
-    }
-
-    #[test]
-    fn resolve_registry_row_x_deletes_label() {
-        let mut s = state(vec![], vec!["a", "b"]);
-        // entries: 0 hdr, 1 note, 2 hdr, 3 Registry0, 4 Registry1, 5 hdr, 6 Create
-        s.selection.set(Some(4));
+    fn defined_label_x_deletes_and_e_edits() {
+        let mut s = make(vec![card("KAN-1", vec!["design"])], vec!["design", "p1"]);
+        s.selection.set(Some(0)); // design (defined)
         assert_eq!(
             s.resolve(crossterm::event::KeyCode::Char('x')),
-            LabelAction::DeleteLabel("b".into())
+            LabelAction::DeleteLabel("design".into())
         );
-    }
-
-    #[test]
-    fn resolve_create_row_opens_create() {
-        let mut s = state(vec![], vec!["a"]);
-        // entries: 0 hdr, 1 note, 2 hdr, 3 Registry0, 4 hdr, 5 Create
-        s.selection.set(Some(5));
-        assert_eq!(s.total_rows(), 6);
-        assert_eq!(s.row_at(5), Some(LabelRow::Create));
-        s.selection.set(Some(5));
-        assert_eq!(
-            s.resolve(crossterm::event::KeyCode::Enter),
-            LabelAction::CreateLabel
-        );
-        // Creating is reserved for Enter/space on the create row: `n` no
-        // longer creates, and `e` on the create row is a no-op.
-        assert_eq!(
-            s.resolve(crossterm::event::KeyCode::Char('n')),
-            LabelAction::None
-        );
+        s.selection.set(Some(2)); // p1 (defined)
         assert_eq!(
             s.resolve(crossterm::event::KeyCode::Char('e')),
-            LabelAction::None
+            LabelAction::EditLabel("p1".into())
         );
     }
 
     #[test]
-    fn resolve_e_edits_registry_label_only() {
-        let mut s = state(vec!["bug"], vec!["bug", "design"]);
-        // `e` on the applied row does nothing; editing belongs to the Labels
-        // section.
-        s.selection.set(Some(1)); // flat 1 = Applied0 ("bug")
-        assert_eq!(
-            s.resolve(crossterm::event::KeyCode::Char('e')),
-            LabelAction::None
+    fn no_divider_when_all_or_none_are_applied() {
+        // All labels applied -> every row is above the (absent) divider.
+        let s = make(vec![card("KAN-1", vec!["a"])], vec!["a"]);
+        assert!(
+            s.entries().iter().all(|r| !matches!(r, LabelRow::Divider)),
+            "no divider when the set is fully applied"
         );
-        // `e` on a registry label edits it.
-        s.selection.set(Some(4)); // flat 4 = Registry1 ("design")
-        assert_eq!(
-            s.resolve(crossterm::event::KeyCode::Char('e')),
-            LabelAction::EditLabel("design".into())
+        // No label applied -> no divider either.
+        let s2 = make(vec![card("KAN-1", vec![])], vec!["a", "b"]);
+        assert!(
+            s2.entries().iter().all(|r| !matches!(r, LabelRow::Divider)),
+            "no divider when nothing is applied"
         );
     }
 
     #[test]
-    fn navigation_skips_headers_and_clamps_to_bounds() {
-        let mut s = state(vec![], vec!["a", "b"]);
-        // entries: 0 hdr, 1 note, 2 hdr, 3 Registry0, 4 Registry1, 5 hdr, 6 Create
-        assert_eq!(s.first_selectable(), Some(3));
-        s.selection.set(Some(3));
-        s.navigate_up();
-        assert_eq!(s.selection.get(), Some(3), "up at top stays at top");
-
-        s.navigate_down();
-        assert_eq!(s.selection.get(), Some(4), "down moves to next selectable");
-        s.selection.set(Some(6));
-        s.navigate_down();
-        assert_eq!(s.selection.get(), Some(6), "down at bottom stays at bottom");
+    fn divider_is_not_selectable_but_labels_are() {
+        let s = make(vec![card("KAN-1", vec!["design"])], vec!["design", "p1"]);
+        assert!(
+            is_selectable(s.row_at(0).unwrap()),
+            "design row is selectable"
+        );
+        assert!(
+            !is_selectable(s.row_at(1).unwrap()),
+            "divider is not selectable"
+        );
+        assert!(is_selectable(s.row_at(2).unwrap()), "p1 row is selectable");
+        assert!(
+            is_selectable(s.row_at(3).unwrap()),
+            "create row is selectable"
+        );
     }
 
     #[test]
-    fn navigation_skips_over_header_rows() {
-        // applied has items, so between the last applied row and the first
-        // registry row there is a "Labels" header that must be skipped.
-        let mut s = state(vec!["bug"], vec!["bug", "design"]);
-        s.selection.set(Some(1)); // flat 1 = Applied0 (last applied row)
+    fn navigation_skips_the_divider() {
+        // Layout: Label(design), Divider, Label(p1), Create.
+        let mut s = make(vec![card("KAN-1", vec!["design"])], vec!["design", "p1"]);
+        assert_eq!(s.first_selectable(), Some(0));
+        s.selection.set(Some(0));
         s.navigate_down();
         assert_eq!(
             s.selection.get(),
-            Some(3),
-            "down from the last applied row skips the header to the first registry row"
+            Some(2),
+            "down from design must skip the divider to p1"
         );
-        assert_eq!(s.row_at(3), Some(LabelRow::Registry(0)));
-    }
-
-    #[test]
-    fn resolve_unhandled_key_is_noop() {
-        let mut s = state(vec!["a"], vec!["a"]);
+        assert_eq!(s.row_at(2), Some(LabelRow::Label(1)));
+        s.navigate_up();
         assert_eq!(
-            s.resolve(crossterm::event::KeyCode::Char('q')),
-            LabelAction::None
+            s.selection.get(),
+            Some(0),
+            "up from p1 must skip the divider to design"
         );
     }
 
     #[test]
-    fn header_rows_are_not_selectable_but_items_are() {
-        let s = state(vec!["bug"], vec!["bug"]);
-        // entries: 0 Header, 1 Applied0, 2 Header, 3 Registry0, 4 Header, 5 Create
-        assert!(!is_selectable(s.row_at(0).unwrap()), "index 0 is a header");
-        assert!(
-            is_selectable(s.row_at(1).unwrap()),
-            "index 1 is an applied row"
+    fn refresh_pins_cursor_to_first_selectable() {
+        let mut s = make(vec![card("KAN-1", vec!["design"])], vec!["design", "p1"]);
+        s.selection.set(Some(3)); // the Create row
+        s.refresh(
+            vec![card("KAN-2", vec!["design", "p1"])],
+            vec![Label::named("design"), Label::named("p1")],
         );
-        assert!(!is_selectable(s.row_at(2).unwrap()), "index 2 is a header");
-        assert!(!is_selectable(s.row_at(4).unwrap()), "index 4 is a header");
-        assert!(
-            is_selectable(s.row_at(5).unwrap()),
-            "index 5 is the create row"
-        );
-    }
-
-    #[test]
-    fn empty_sections_show_non_selectable_notes() {
-        let s = state(vec![], vec![]);
-        // entries: 0 Header, 1 Note("(none)"), 2 Header, 3 Note, 4 Header, 5 Create
-        assert_eq!(s.row_at(1), Some(LabelRow::Note("(none)")));
-        assert!(!is_selectable(s.row_at(1).unwrap()));
-        assert_eq!(s.row_at(3), Some(LabelRow::Note("(none defined yet)")));
-        assert!(!is_selectable(s.row_at(3).unwrap()));
-    }
-
-    fn tags(names: Vec<&str>) -> Vec<String> {
-        names.into_iter().map(|s| s.to_string()).collect()
-    }
-
-    #[test]
-    fn intersect_tags_single_card_is_its_own_tags() {
-        assert_eq!(
-            intersect_tags(&[tags(vec!["bug", "p1"])]),
-            vec!["bug".to_string(), "p1".to_string()]
-        );
-    }
-
-    #[test]
-    fn intersect_tags_empty_input_is_empty() {
-        assert!(intersect_tags(&[]).is_empty());
-    }
-
-    #[test]
-    fn intersect_tags_multi_card_keeps_only_shared_in_first_order() {
-        // 'bug' is on all three -> kept, in card A's order; the other tags on
-        // card A are missing from at least one card -> dropped.
-        let result = intersect_tags(&[
-            tags(vec!["bug", "p1", "design"]),
-            tags(vec!["ux", "bug"]),
-            tags(vec!["bug"]),
-        ]);
-        assert_eq!(
-            result,
-            vec!["bug".to_string()],
-            "only 'bug' is on all three, in card A's order"
-        );
-    }
-
-    #[test]
-    fn intersect_tags_multi_shared_preserves_first_card_order() {
-        // 'a' and 'c' are on all three; 'b' is not. Expect them in card A's
-        // order, not card B's.
-        let result = intersect_tags(&[
-            tags(vec!["a", "b", "c"]),
-            tags(vec!["c", "a", "d"]),
-            tags(vec!["a", "c"]),
-        ]);
-        assert_eq!(result, vec!["a".to_string(), "c".to_string()]);
-    }
-
-    #[test]
-    fn intersect_tags_no_shared_is_empty() {
-        assert!(
-            intersect_tags(&[tags(vec!["bug"]), tags(vec!["p1"])]).is_empty(),
-            "disjoint tags share nothing"
-        );
-    }
-
-    #[test]
-    fn intersect_tags_card_with_no_tags_shares_nothing() {
-        assert!(
-            intersect_tags(&[tags(vec!["bug"]), tags(vec![])]).is_empty(),
-            "a card with no tags shares nothing"
-        );
-    }
-
-    #[test]
-    fn refresh_clamps_selection_into_new_range() {
-        let mut s = state(vec!["a", "b", "c"], vec!["a"]);
-        s.selection.set(Some(2));
-        s.refresh(vec!["a".to_string()], vec![Label::named("a")]);
+        // After the refresh the first selectable is the first applied label.
         assert!(s
             .selection
             .get()
             .map(|i| i < s.total_rows() && is_selectable(s.row_at(i).unwrap()))
             .unwrap_or(false));
+    }
+
+    #[test]
+    fn resolve_unhandled_key_is_noop() {
+        let mut s = make(vec![card("KAN-1", vec!["design"])], vec!["design"]);
+        s.selection.set(Some(0));
+        assert_eq!(
+            s.resolve(crossterm::event::KeyCode::Char('q')),
+            LabelAction::None
+        );
     }
 }
