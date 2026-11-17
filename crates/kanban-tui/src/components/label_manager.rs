@@ -11,6 +11,7 @@
 use crate::app::{App, LabelRow};
 use crate::components::centered_rect_abs;
 use crate::components::radio_list::scroll_offset_to_show;
+use crate::components::{set_text_field_caret, text_field_content};
 use crate::theme::*;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -167,9 +168,12 @@ pub fn render_manage_labels_popup(app: &App, frame: &mut Frame) {
 /// text field: the box's inner left (one column after the border), one row down
 /// for the title, plus the visible width before the caret.
 fn set_create_input_cursor(frame: &mut Frame, box_area: Rect, app: &App) {
-    let offset = app.input.cursor_byte_offset().min(app.input.as_str().len());
-    let before = app.input.as_str()[..offset].chars().count();
-    frame.set_cursor_position((box_area.x + 1 + before as u16, box_area.y + 1));
+    set_text_field_caret(
+        frame,
+        box_area,
+        app.input.as_str(),
+        app.input.cursor_byte_offset(),
+    )
 }
 
 /// Draw one sub-section box: a bordered block with a title (accented when
@@ -254,18 +258,10 @@ fn render_row(row: LabelRow, is_selected: bool, highlight_bg: Color, app: &App) 
             Line::from(spans)
         }
         LabelRow::Create => {
-            let text = app.input.as_str();
-            if text.is_empty() {
-                // A live input box shows a muted placeholder until the user types.
-                Line::from(Span::styled(
-                    "Type label name...".to_string(),
-                    Style::default()
-                        .fg(Color::Rgb(160, 160, 160))
-                        .add_modifier(Modifier::ITALIC),
-                ))
-            } else {
-                Line::from(Span::styled(text.to_string(), style))
-            }
+            // The New-label field is the shared text-input component: a muted
+            // placeholder while empty, the typed name otherwise (keeping the
+            // row's selection background via `style`).
+            text_field_content(app.input.as_str(), "Type label name...", style)
         }
     }
 }
