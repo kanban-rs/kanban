@@ -241,16 +241,14 @@ fn render_row(row: LabelRow, is_selected: bool, highlight_bg: Color, app: &App) 
             }
             Line::from(spans)
         }
-        LabelRow::Create => Line::from(Span::styled("New label…".to_string(), style)),
+        LabelRow::Create => Line::from(Span::styled("Type label name...".to_string(), style)),
     }
 }
 
 /// The context-aware footer hint, describing the keys for the focused section.
 fn render_hint(frame: &mut Frame, area: Rect, focus: Section) {
     let text = match focus {
-        Section::Applied => {
-            "j/k: navigate   Enter: remove from card   x: remove   e: edit   Esc: close"
-        }
+        Section::Applied => "j/k: navigate   Enter: remove from card   Esc: close",
         Section::Registry => {
             "j/k: navigate   Enter: apply to card   x: delete   e: edit   Esc: close"
         }

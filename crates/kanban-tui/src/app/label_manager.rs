@@ -207,23 +207,29 @@ impl LabelManagerState {
                 self.navigate_up();
                 LabelAction::NavigateUp
             }
-            // `e` edits the label under the cursor. Creating is reserved for
-            // Enter/space on the create row, so `e` is a no-op there.
+            // `e` edits a registry label, from the Labels section. In the
+            // Applied section editing belongs in the Labels section, and
+            // creating is reserved for Enter/space on the create row, so `e`
+            // is a no-op on every row except registry labels.
             KeyCode::Char('e') => match self.current_row() {
-                Some(LabelRow::Applied(i)) => LabelAction::EditLabel(self.applied[i].clone()),
                 Some(LabelRow::Registry(i)) => {
                     LabelAction::EditLabel(self.registry[i].name.clone())
                 }
-                Some(LabelRow::Create) => LabelAction::None,
-                Some(LabelRow::Header(_)) | Some(LabelRow::Note(_)) | None => LabelAction::None,
+                Some(LabelRow::Applied(_))
+                | Some(LabelRow::Create)
+                | Some(LabelRow::Header(_))
+                | Some(LabelRow::Note(_))
+                | None => LabelAction::None,
             },
-            // `x` removes: from the card (applied) or from the registry.
+            // `x` deletes a registry label (from the Labels section). Removing
+            // an applied label from the card is Enter's job, so `x` is a no-op
+            // on applied rows and rows without a registry label.
             KeyCode::Char('x') => match self.current_row() {
-                Some(LabelRow::Applied(i)) => LabelAction::RemoveFromCard(self.applied[i].clone()),
                 Some(LabelRow::Registry(i)) => {
                     LabelAction::DeleteLabel(self.registry[i].name.clone())
                 }
-                _ => LabelAction::None,
+                Some(LabelRow::Applied(_)) | Some(LabelRow::Create) | None => LabelAction::None,
+                Some(LabelRow::Header(_)) | Some(LabelRow::Note(_)) => LabelAction::None,
             },
             // Enter/space: set contextually. On an applied label it removes it
             // from the card; on a registry label it applies it to the card; on
@@ -259,16 +265,22 @@ mod tests {
     }
 
     #[test]
-    fn resolve_applied_row_enter_removes_from_card() {
+    fn resolve_applied_row_enter_removes_only() {
         let mut s = state(vec!["bug", "p1"], vec!["bug"]);
         s.selection.set(Some(1)); // flat 1 = the only-applied "bug" row
         assert_eq!(
             s.resolve(crossterm::event::KeyCode::Enter),
             LabelAction::RemoveFromCard("bug".into())
         );
+        // In the Applied section only Enter acts; `x` and `e` are reserved
+        // for the Labels section, so they are no-ops on applied rows.
         assert_eq!(
             s.resolve(crossterm::event::KeyCode::Char('x')),
-            LabelAction::RemoveFromCard("bug".into())
+            LabelAction::None
+        );
+        assert_eq!(
+            s.resolve(crossterm::event::KeyCode::Char('e')),
+            LabelAction::None
         );
     }
 
@@ -320,14 +332,17 @@ mod tests {
     }
 
     #[test]
-    fn resolve_e_edits_label_under_cursor() {
+    fn resolve_e_edits_registry_label_only() {
         let mut s = state(vec!["bug"], vec!["bug", "design"]);
-        s.selection.set(Some(1));
+        // `e` on the applied row does nothing; editing belongs to the Labels
+        // section.
+        s.selection.set(Some(1)); // flat 1 = Applied0 ("bug")
         assert_eq!(
             s.resolve(crossterm::event::KeyCode::Char('e')),
-            LabelAction::EditLabel("bug".into())
+            LabelAction::None
         );
-        s.selection.set(Some(4));
+        // `e` on a registry label edits it.
+        s.selection.set(Some(4)); // flat 4 = Registry1 ("design")
         assert_eq!(
             s.resolve(crossterm::event::KeyCode::Char('e')),
             LabelAction::EditLabel("design".into())
