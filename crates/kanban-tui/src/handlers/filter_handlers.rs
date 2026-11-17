@@ -9,15 +9,32 @@ impl App {
             return;
         }
 
-        let filters = CardFilters {
+        // Pre-populate the tag filter with the currently active tags so the
+        // popup opens on the user's existing filter rather than blank.
+        let initial_tag_input = self
+            .filter
+            .active_tags
+            .as_deref()
+            .map(|v| v.join(","))
+            .unwrap_or_default();
+
+        let mut filters = CardFilters {
             show_unassigned_sprints: self.filter.hide_assigned_cards,
             selected_sprint_ids: self.filter.active_sprint_filters.clone(),
             date_from: None,
             date_to: None,
             selected_tags: Default::default(),
         };
+        if let Some(ref tags) = self.filter.active_tags {
+            for t in tags.iter() {
+                filters.selected_tags.insert(t.clone());
+            }
+        }
 
-        self.filter.dialog_state = Some(FilterDialogState::new(filters));
+        let mut dialog = FilterDialogState::new(filters);
+        dialog.tags_input = initial_tag_input;
+
+        self.filter.dialog_state = Some(dialog);
         self.open_dialog(DialogMode::FilterOptions);
     }
 
@@ -36,8 +53,42 @@ impl App {
         let board_sprints = board_id.map(|id| self.board_sprints_view(id));
 
         if let Some(ref mut dialog_state) = self.filter.dialog_state {
+            // ---- Tags section: free-form text input ----
+            let in_tags_section = dialog_state.current_section == FilterDialogSection::Tags;
+
             match key_code {
                 KeyCode::Esc => {
+                    self.filter.dialog_state = None;
+                    self.pop_mode();
+                }
+                // Printable characters appended to the tags buffer only when the
+                // Tags section is focused; ignored otherwise. `j` and `k` are
+                // reserved for section navigation (see below) and are excluded.
+                KeyCode::Char(c)
+                    if in_tags_section && c.is_alphanumeric() && c != 'j' && c != 'k' =>
+                {
+                    dialog_state.tags_input.push(c);
+                }
+                KeyCode::Char(c) if in_tags_section && (c == ',' || c == ' ') => {
+                    dialog_state.tags_input.push(c);
+                }
+                KeyCode::Backspace if in_tags_section => {
+                    dialog_state.tags_input.pop();
+                }
+                // Enter applies the filter and closes the popup.
+                KeyCode::Enter => {
+                    // Parse the raw tags input into the dialog's CardFilters so
+                    // `apply_filters` can pick it up; an empty string clears the
+                    // tag filter.
+                    let parsed =
+                        kanban_domain::parse_csv_tags(Some(dialog_state.tags_input.as_str()));
+                    dialog_state.filters.selected_tags.clear();
+                    if let Some(ref tags) = parsed {
+                        for t in tags.iter() {
+                            dialog_state.filters.selected_tags.insert(t.clone());
+                        }
+                    }
+                    self.apply_filters();
                     self.filter.dialog_state = None;
                     self.pop_mode();
                 }
@@ -122,11 +173,6 @@ impl App {
                         }
                     }
                 }
-                KeyCode::Enter => {
-                    self.apply_filters();
-                    self.filter.dialog_state = None;
-                    self.pop_mode();
-                }
                 _ => {}
             }
         }
@@ -136,10 +182,23 @@ impl App {
         if let Some(dialog_state) = &self.filter.dialog_state {
             self.filter.hide_assigned_cards = dialog_state.filters.show_unassigned_sprints;
             self.filter.active_sprint_filters = dialog_state.filters.selected_sprint_ids.clone();
+
+            // Convert the selected_tags set into the active_tags vec (or None
+            // when empty, meaning "no tag filter").
+            if dialog_state.filters.selected_tags.is_empty() {
+                self.filter.active_tags = None;
+            } else {
+                let mut tags: Vec<String> =
+                    dialog_state.filters.selected_tags.iter().cloned().collect();
+                tags.sort();
+                self.filter.active_tags = Some(tags);
+            }
+
             tracing::info!(
-                "Applied filters: unassigned={}, sprints={}",
+                "Applied filters: unassigned={}, sprints={}, tags={:?}",
                 self.filter.hide_assigned_cards,
-                self.filter.active_sprint_filters.len()
+                self.filter.active_sprint_filters.len(),
+                self.filter.active_tags
             );
         }
     }

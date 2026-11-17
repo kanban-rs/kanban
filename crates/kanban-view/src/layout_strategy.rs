@@ -13,6 +13,11 @@ fn build_query<'a>(ctx: &'a ViewRefreshContext<'a>) -> CardQueryBuilder<'a> {
     if ctx.hide_assigned_cards {
         builder = builder.hide_assigned();
     }
+    if let Some(ref tags) = ctx.active_tag_filters {
+        if !tags.is_empty() {
+            builder = builder.with_tags(tags.iter().cloned());
+        }
+    }
     if let Some(query) = ctx.search_query {
         builder = builder.search(query);
     }
@@ -326,6 +331,7 @@ mod tests {
             all_sprints: &[],
             active_sprint_filters: Default::default(),
             hide_assigned_cards: false,
+            active_tag_filters: None,
             search_query: None,
         }
     }

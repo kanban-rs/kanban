@@ -235,6 +235,7 @@ impl App {
                     all_sprints,
                     active_sprint_filters: self.filter.active_sprint_filters.clone(),
                     hide_assigned_cards: self.filter.hide_assigned_cards,
+                    active_tag_filters: self.filter.active_tags.clone(),
                     search_query,
                 };
                 self.view.strategy.refresh_task_lists(&ctx);

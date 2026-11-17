@@ -29,6 +29,7 @@ pub struct CardQueryBuilder<'a> {
     sprint_filter: Option<HashSet<Uuid>>,
     hide_assigned: bool,
     search_query: Option<String>,
+    tag_filter: Option<Vec<String>>,
 }
 
 impl<'a> CardQueryBuilder<'a> {
@@ -48,6 +49,7 @@ impl<'a> CardQueryBuilder<'a> {
             sprint_filter: None,
             hide_assigned: false,
             search_query: None,
+            tag_filter: None,
         }
     }
 
@@ -78,6 +80,16 @@ impl<'a> CardQueryBuilder<'a> {
         self
     }
 
+    /// Filter to cards containing ALL listed tags (AND semantics).
+    /// An empty slice or `None` input is a no-op (all cards pass).
+    pub fn with_tags(mut self, tags: impl IntoIterator<Item = String>) -> Self {
+        let v: Vec<String> = tags.into_iter().collect();
+        if !v.is_empty() {
+            self.tag_filter = Some(v);
+        }
+        self
+    }
+
     /// Execute the query and return matching card IDs.
     ///
     /// Thin shim over `filter_and_sort_cards` — the actual filter/sort
@@ -90,6 +102,7 @@ impl<'a> CardQueryBuilder<'a> {
             sprint_ids: self.sprint_filter,
             hide_assigned: self.hide_assigned,
             search: self.search_query,
+            tags: self.tag_filter,
             ..Default::default()
         };
         filter_and_sort_cards(

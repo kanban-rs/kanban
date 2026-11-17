@@ -38,7 +38,12 @@ pub fn render_filter_options_popup(app: &App, frame: &mut Frame) {
     if let Some(ref dialog_state) = app.filter.dialog_state {
         render_filter_sprints_section(app, frame, chunks[0], dialog_state);
         render_filter_date_range_section(frame, chunks[1], dialog_state.section_index);
-        render_filter_tags_section(frame, chunks[2], dialog_state.section_index);
+        render_filter_tags_section(
+            frame,
+            chunks[2],
+            dialog_state.section_index,
+            &dialog_state.tags_input,
+        );
     }
 }
 
@@ -183,17 +188,28 @@ fn render_filter_tags_section(
     frame: &mut Frame,
     area: ratatui::layout::Rect,
     section_index: usize,
+    tags_input: &str,
 ) {
+    let label_style = if section_index == 2 {
+        bold_highlight()
+    } else {
+        label_text()
+    };
+    let input_style = if section_index == 2 {
+        normal_text()
+    } else {
+        label_text()
+    };
     let tag_lines = vec![
+        Line::from(Span::styled("Tags", label_style)),
+        Line::from(vec![
+            Span::styled("Filter by tags: ", label_text()),
+            Span::styled(tags_input.to_string(), input_style),
+        ]),
         Line::from(Span::styled(
-            "Tags (Future)",
-            if section_index == 2 {
-                bold_highlight()
-            } else {
-                label_text()
-            },
+            "  Comma-separated tags, e.g. bug,urgent",
+            label_text(),
         )),
-        Line::from(Span::styled("  Filter cards by tags", label_text())),
     ];
 
     let section =

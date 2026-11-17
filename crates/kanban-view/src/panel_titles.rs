@@ -98,6 +98,12 @@ pub fn build_filter_title_parts(
         }
     }
 
+    if let Some(ref tags) = filter.active_tags {
+        if !tags.is_empty() {
+            filters.extend(tags.iter().map(|t| t.clone()));
+        }
+    }
+
     filters
 }
 

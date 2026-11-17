@@ -15,6 +15,8 @@ pub struct FilterDialogState {
     pub item_selection: usize,
     pub item_scroll: Cell<usize>,
     pub filters: CardFilters,
+    /// The raw text input buffer for the Tags section.
+    pub tags_input: String,
 }
 
 impl FilterDialogState {
@@ -25,6 +27,7 @@ impl FilterDialogState {
             item_selection: 0,
             item_scroll: Cell::new(0),
             filters,
+            tags_input: String::new(),
         }
     }
 

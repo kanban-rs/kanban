@@ -201,6 +201,7 @@ fn test_task_row_sprint_suffix_not_loaded_renders_marker_not_blank() {
         all_sprints: &[],
         active_sprint_filters: Default::default(),
         hide_assigned_cards: false,
+        active_tag_filters: None,
         search_query: None,
     });
 
@@ -255,6 +256,7 @@ fn test_task_row_sprint_suffix_loaded_renders_the_sprint_name() {
         all_sprints: std::slice::from_ref(&sprint),
         active_sprint_filters: Default::default(),
         hide_assigned_cards: false,
+        active_tag_filters: None,
         search_query: None,
     });
 
