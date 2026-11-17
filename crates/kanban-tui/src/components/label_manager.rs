@@ -118,11 +118,14 @@ pub fn render_manage_labels_popup(app: &App, frame: &mut Frame) {
         ])
         .split(inner_rect);
 
+    let create_insert = app.label_manager.create_insert;
+
     render_section(
         frame,
         chunks[0],
         "Labels",
         focus == Section::Labels,
+        false,
         &labels_body,
         app,
     );
@@ -131,13 +134,20 @@ pub fn render_manage_labels_popup(app: &App, frame: &mut Frame) {
         chunks[2],
         "New label",
         focus == Section::Create,
+        create_insert,
         &create_body,
         app,
     );
     if focus == Section::Create {
         set_create_input_cursor(frame, chunks[2], app);
     }
-    render_hint(frame, chunks[3], focus, !app.input.as_str().is_empty());
+    render_hint(
+        frame,
+        chunks[3],
+        focus,
+        !app.input.as_str().is_empty(),
+        create_insert,
+    );
 }
 
 /// Place the terminal caret in the "New label" box so the row reads as a live
@@ -153,11 +163,14 @@ fn set_create_input_cursor(frame: &mut Frame, box_area: Rect, app: &App) {
 
 /// Draw one section box: a bordered block with a title (accented when focused)
 /// and a scrollable body whose current row is background-highlighted.
+/// When `focused && insert_mode`, the border is green (active-typing state);
+/// when `focused && !insert_mode`, the border is cyan (normal / selected).
 fn render_section(
     frame: &mut Frame,
     area: Rect,
     title: &'static str,
     focused: bool,
+    insert_mode: bool,
     body: &[LabelRow],
     app: &App,
 ) {
@@ -167,7 +180,11 @@ fn render_section(
     let highlight_bg = app.highlight_bg();
     let cursor_row = app.label_manager.current_row();
     let border = if focused {
-        focused_border()
+        if insert_mode {
+            insert_border()
+        } else {
+            focused_border()
+        }
     } else {
         unfocused_border()
     };
@@ -277,13 +294,22 @@ fn render_row(
 /// row the hint is a live input prompt: it reads one way while the row is still
 /// empty (type to create, the full editor is reachable) and a simpler way once
 /// the user has typed a name (Enter just creates it), so no action repeats.
-fn hint_text(focus: Section, create_has_text: bool) -> String {
+///
+/// When `create_insert` is true the Esc clause says "Esc: normal mode" (ESC
+/// exits insert mode and returns to normal); otherwise it says "Esc to close"
+/// (ESC closes the dialog). In both modes the Esc column is stable between the
+/// empty and typed states.
+fn hint_text(focus: Section, create_has_text: bool, create_insert: bool) -> String {
     match focus {
         Section::Labels => {
             "j/k: navigate   Enter: apply/remove   x: delete   e: edit   Esc: close".to_string()
         }
         Section::Create => {
-            const CLOSING: &str = "   Esc to close";
+            let closing = if create_insert {
+                "   Esc: normal mode"
+            } else {
+                "   Esc to close"
+            };
             let front = if create_has_text {
                 "Enter to create"
             } else {
@@ -292,13 +318,19 @@ fn hint_text(focus: Section, create_has_text: bool) -> String {
             // Pad the front to the longest option so the closing stays at a fixed
             // column and never shifts while the user types.
             let width = "Enter to open the full editor".len();
-            format!("{front:<width$}{CLOSING}")
+            format!("{front:<width$}{closing}")
         }
     }
 }
 
-fn render_hint(frame: &mut Frame, area: Rect, focus: Section, create_has_text: bool) {
-    let hint = Paragraph::new(hint_text(focus, create_has_text)).style(
+fn render_hint(
+    frame: &mut Frame,
+    area: Rect,
+    focus: Section,
+    create_has_text: bool,
+    create_insert: bool,
+) {
+    let hint = Paragraph::new(hint_text(focus, create_has_text, create_insert)).style(
         Style::default()
             .fg(NORMAL_TEXT)
             .add_modifier(Modifier::ITALIC),
@@ -389,28 +421,46 @@ mod tests {
     }
 
     #[test]
-    fn create_hint_adapts_to_input_and_keeps_its_closing_fixed() {
-        let empty = hint_text(Section::Create, false);
-        let typed = hint_text(Section::Create, true);
-
-        // Empty: Enter opens the full editor; both states name their action once.
-        assert_eq!(empty, "Enter to open the full editor   Esc to close");
-        assert!(typed.contains("Enter to create"), "typed: {typed}");
-        assert_eq!(typed.matches("Enter").count(), 1, "typed: {typed}");
-        assert_eq!(empty.matches("Enter").count(), 1, "empty: {empty}");
-
-        // The closing sits at the same column in both states, so it never jumps
-        // as the user types.
+    fn create_hint_adapts_to_input_and_mode() {
+        // Normal mode (create_insert = false):
+        // The closing clause reads "Esc to close" and stays at a fixed column
+        // between empty and typed states.
+        let empty_n = hint_text(Section::Create, false, false);
+        let typed_n = hint_text(Section::Create, true, false);
+        assert_eq!(empty_n, "Enter to open the full editor   Esc to close");
+        assert!(
+            typed_n.contains("Enter to create"),
+            "typed normal: {typed_n}"
+        );
         assert_eq!(
-            empty.rfind("Esc to close"),
-            typed.rfind("Esc to close"),
-            "closing column must be stable, empty: {empty:?} typed: {typed:?}"
+            empty_n.rfind("Esc to close"),
+            typed_n.rfind("Esc to close"),
+            "Esc column stable in normal mode, empty: {empty_n:?} typed: {typed_n:?}"
         );
 
-        // The Labels section hint is unaffected by whether a name has been typed.
+        // Insert mode (create_insert = true):
+        // The closing clause reads "Esc: normal mode" and also stays at a fixed
+        // column between empty and typed states.
+        let empty_i = hint_text(Section::Create, false, true);
+        let typed_i = hint_text(Section::Create, true, true);
+        assert!(
+            empty_i.ends_with("Esc: normal mode"),
+            "empty insert: {empty_i}"
+        );
+        assert!(
+            typed_i.ends_with("Esc: normal mode"),
+            "typed insert: {typed_i}"
+        );
         assert_eq!(
-            hint_text(Section::Labels, true),
-            hint_text(Section::Labels, false)
+            empty_i.rfind("Esc"),
+            typed_i.rfind("Esc"),
+            "Esc column stable in insert mode, empty: {empty_i:?} typed: {typed_i:?}"
+        );
+
+        // The Labels section hint is unaffected by input state or insert mode.
+        assert_eq!(
+            hint_text(Section::Labels, true, true),
+            hint_text(Section::Labels, false, false)
         );
     }
 }

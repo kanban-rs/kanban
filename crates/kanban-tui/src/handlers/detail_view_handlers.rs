@@ -2,7 +2,7 @@ use crate::app::{
     App, AppMode, BoardField, BoardFocus, CardField, CardFocus, DialogMode, LabelAction, LabelRow,
     SprintTaskPanel,
 };
-use crate::dialog::{handle_dialog_input, DialogAction};
+use crate::dialog::handle_dialog_input;
 use crate::editor::edit_in_external_editor;
 use crate::events::EventHandler;
 use crossterm::event::KeyCode;
@@ -1288,37 +1288,83 @@ impl App {
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
         event_handler: &EventHandler,
     ) -> bool {
-        // The "New label" row is a proper input: while the cursor is on it,
-        // keystrokes are captured into the shared dialog input (typing,
-        // backspace, cursor moves), Enter confirms (creating the label from the
-        // typed name, or opening the shape editor when the input is empty), and
-        // Esc closes the dialog. Every other row keeps the list navigation and
-        // the apply / remove / delete / edit actions.
+        // The "New label" row has two sub-states (create_insert on
+        // LabelManagerState):
+        //
+        //   INSERT (green border)  – cursor arrived via navigation or the user
+        //                            typed a character; typed chars fill the
+        //                            input buffer, j/k are typed as chars,
+        //                            ESC → normal mode, Enter confirms.
+        //   NORMAL (cyan border)   – cursor is on the row, not typing; j/k
+        //                            navigate the dialog list, any char →
+        //                            INSERT + typed, ESC → close dialog,
+        //                            Enter confirms.
+        //
+        // Physical arrow keys (Up/Down) always navigate in both modes.
         if matches!(self.label_manager.current_row(), Some(LabelRow::Create)) {
-            match handle_dialog_input(&mut self.input, key_code, true) {
-                DialogAction::Confirm => {
+            let in_insert = self.label_manager.create_insert;
+
+            // --- Navigation: arrows always, j/k in normal mode only ---
+            let arrow_nav = matches!(key_code, KeyCode::Up | KeyCode::Down);
+            let jk_nav = !in_insert && matches!(key_code, KeyCode::Char('j') | KeyCode::Char('k'));
+            if arrow_nav || jk_nav {
+                let is_down = matches!(key_code, KeyCode::Down | KeyCode::Char('j'));
+                if is_down {
+                    self.label_manager.navigate_down();
+                } else {
+                    self.label_manager.navigate_up();
+                }
+                // If the cursor moved off the Create row, exit insert mode.
+                // If it clamped and stayed (e.g. Down at the last row),
+                // keeping the current mode is the correct no-op.
+                if self.label_manager.current_row() != Some(LabelRow::Create) {
+                    self.label_manager.create_insert = false;
+                }
+                return false;
+            }
+
+            match key_code {
+                KeyCode::Esc => {
+                    if in_insert {
+                        // INSERT → NORMAL: stay on the Create row, border
+                        // reverts to cyan, typed text is kept in the buffer.
+                        self.label_manager.create_insert = false;
+                    } else {
+                        // NORMAL: close the dialog (existing behaviour).
+                        self.input.clear();
+                        self.label_manager.selection.clear();
+                        self.pop_mode();
+                    }
+                    return false;
+                }
+                KeyCode::Enter => {
+                    // Confirm (both modes): create or open the editor.
+                    // Note: Char(' ') is NOT confirm here; space is an ordinary
+                    // typed character on the Create row (handled by the _ arm).
                     if self.input.is_empty() {
                         self.input.clear();
+                        self.label_manager.create_insert = false;
                         // Empty: open the full shape editor to set name, color
                         // and description (the pre-existing create path).
                         return self.edit_label(terminal, event_handler, None);
                     }
                     let name = self.input.as_str().trim().to_string();
                     self.input.clear();
+                    self.label_manager.create_insert = false;
                     self.create_label_from_input(name);
                     return false;
                 }
-                DialogAction::Cancel => {
-                    self.input.clear();
-                    self.label_manager.selection.clear();
-                    self.pop_mode();
+                _ => {
+                    // Typing a character (incl. j/k in insert mode), backspace,
+                    // or a text-cursor key (left/right/home/end).
+                    // Enters/stays in INSERT mode and delegates to the shared
+                    // input handler for the actual buffer operation.
+                    // return stops fall-through to resolve(), which would map
+                    // Char(' ') (and similar) to LabelAction::CreateLabel.
+                    self.label_manager.create_insert = true;
+                    let _ = handle_dialog_input(&mut self.input, key_code, true);
                     return false;
                 }
-                // Any other key is consumed here (a typed character, or an
-                // unhandled one). Consuming it keeps a key such as space from
-                // falling through to the list's `resolve()`, where `Char(' ')`
-                // on the create row would open the full editor mid-typing.
-                DialogAction::None => return false,
             }
         }
         let card_ids = self.label_manager.card_ids.clone();
@@ -1332,7 +1378,14 @@ impl App {
                 self.pop_mode();
             }
             LabelAction::NavigateDown | LabelAction::NavigateUp => {
-                // resolve() already moved the cursor; nothing more to do.
+                // resolve() already moved the cursor.  We reach this arm only
+                // when the cursor was NOT on the Create row before the key
+                // (that branch intercepts j/k first).  If we ended up on the
+                // Create row, activate insert mode: "selecting focus on the
+                // input box enters input mode" (green border, ready to type).
+                if self.label_manager.current_row() == Some(LabelRow::Create) {
+                    self.label_manager.create_insert = true;
+                }
             }
             LabelAction::RemoveFromCard(name) => self.remove_label_from_card(&name, &card_ids),
             LabelAction::ApplyToCard(name) => self.apply_label_to_card(&name, &card_ids),

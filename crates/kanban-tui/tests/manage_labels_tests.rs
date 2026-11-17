@@ -302,20 +302,176 @@ async fn test_new_label_row_space_is_typed_not_confirmed() {
 }
 
 #[tokio::test]
-async fn test_new_label_row_esc_closes_dialog() {
+async fn test_new_label_row_esc_in_insert_exits_to_normal_mode() {
+    // After typing (INSERT mode), Esc exits to NORMAL mode:
+    //   - dialog stays open
+    //   - typed text is preserved in the input buffer
+    //   - cursor stays on the Create row
     let (mut app, _) = card_with_labels_fixture();
     select_create_row(&mut app);
     let mut terminal = headless_terminal();
     let events = EventHandler::new();
     app.handle_manage_labels_popup(KeyCode::Char('u'), &mut terminal, &events);
     assert_eq!(app.input.as_str(), "u");
+    assert!(
+        app.label_manager.create_insert,
+        "typing a char must activate insert mode"
+    );
+    app.handle_manage_labels_popup(KeyCode::Esc, &mut terminal, &events);
+    assert_eq!(
+        app.mode,
+        AppMode::Dialog(DialogMode::ManageLabels),
+        "Esc in INSERT mode must NOT close the dialog"
+    );
+    assert!(
+        !app.label_manager.create_insert,
+        "Esc in INSERT mode must switch back to normal mode"
+    );
+    assert_eq!(app.input.as_str(), "u", "typed text must be preserved");
+    assert_eq!(
+        app.label_manager.current_row(),
+        Some(kanban_tui::app::LabelRow::Create),
+        "cursor must remain on the Create row"
+    );
+}
+
+#[tokio::test]
+async fn test_new_label_row_second_esc_in_normal_closes_dialog() {
+    // A second Esc (in NORMAL mode) closes the dialog and clears the input.
+    let (mut app, _) = card_with_labels_fixture();
+    select_create_row(&mut app);
+    let mut terminal = headless_terminal();
+    let events = EventHandler::new();
+    app.handle_manage_labels_popup(KeyCode::Char('u'), &mut terminal, &events);
+    assert_eq!(app.input.as_str(), "u");
+    // First Esc: INSERT → NORMAL
+    app.handle_manage_labels_popup(KeyCode::Esc, &mut terminal, &events);
+    assert_eq!(app.mode, AppMode::Dialog(DialogMode::ManageLabels));
+    // Second Esc: NORMAL → close dialog
     app.handle_manage_labels_popup(KeyCode::Esc, &mut terminal, &events);
     assert_ne!(
         app.mode,
         AppMode::Dialog(DialogMode::ManageLabels),
-        "Esc on the input row must close the dialog"
+        "second Esc (normal mode) must close the dialog"
     );
-    assert!(app.input.is_empty(), "input must be cleared on Esc");
+    assert!(app.input.is_empty(), "input must be cleared on Esc close");
+}
+
+#[tokio::test]
+async fn test_new_label_row_esc_in_normal_mode_closes_directly() {
+    // If the user navigates to the Create row WITHOUT typing (normal mode),
+    // a single Esc closes the dialog directly.
+    let (mut app, _) = card_with_labels_fixture();
+    select_create_row(&mut app);
+    let mut terminal = headless_terminal();
+    let events = EventHandler::new();
+    // Navigate to the Create row via label_manager (does NOT set create_insert).
+    // create_insert should be false at this point (initialised by Default::default).
+    assert!(
+        !app.label_manager.create_insert,
+        "create_insert must be false after navigation to Create row without typing"
+    );
+    app.handle_manage_labels_popup(KeyCode::Esc, &mut terminal, &events);
+    assert_ne!(
+        app.mode,
+        AppMode::Dialog(DialogMode::ManageLabels),
+        "Esc on the Create row in NORMAL mode must close the dialog"
+    );
+}
+
+#[tokio::test]
+async fn test_navigating_to_create_row_enters_insert_mode() {
+    // Pressing j (down) from the last label row lands on the Create row and
+    // activates insert mode (the "focus on the input box enters input mode" rule).
+    let (mut app, _) = card_with_labels_fixture();
+    let mut terminal = headless_terminal();
+    let events = EventHandler::new();
+
+    // Fixture cursor is on Label(0) "design".  Move to Label(1) "p1" first
+    // (p1 has no tags on the card, so it's the last label before Create).
+    let p1_row = app
+        .label_manager
+        .rows
+        .iter()
+        .position(|r| r.name == "p1")
+        .expect("the 'p1' row must exist");
+    let p1_flat = app
+        .label_manager
+        .entries()
+        .iter()
+        .position(|r| *r == kanban_tui::app::LabelRow::Label(p1_row))
+        .expect("the 'p1' flat row must exist");
+    app.label_manager.selection.set(Some(p1_flat));
+    assert_eq!(
+        app.label_manager.current_row(),
+        Some(kanban_tui::app::LabelRow::Label(p1_row)),
+        "cursor must be on the 'p1' row before navigating down"
+    );
+
+    // Navigate down from "p1" to the Create row.
+    app.handle_manage_labels_popup(KeyCode::Char('j'), &mut terminal, &events);
+    assert_eq!(
+        app.label_manager.current_row(),
+        Some(kanban_tui::app::LabelRow::Create),
+        "cursor must land on the Create row after navigating down from 'p1'"
+    );
+    assert!(
+        app.label_manager.create_insert,
+        "navigating to the Create row must activate insert mode (green border)"
+    );
+}
+
+#[tokio::test]
+async fn test_jk_in_insert_mode_types_chars_not_navigates() {
+    // In INSERT mode, j and k are typed as characters, not navigation keys.
+    let (mut app, _) = card_with_labels_fixture();
+    select_create_row(&mut app);
+    app.label_manager.create_insert = true; // simulate arriving on Create
+    let mut terminal = headless_terminal();
+    let events = EventHandler::new();
+
+    app.handle_manage_labels_popup(KeyCode::Char('j'), &mut terminal, &events);
+    assert_eq!(app.input.as_str(), "j", "'j' must be typed in insert mode");
+    assert_eq!(
+        app.label_manager.current_row(),
+        Some(kanban_tui::app::LabelRow::Create),
+        "cursor must stay on the Create row in insert mode after 'j'"
+    );
+
+    app.handle_manage_labels_popup(KeyCode::Char('k'), &mut terminal, &events);
+    assert_eq!(app.input.as_str(), "jk", "'k' must be typed in insert mode");
+    assert_eq!(
+        app.label_manager.current_row(),
+        Some(kanban_tui::app::LabelRow::Create),
+        "cursor must stay on the Create row in insert mode after 'k'"
+    );
+}
+
+#[tokio::test]
+async fn test_k_in_normal_mode_on_create_navigates_up() {
+    // In NORMAL mode on the Create row, k (or Up) navigates up to the
+    // previous row and exits create mode.
+    let (mut app, _) = card_with_labels_fixture();
+    select_create_row(&mut app);
+    // create_insert is false (default) = NORMAL mode.
+    assert!(
+        !app.label_manager.create_insert,
+        "must start in normal mode"
+    );
+    let mut terminal = headless_terminal();
+    let events = EventHandler::new();
+
+    // k → navigate up (leaves the Create row).
+    app.handle_manage_labels_popup(KeyCode::Char('k'), &mut terminal, &events);
+    assert_ne!(
+        app.label_manager.current_row(),
+        Some(kanban_tui::app::LabelRow::Create),
+        "in normal mode 'k' on the Create row must navigate away from it"
+    );
+    assert!(
+        app.label_manager.current_row().is_some(),
+        "cursor must land on a valid row after navigating up"
+    );
 }
 
 #[test]
