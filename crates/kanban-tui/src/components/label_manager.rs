@@ -160,7 +160,7 @@ pub fn render_manage_labels_popup(app: &App, frame: &mut Frame) {
     if focus == Section::Create {
         set_create_input_cursor(frame, chunks[4], app);
     }
-    render_hint(frame, chunks[5], focus);
+    render_hint(frame, chunks[5], focus, !app.input.as_str().is_empty());
 }
 
 /// Place the terminal caret in the "New label" box so the row reads as a live
@@ -270,18 +270,28 @@ fn render_row(row: LabelRow, is_selected: bool, highlight_bg: Color, app: &App) 
     }
 }
 
-/// The context-aware footer hint, describing the keys for the focused section.
-fn render_hint(frame: &mut Frame, area: Rect, focus: Section) {
-    let text = match focus {
+/// The context-aware footer hint text for the focused section. For the Create
+/// row the hint is a live input prompt: it reads one way while the row is still
+/// empty (type to create, the full editor is reachable) and a simpler way once
+/// the user has typed a name (Enter just creates it), so no action repeats.
+fn hint_text(focus: Section, create_has_text: bool) -> &'static str {
+    match focus {
         Section::Applied => "j/k: navigate   Enter: remove from card   Esc: close",
         Section::Registry => {
             "j/k: navigate   Enter: apply to card   x: delete   e: edit   Esc: close"
         }
         Section::Create => {
-            "type a name, then Enter: create   Enter (empty): full editor   Esc: close"
+            if create_has_text {
+                "press Enter to create   Esc to close"
+            } else {
+                "type a name to create   Enter to open the full editor   Esc to close"
+            }
         }
-    };
-    let hint = Paragraph::new(text).style(
+    }
+}
+
+fn render_hint(frame: &mut Frame, area: Rect, focus: Section, create_has_text: bool) {
+    let hint = Paragraph::new(hint_text(focus, create_has_text)).style(
         Style::default()
             .fg(NORMAL_TEXT)
             .add_modifier(Modifier::ITALIC),
@@ -326,5 +336,28 @@ mod tests {
         assert_eq!(section_of(&LabelRow::Create), Some(Section::Create));
         assert_eq!(section_of(&LabelRow::Header("Labels")), None);
         assert_eq!(section_of(&LabelRow::Note("(none)")), None);
+    }
+
+    #[test]
+    fn create_hint_adapts_to_input_and_never_repeats_an_action() {
+        // Empty row: the fast path is to type, and the full editor is reachable.
+        assert_eq!(
+            hint_text(Section::Create, false),
+            "type a name to create   Enter to open the full editor   Esc to close"
+        );
+        // Typed row: Enter just creates it.
+        assert_eq!(
+            hint_text(Section::Create, true),
+            "press Enter to create   Esc to close"
+        );
+        // The other sections are unaffected by the input state.
+        assert_eq!(
+            hint_text(Section::Applied, true),
+            hint_text(Section::Applied, false)
+        );
+        assert_eq!(
+            hint_text(Section::Registry, true),
+            hint_text(Section::Registry, false)
+        );
     }
 }
