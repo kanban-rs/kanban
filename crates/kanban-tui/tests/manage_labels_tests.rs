@@ -474,6 +474,88 @@ async fn test_k_in_normal_mode_on_create_navigates_up() {
     );
 }
 
+#[tokio::test]
+async fn test_i_in_normal_mode_enters_insert_mode_without_typing() {
+    // Pressing 'i' on the Create row in NORMAL mode switches to INSERT mode
+    // (red border) without typing the 'i' character into the buffer.
+    let (mut app, _) = card_with_labels_fixture();
+    select_create_row(&mut app);
+    // create_insert is false (default) = NORMAL mode.
+    assert!(!app.label_manager.create_insert, "must start in NORMAL mode");
+    let mut terminal = headless_terminal();
+    let events = EventHandler::new();
+
+    app.handle_manage_labels_popup(KeyCode::Char('i'), &mut terminal, &events);
+
+    assert!(
+        app.label_manager.create_insert,
+        "'i' in NORMAL mode must enter INSERT mode"
+    );
+    assert!(
+        app.input.is_empty(),
+        "'i' must NOT be typed into the buffer (pure mode switch)"
+    );
+    assert_eq!(
+        app.label_manager.current_row(),
+        Some(kanban_tui::app::LabelRow::Create),
+        "cursor must stay on the Create row"
+    );
+    assert_eq!(
+        app.mode,
+        AppMode::Dialog(DialogMode::ManageLabels),
+        "dialog must stay open"
+    );
+}
+
+#[tokio::test]
+async fn test_n_in_normal_mode_enters_insert_mode_without_typing() {
+    // Pressing 'n' on the Create row in NORMAL mode also switches to INSERT
+    // mode without typing the 'n' character.
+    let (mut app, _) = card_with_labels_fixture();
+    select_create_row(&mut app);
+    assert!(!app.label_manager.create_insert, "must start in NORMAL mode");
+    let mut terminal = headless_terminal();
+    let events = EventHandler::new();
+
+    app.handle_manage_labels_popup(KeyCode::Char('n'), &mut terminal, &events);
+
+    assert!(
+        app.label_manager.create_insert,
+        "'n' in NORMAL mode must enter INSERT mode"
+    );
+    assert!(
+        app.input.is_empty(),
+        "'n' must NOT be typed into the buffer (pure mode switch)"
+    );
+    assert_eq!(
+        app.label_manager.current_row(),
+        Some(kanban_tui::app::LabelRow::Create),
+        "cursor must stay on the Create row"
+    );
+}
+
+#[tokio::test]
+async fn test_i_in_insert_mode_is_typed_as_character() {
+    // In INSERT mode 'i' is a normal typed character, not a mode switch.
+    let (mut app, _) = card_with_labels_fixture();
+    select_create_row(&mut app);
+    app.label_manager.create_insert = true; // already in INSERT mode
+    let mut terminal = headless_terminal();
+    let events = EventHandler::new();
+
+    app.handle_manage_labels_popup(KeyCode::Char('i'), &mut terminal, &events);
+
+    assert!(
+        app.label_manager.create_insert,
+        "must stay in INSERT mode"
+    );
+    assert_eq!(
+        app.input.as_str(),
+        "i",
+        "'i' in INSERT mode must be typed as a character"
+    );
+}
+
 #[test]
 fn test_manage_labels_keybinding_in_card_detail_help() {
     use kanban_tui::app::focus::CardFocus;

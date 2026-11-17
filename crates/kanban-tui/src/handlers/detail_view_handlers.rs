@@ -1354,6 +1354,13 @@ impl App {
                     self.create_label_from_input(name);
                     return false;
                 }
+                KeyCode::Char('i') | KeyCode::Char('n') if !in_insert => {
+                    // NORMAL → INSERT: switch to insert mode without typing
+                    // the key (like vim's `i` — pure mode switch).
+                    // Both `i` and `n` are accepted.
+                    self.label_manager.create_insert = true;
+                    return false;
+                }
                 _ => {
                     // Typing a character (incl. j/k in insert mode), backspace,
                     // or a text-cursor key (left/right/home/end).

@@ -315,10 +315,12 @@ fn hint_text(focus: Section, create_has_text: bool, create_insert: bool) -> Stri
             } else {
                 "Enter to open the full editor"
             };
-            // Pad the front to the longest option so the closing stays at a fixed
-            // column and never shifts while the user types.
             let width = "Enter to open the full editor".len();
-            format!("{front:<width$}{closing}")
+            if create_insert {
+                format!("{front:<width$}{closing}")
+            } else {
+                format!("{front:<width$}{closing}   i to insert")
+            }
         }
     }
 }
@@ -423,19 +425,31 @@ mod tests {
     #[test]
     fn create_hint_adapts_to_input_and_mode() {
         // Normal mode (create_insert = false):
-        // The closing clause reads "Esc to close" and stays at a fixed column
-        // between empty and typed states.
+        // The closing clause reads "Esc to close" and "i to insert" is appended
+        // last; both stay at fixed columns between empty and typed states.
         let empty_n = hint_text(Section::Create, false, false);
         let typed_n = hint_text(Section::Create, true, false);
-        assert_eq!(empty_n, "Enter to open the full editor   Esc to close");
+        assert_eq!(
+            empty_n,
+            "Enter to open the full editor   Esc to close   i to insert"
+        );
         assert!(
             typed_n.contains("Enter to create"),
             "typed normal: {typed_n}"
+        );
+        assert!(
+            typed_n.ends_with("   i to insert"),
+            "normal mode must end with i to insert, got: {typed_n}"
         );
         assert_eq!(
             empty_n.rfind("Esc to close"),
             typed_n.rfind("Esc to close"),
             "Esc column stable in normal mode, empty: {empty_n:?} typed: {typed_n:?}"
+        );
+        assert_eq!(
+            empty_n.rfind("i to insert"),
+            typed_n.rfind("i to insert"),
+            "i to insert column stable in normal mode"
         );
 
         // Insert mode (create_insert = true):
