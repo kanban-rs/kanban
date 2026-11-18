@@ -114,6 +114,7 @@ impl KanbanMcpServer {
         Parameters(req): Parameters<DeleteLabelRequest>,
     ) -> Result<CallToolResult, McpError> {
         let scope = req.scope();
+        let name = req.name.clone();
         locked_write(&self.ctx, |ctx| -> Result<_, McpError> {
             let _ = ctx.model_for(&scope);
             let _inv = ctx
@@ -122,7 +123,7 @@ impl KanbanMcpServer {
             Ok(())
         })
         .await?;
-        to_call_tool_result(&())
+        to_call_tool_result_json(serde_json::json!({ "deleted": name }))
     }
 
     #[tool(
