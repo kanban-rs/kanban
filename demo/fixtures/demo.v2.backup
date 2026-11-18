@@ -1,0 +1,238 @@
+{
+  "version": 2,
+  "metadata": {
+    "instance_id": "2a656607-e0c6-430d-8790-af7e2a51633f",
+    "saved_at": "2026-04-03T16:04:20.098837Z"
+  },
+  "data": {
+    "archived_cards": [],
+    "boards": [
+      {
+        "active_sprint_id": "a0c0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+        "card_prefix": "KAN",
+        "completion_column_id": null,
+        "created_at": "2026-04-01T10:00:00Z",
+        "description": "Terminal kanban board written in Rust",
+        "id": "b0a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+        "name": "Kanban",
+        "next_sprint_number": 2,
+        "prefix_counters": {
+          "KAN": 12
+        },
+        "sprint_counters": {
+          "KAN": 1
+        },
+        "sprint_duration_days": 7,
+        "sprint_name_used_count": 1,
+        "sprint_names": [
+          "enhancements"
+        ],
+        "sprint_prefix": "KAN",
+        "task_list_view": "ColumnView",
+        "task_sort_field": "CreatedAt",
+        "task_sort_order": "Ascending",
+        "updated_at": "2026-04-03T14:53:38.987598Z"
+      }
+    ],
+    "cards": [
+      {
+        "assigned_prefix": null,
+        "card_number": 1,
+        "card_prefix": null,
+        "column_id": "c0a0d5e2-c0a0-4b1c-9d3a-1f1c8e7a5b9c",
+        "completed_at": null,
+        "created_at": "2026-04-01T10:15:00Z",
+        "description": "Implement persistent storage using SQLite with WAL mode support",
+        "due_date": null,
+        "id": "c1a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+        "points": 8,
+        "position": 0,
+        "priority": "High",
+        "sprint_id": null,
+        "sprint_logs": [],
+        "status": "Todo",
+        "title": "Add SQLite storage backend",
+        "updated_at": "2026-04-01T10:15:00Z"
+      },
+      {
+        "assigned_prefix": null,
+        "card_number": 2,
+        "card_prefix": null,
+        "column_id": "c0a0d5e2-c0a0-4b1c-9d3a-1f1c8e7a5b9c",
+        "completed_at": null,
+        "created_at": "2026-04-01T10:20:00Z",
+        "description": "Allow uncompleted cards from ended sprints to be carried to next sprint",
+        "due_date": null,
+        "id": "c2a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+        "points": 5,
+        "position": 1,
+        "priority": "Medium",
+        "sprint_id": null,
+        "sprint_logs": [],
+        "status": "Todo",
+        "title": "Implement sprint carry-over",
+        "updated_at": "2026-04-01T10:20:00Z"
+      },
+      {
+        "assigned_prefix": null,
+        "card_number": 3,
+        "card_prefix": null,
+        "column_id": "c0a0d5e2-c0a0-4b1c-9d3a-1f1c8e7a5b9c",
+        "completed_at": null,
+        "created_at": "2026-04-01T10:25:00Z",
+        "description": "Change CLI to accept board file path as positional argument instead of option flag",
+        "due_date": "2026-04-08T23:59:59Z",
+        "id": "c3a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+        "points": 3,
+        "position": 2,
+        "priority": "Critical",
+        "sprint_id": "a0c0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+        "sprint_logs": [
+          {
+            "ended_at": null,
+            "sprint_id": "a0c0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+            "sprint_name": "enhancements",
+            "sprint_number": 1,
+            "started_at": "2026-04-03T14:48:23.701388Z",
+            "status": "Active"
+          }
+        ],
+        "status": "Todo",
+        "title": "Rework CLI backend as positional arg",
+        "updated_at": "2026-04-03T16:04:20.097959Z"
+      },
+      {
+        "assigned_prefix": null,
+        "card_number": 4,
+        "card_prefix": null,
+        "column_id": "c1a0d5e2-c0a0-4b1c-9d3a-1f1c8e7a5b9c",
+        "completed_at": null,
+        "created_at": "2026-04-01T11:00:00Z",
+        "description": "Resolve issue where .db files are not loaded correctly by persistence layer",
+        "due_date": "2026-04-06T23:59:59Z",
+        "id": "c4a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+        "points": 3,
+        "position": 0,
+        "priority": "High",
+        "sprint_id": "a0c0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+        "sprint_logs": [
+          {
+            "ended_at": null,
+            "sprint_id": "a0c0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+            "sprint_name": "enhancements",
+            "sprint_number": 1,
+            "started_at": "2026-04-03T14:48:23.701388Z",
+            "status": "Active"
+          }
+        ],
+        "status": "Todo",
+        "title": "Fix SQLite .db file loading",
+        "updated_at": "2026-04-01T11:00:00Z"
+      },
+      {
+        "assigned_prefix": null,
+        "card_number": 5,
+        "card_prefix": null,
+        "column_id": "c1a0d5e2-c0a0-4b1c-9d3a-1f1c8e7a5b9c",
+        "completed_at": null,
+        "created_at": "2026-04-01T11:05:00Z",
+        "description": "Enable SQLite storage by default in cargo feature flags",
+        "due_date": "2026-04-07T23:59:59Z",
+        "id": "c5a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+        "points": 2,
+        "position": 1,
+        "priority": "Medium",
+        "sprint_id": "a0c0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+        "sprint_logs": [
+          {
+            "ended_at": null,
+            "sprint_id": "a0c0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+            "sprint_name": "enhancements",
+            "sprint_number": 1,
+            "started_at": "2026-04-03T14:48:23.701388Z",
+            "status": "Active"
+          }
+        ],
+        "status": "Todo",
+        "title": "Make SQLite a default feature",
+        "updated_at": "2026-04-01T11:05:00Z"
+      }
+    ],
+    "columns": [
+      {
+        "board_id": "b0a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+        "created_at": "2026-04-01T09:00:00Z",
+        "id": "c0a0d5e2-c0a0-4b1c-9d3a-1f1c8e7a5b9c",
+        "name": "TODO",
+        "position": 0,
+        "updated_at": "2026-04-01T09:00:00Z",
+        "wip_limit": null
+      },
+      {
+        "board_id": "b0a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+        "created_at": "2026-04-01T09:00:00Z",
+        "id": "c1a0d5e2-c0a0-4b1c-9d3a-1f1c8e7a5b9c",
+        "name": "Doing",
+        "position": 1,
+        "updated_at": "2026-04-01T09:00:00Z",
+        "wip_limit": null
+      },
+      {
+        "board_id": "b0a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+        "created_at": "2026-04-01T09:00:00Z",
+        "id": "c2a0d5e2-c0a0-4b1c-9d3a-1f1c8e7a5b9c",
+        "name": "Complete",
+        "position": 2,
+        "updated_at": "2026-04-01T09:00:00Z",
+        "wip_limit": null
+      },
+      {
+        "board_id": "c888b6ea-062d-4ee9-b000-b059b15f3a6d",
+        "created_at": "2026-04-03T14:48:30.125632Z",
+        "id": "cd96b9e8-79bc-47d0-8eb1-df2a65edeffc",
+        "name": "TODO",
+        "position": 0,
+        "updated_at": "2026-04-03T14:48:30.125632Z",
+        "wip_limit": null
+      },
+      {
+        "board_id": "c888b6ea-062d-4ee9-b000-b059b15f3a6d",
+        "created_at": "2026-04-03T14:48:30.125636Z",
+        "id": "bb1a2e72-e0fb-4b00-b060-f061135edac7",
+        "name": "Doing",
+        "position": 1,
+        "updated_at": "2026-04-03T14:48:30.125636Z",
+        "wip_limit": null
+      },
+      {
+        "board_id": "c888b6ea-062d-4ee9-b000-b059b15f3a6d",
+        "created_at": "2026-04-03T14:48:30.125637Z",
+        "id": "6502a479-a64e-4560-a4a2-8308cff9fcfd",
+        "name": "Complete",
+        "position": 2,
+        "updated_at": "2026-04-03T14:48:30.125637Z",
+        "wip_limit": null
+      }
+    ],
+    "graph": {
+      "cards": {
+        "edges": []
+      }
+    },
+    "sprints": [
+      {
+        "board_id": "b0a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+        "card_prefix": "CLI",
+        "created_at": "2026-04-01T08:00:00Z",
+        "end_date": "2026-04-08T23:59:59Z",
+        "id": "a0c0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+        "name_index": 0,
+        "prefix": null,
+        "sprint_number": 1,
+        "start_date": "2026-04-01T08:00:00Z",
+        "status": "Active",
+        "updated_at": "2026-04-03T14:30:00Z"
+      }
+    ]
+  }
+}

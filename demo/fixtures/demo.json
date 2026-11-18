@@ -1,27 +1,24 @@
 {
-  "version": 2,
+  "version": 18,
   "metadata": {
-    "instance_id": "2a656607-e0c6-430d-8790-af7e2a51633f",
-    "saved_at": "2026-04-03T16:04:20.098837Z"
+    "instance_id": "351396b8-4aae-4ebe-b61d-a503351f8280",
+    "saved_at": "2026-11-18T21:13:54.710645828Z",
+    "writer_version": "0.12.2",
+    "writer_commit": "4a84f988b45ae23576dec2f1311da2d39d927aeb"
   },
   "data": {
+    "archived_boards": [],
     "archived_cards": [],
     "boards": [
       {
         "active_sprint_id": "a0c0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
         "card_prefix": "KAN",
-        "completion_column_id": null,
         "created_at": "2026-04-01T10:00:00Z",
         "description": "Terminal kanban board written in Rust",
         "id": "b0a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
         "name": "Kanban",
         "next_sprint_number": 2,
-        "prefix_counters": {
-          "KAN": 12
-        },
-        "sprint_counters": {
-          "KAN": 1
-        },
+        "position": 0,
         "sprint_duration_days": 7,
         "sprint_name_used_count": 1,
         "sprint_names": [
@@ -36,17 +33,18 @@
     ],
     "cards": [
       {
-        "assigned_prefix": null,
+        "board_id": "b0a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
         "card_number": 1,
-        "card_prefix": null,
         "column_id": "c0a0d5e2-c0a0-4b1c-9d3a-1f1c8e7a5b9c",
         "completed_at": null,
         "created_at": "2026-04-01T10:15:00Z",
         "description": "Implement persistent storage using SQLite with WAL mode support",
         "due_date": null,
         "id": "c1a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+        "labels": [],
         "points": 8,
         "position": 0,
+        "prefix": "KAN",
         "priority": "High",
         "sprint_id": null,
         "sprint_logs": [],
@@ -55,17 +53,70 @@
         "updated_at": "2026-04-01T10:15:00Z"
       },
       {
-        "assigned_prefix": null,
+        "board_id": "b0a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+        "card_number": 4,
+        "column_id": "c2a0d5e2-c0a0-4b1c-9d3a-1f1c8e7a5b9c",
+        "completed_at": "2026-11-18T21:12:40.479473617Z",
+        "created_at": "2026-04-01T11:00:00Z",
+        "description": "Resolve issue where .db files are not loaded correctly by persistence layer",
+        "due_date": "2026-04-06T23:59:59Z",
+        "id": "c4a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+        "labels": [],
+        "points": 3,
+        "position": 0,
+        "prefix": "CLI",
+        "priority": "High",
+        "sprint_id": "a0c0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+        "sprint_logs": [
+          {
+            "ended_at": null,
+            "sprint_id": "a0c0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+            "sprint_name": "enhancements",
+            "sprint_number": 1,
+            "started_at": "2026-04-03T14:48:23.701388Z",
+            "status": "Active"
+          }
+        ],
+        "status": "Done",
+        "title": "Fix SQLite .db file loading",
+        "updated_at": "2026-11-18T21:12:40.479471947Z"
+      },
+      {
+        "board_id": "b0a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+        "card_number": 12,
+        "column_id": "c1a0d5e2-c0a0-4b1c-9d3a-1f1c8e7a5b9c",
+        "completed_at": null,
+        "created_at": "2026-11-18T21:12:43.377586927Z",
+        "description": null,
+        "due_date": null,
+        "id": "2b6b2aab-c494-4857-a8e3-cc536b28127d",
+        "labels": [
+          "three",
+          "one"
+        ],
+        "points": null,
+        "position": 0,
+        "prefix": "KAN",
+        "priority": "Medium",
+        "sprint_id": null,
+        "sprint_logs": [],
+        "status": "Todo",
+        "title": "1",
+        "updated_at": "2026-11-18T21:13:54.708592234Z"
+      },
+      {
+        "board_id": "b0a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
         "card_number": 2,
-        "card_prefix": null,
         "column_id": "c0a0d5e2-c0a0-4b1c-9d3a-1f1c8e7a5b9c",
         "completed_at": null,
         "created_at": "2026-04-01T10:20:00Z",
         "description": "Allow uncompleted cards from ended sprints to be carried to next sprint",
         "due_date": null,
         "id": "c2a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+        "labels": [],
         "points": 5,
         "position": 1,
+        "prefix": "KAN",
         "priority": "Medium",
         "sprint_id": null,
         "sprint_logs": [],
@@ -74,17 +125,69 @@
         "updated_at": "2026-04-01T10:20:00Z"
       },
       {
-        "assigned_prefix": null,
+        "board_id": "b0a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+        "card_number": 5,
+        "column_id": "c2a0d5e2-c0a0-4b1c-9d3a-1f1c8e7a5b9c",
+        "completed_at": "2026-11-18T21:12:41.286136174Z",
+        "created_at": "2026-04-01T11:05:00Z",
+        "description": "Enable SQLite storage by default in cargo feature flags",
+        "due_date": "2026-04-07T23:59:59Z",
+        "id": "c5a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+        "labels": [],
+        "points": 2,
+        "position": 1,
+        "prefix": "CLI",
+        "priority": "Medium",
+        "sprint_id": "a0c0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+        "sprint_logs": [
+          {
+            "ended_at": null,
+            "sprint_id": "a0c0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+            "sprint_name": "enhancements",
+            "sprint_number": 1,
+            "started_at": "2026-04-03T14:48:23.701388Z",
+            "status": "Active"
+          }
+        ],
+        "status": "Done",
+        "title": "Make SQLite a default feature",
+        "updated_at": "2026-11-18T21:12:41.286134639Z"
+      },
+      {
+        "board_id": "b0a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+        "card_number": 13,
+        "column_id": "c1a0d5e2-c0a0-4b1c-9d3a-1f1c8e7a5b9c",
+        "completed_at": null,
+        "created_at": "2026-11-18T21:12:44.205296843Z",
+        "description": null,
+        "due_date": null,
+        "id": "bf39740d-2e6e-4ea5-9e92-f397eead64bd",
+        "labels": [
+          "three"
+        ],
+        "points": null,
+        "position": 1,
+        "prefix": "KAN",
+        "priority": "Medium",
+        "sprint_id": null,
+        "sprint_logs": [],
+        "status": "Todo",
+        "title": "2",
+        "updated_at": "2026-11-18T21:13:27.977321624Z"
+      },
+      {
+        "board_id": "b0a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
         "card_number": 3,
-        "card_prefix": null,
         "column_id": "c0a0d5e2-c0a0-4b1c-9d3a-1f1c8e7a5b9c",
         "completed_at": null,
         "created_at": "2026-04-01T10:25:00Z",
         "description": "Change CLI to accept board file path as positional argument instead of option flag",
         "due_date": "2026-04-08T23:59:59Z",
         "id": "c3a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+        "labels": [],
         "points": 3,
         "position": 2,
+        "prefix": "CLI",
         "priority": "Critical",
         "sprint_id": "a0c0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
         "sprint_logs": [
@@ -102,66 +205,33 @@
         "updated_at": "2026-04-03T16:04:20.097959Z"
       },
       {
-        "assigned_prefix": null,
-        "card_number": 4,
-        "card_prefix": null,
+        "board_id": "b0a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
+        "card_number": 14,
         "column_id": "c1a0d5e2-c0a0-4b1c-9d3a-1f1c8e7a5b9c",
         "completed_at": null,
-        "created_at": "2026-04-01T11:00:00Z",
-        "description": "Resolve issue where .db files are not loaded correctly by persistence layer",
-        "due_date": "2026-04-06T23:59:59Z",
-        "id": "c4a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
-        "points": 3,
-        "position": 0,
-        "priority": "High",
-        "sprint_id": "a0c0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
-        "sprint_logs": [
-          {
-            "ended_at": null,
-            "sprint_id": "a0c0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
-            "sprint_name": "enhancements",
-            "sprint_number": 1,
-            "started_at": "2026-04-03T14:48:23.701388Z",
-            "status": "Active"
-          }
+        "created_at": "2026-11-18T21:12:44.981714181Z",
+        "description": null,
+        "due_date": null,
+        "id": "0e620d7d-9f57-427e-b4ce-f37834ec4d18",
+        "labels": [
+          "three"
         ],
-        "status": "Todo",
-        "title": "Fix SQLite .db file loading",
-        "updated_at": "2026-04-01T11:00:00Z"
-      },
-      {
-        "assigned_prefix": null,
-        "card_number": 5,
-        "card_prefix": null,
-        "column_id": "c1a0d5e2-c0a0-4b1c-9d3a-1f1c8e7a5b9c",
-        "completed_at": null,
-        "created_at": "2026-04-01T11:05:00Z",
-        "description": "Enable SQLite storage by default in cargo feature flags",
-        "due_date": "2026-04-07T23:59:59Z",
-        "id": "c5a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
-        "points": 2,
-        "position": 1,
+        "points": null,
+        "position": 2,
+        "prefix": "KAN",
         "priority": "Medium",
-        "sprint_id": "a0c0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
-        "sprint_logs": [
-          {
-            "ended_at": null,
-            "sprint_id": "a0c0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
-            "sprint_name": "enhancements",
-            "sprint_number": 1,
-            "started_at": "2026-04-03T14:48:23.701388Z",
-            "status": "Active"
-          }
-        ],
+        "sprint_id": null,
+        "sprint_logs": [],
         "status": "Todo",
-        "title": "Make SQLite a default feature",
-        "updated_at": "2026-04-01T11:05:00Z"
+        "title": "3",
+        "updated_at": "2026-11-18T21:13:27.977301397Z"
       }
     ],
     "columns": [
       {
         "board_id": "b0a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
         "created_at": "2026-04-01T09:00:00Z",
+        "default_status": "Todo",
         "id": "c0a0d5e2-c0a0-4b1c-9d3a-1f1c8e7a5b9c",
         "name": "TODO",
         "position": 0,
@@ -169,8 +239,19 @@
         "wip_limit": null
       },
       {
+        "board_id": "c888b6ea-062d-4ee9-b000-b059b15f3a6d",
+        "created_at": "2026-04-03T14:48:30.125632Z",
+        "default_status": "Todo",
+        "id": "cd96b9e8-79bc-47d0-8eb1-df2a65edeffc",
+        "name": "TODO",
+        "position": 0,
+        "updated_at": "2026-04-03T14:48:30.125632Z",
+        "wip_limit": null
+      },
+      {
         "board_id": "b0a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
         "created_at": "2026-04-01T09:00:00Z",
+        "default_status": "Todo",
         "id": "c1a0d5e2-c0a0-4b1c-9d3a-1f1c8e7a5b9c",
         "name": "Doing",
         "position": 1,
@@ -178,8 +259,19 @@
         "wip_limit": null
       },
       {
+        "board_id": "c888b6ea-062d-4ee9-b000-b059b15f3a6d",
+        "created_at": "2026-04-03T14:48:30.125636Z",
+        "default_status": "Todo",
+        "id": "bb1a2e72-e0fb-4b00-b060-f061135edac7",
+        "name": "Doing",
+        "position": 1,
+        "updated_at": "2026-04-03T14:48:30.125636Z",
+        "wip_limit": null
+      },
+      {
         "board_id": "b0a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
         "created_at": "2026-04-01T09:00:00Z",
+        "default_status": "Done",
         "id": "c2a0d5e2-c0a0-4b1c-9d3a-1f1c8e7a5b9c",
         "name": "Complete",
         "position": 2,
@@ -188,25 +280,8 @@
       },
       {
         "board_id": "c888b6ea-062d-4ee9-b000-b059b15f3a6d",
-        "created_at": "2026-04-03T14:48:30.125632Z",
-        "id": "cd96b9e8-79bc-47d0-8eb1-df2a65edeffc",
-        "name": "TODO",
-        "position": 0,
-        "updated_at": "2026-04-03T14:48:30.125632Z",
-        "wip_limit": null
-      },
-      {
-        "board_id": "c888b6ea-062d-4ee9-b000-b059b15f3a6d",
-        "created_at": "2026-04-03T14:48:30.125636Z",
-        "id": "bb1a2e72-e0fb-4b00-b060-f061135edac7",
-        "name": "Doing",
-        "position": 1,
-        "updated_at": "2026-04-03T14:48:30.125636Z",
-        "wip_limit": null
-      },
-      {
-        "board_id": "c888b6ea-062d-4ee9-b000-b059b15f3a6d",
         "created_at": "2026-04-03T14:48:30.125637Z",
+        "default_status": "Todo",
         "id": "6502a479-a64e-4560-a4a2-8308cff9fcfd",
         "name": "Complete",
         "position": 2,
@@ -215,10 +290,39 @@
       }
     ],
     "graph": {
-      "cards": {
+      "blocks": {
+        "edges": []
+      },
+      "relates": {
+        "edges": []
+      },
+      "spawns": {
         "edges": []
       }
     },
+    "labels": [
+      {
+        "name": "one"
+      },
+      {
+        "name": "two"
+      },
+      {
+        "name": "three"
+      }
+    ],
+    "prefixes": [
+      {
+        "card_counter": 5,
+        "name": "cli",
+        "sprint_counter": 0
+      },
+      {
+        "card_counter": 14,
+        "name": "kan",
+        "sprint_counter": 1
+      }
+    ],
     "sprints": [
       {
         "board_id": "b0a0d5e2-c0a0-4b1c-9d3a-2f1c8e7a5b9c",
