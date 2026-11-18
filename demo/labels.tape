@@ -91,7 +91,7 @@ Sleep 500ms
 Escape
 Sleep 700ms
 
-# ── B3: create three more cards ────────────────────────────────────────────
+# ── B3: create two more cards ────────────────────────────────────────────
 # `n` on a card -> type a title -> Enter.  Repeats from the card list.
 Type "n"
 Sleep 300ms
@@ -107,6 +107,7 @@ Enter
 Sleep 600ms
 # KAN-14 (most recently created) is now under the cursor.
 
+# Which label ?
 # ── B4: apply one label to KAN-12 only ─────────────────────────────────────
 Type "k"
 Sleep 250ms
@@ -150,10 +151,8 @@ Sleep 1200ms
 #   [-] storage   on 1 of the 3   (partial: the card key is listed)
 #   [ ] urgent    on none
 #   [ ] bug       on none
-# Hold this state so it registers clearly in the GIF.
-Sleep 1500ms
 
-# ── B7: close and quit ─────────────────────────────────────────────────────
+# ── B7: apply a label ─────────────────────────────────────────────────────
 Type "j"
 Sleep 350ms
 Enter
@@ -162,10 +161,41 @@ Escape
 Sleep 550ms
 Type "m"
 Sleep 1500ms
-
-# ── B8: close and quit ─────────────────────────────────────────────────────
 Escape
 Sleep 400ms
+
+# ── B8: filter by labels ─────────────────────────────────────────────────────
+Type "T"
+Type "j"
+Sleep 120ms
+Type "j"
+Sleep 120ms
+Type "j"
+Sleep 120ms
+Space
+Sleep 1500ms
+Space
+Sleep 1500ms
+Type "j"
+Sleep 500ms
+Space
+Sleep 1500ms
+Space
+Sleep 1500ms
+Escape
+
+
+# Type "v"
+# Sleep 400ms
+# Type "j"
+# Sleep 200ms
+# Type "j"
+# Sleep 200ms
+# Type "m"
+# Sleep 200ms
+# Sleep 5000ms
+
+# ── B9: close and quit ─────────────────────────────────────────────────────
 Sleep 500ms
 Type "q"
 Sleep 400ms
