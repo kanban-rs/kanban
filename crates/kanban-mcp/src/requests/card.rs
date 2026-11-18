@@ -87,7 +87,7 @@ pub struct UpdateCardRequest {
     #[schemars(description = "Story points (optional, 0-255)")]
     pub points: Option<u8>,
     #[schemars(
-        description = "Tags to set on the card; pass an empty list to clear all labels; omit to leave unchanged."
+        description = "Labels to set on the card; pass an empty list to clear all labels; omit to leave unchanged."
     )]
     pub labels: Option<Vec<String>>,
 }

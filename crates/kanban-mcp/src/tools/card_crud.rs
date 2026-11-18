@@ -2138,7 +2138,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_mcp_update_tags_some_sets_empty_clears_none_unchanged() {
+    async fn test_mcp_update_labels_some_sets_empty_clears_none_unchanged() {
         let seeded = seeded_server("test.json").await;
         // Step 1: labels Some(["x","y"]) -> card.labels == ["x","y"]
         let res1 = text_payload(
@@ -2214,7 +2214,7 @@ mod tests {
     #[tokio::test]
     async fn test_mcp_list_with_labels_sets_filter_labels() {
         let seeded = seeded_server("test.json").await;
-        // The seeded card has no labels. Create a second card tagged "t1".
+        // The seeded card has no labels. Create a second card labeled "t1".
         let card_t1 = text_payload(
             &seeded
                 .server
@@ -2236,7 +2236,7 @@ mod tests {
                 .await
                 .unwrap(),
         );
-        // List with labels=["t1"] returns exactly the card tagged t1.
+        // List with labels=["t1"] returns exactly the card labeled t1.
         let filtered = text_payload(
             &seeded
                 .server
@@ -2265,7 +2265,7 @@ mod tests {
         );
         assert_eq!(
             items[0]["id"], card_t1["id"],
-            "the card returned must be the one tagged t1"
+            "the card returned must be the one labeled t1"
         );
         // List with no label filter returns all cards (at least 2).
         let all = text_payload(
@@ -2296,7 +2296,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_mcp_get_card_returns_tags() {
+    async fn test_mcp_get_card_returns_labels() {
         let seeded = seeded_server("test.json").await;
         // Create a card with labels ["alpha", "beta"].
         let created = text_payload(

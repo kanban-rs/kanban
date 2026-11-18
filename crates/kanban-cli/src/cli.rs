@@ -509,8 +509,8 @@ pub struct CardCreateArgs {
     pub points: Option<u8>,
     #[arg(long)]
     pub due_date: Option<String>,
-    /// Tag the new card (repeatable). Pass the same flag several times to attach
-    /// more than one tag; omit for no labels.
+    /// Label the new card (repeatable). Pass the same flag several times to attach
+    /// more than one label; omit for no labels.
     #[arg(long, action = ArgAction::Append)]
     pub labels: Vec<String>,
     /// Assign the new card to a sprint. Pass a UUID, name, or number to pick a
@@ -534,10 +534,10 @@ pub struct CardListArgs {
     pub sprint: Option<String>,
     #[arg(long)]
     pub status: Option<String>,
-    /// Label filter. Comma-separated labels; a card must carry ALL listed labels
-    /// to match (e.g. `--labels bug,urgent`).
-    #[arg(long)]
-    pub labels: Option<String>,
+    /// Label filter (repeatable). A card must carry ALL of the listed labels to
+    /// match (e.g. `--labels bug --labels urgent`).
+    #[arg(long, action = ArgAction::Append)]
+    pub labels: Vec<String>,
     /// Show only archived cards (mutually exclusive with --include-archived).
     #[arg(long, conflicts_with = "include_archived")]
     pub archived: bool,

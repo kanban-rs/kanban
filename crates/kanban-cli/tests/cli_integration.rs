@@ -4914,8 +4914,8 @@ mod error_tests {
             "Untagged should be excluded; got: {t:?}"
         );
 
-        // --labels bug,urgent -> only Bug-urgent.
-        let t = titles(&[f, "card", "list", "--labels", "bug,urgent"]);
+        // --labels bug --labels urgent -> only Bug-urgent (must carry both).
+        let t = titles(&[f, "card", "list", "--labels", "bug", "--labels", "urgent"]);
         assert!(
             t.contains(&"Bug-urgent".to_string()),
             "expected Bug-urgent; got: {t:?}"

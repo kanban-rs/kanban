@@ -200,3 +200,56 @@ async fn test_undo_assign_reverts_cards_and_registry_in_one_step() {
         "the auto-registered label must be un-registered by the undo"
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_delete_label_strips_it_from_cards_so_a_save_cannot_resurrect_it() {
+    let (mut ctx, card_a, card_b) = seeded().await;
+
+    // Both cards carry "bye"; card_a also carries "stay".
+    ctx.assign_label_to_cards_impl("bye".to_string(), vec![card_a, card_b])
+        .unwrap();
+    ctx.assign_label_to_cards_impl("stay".to_string(), vec![card_a]).unwrap();
+    assert!(ctx.get_label("bye").unwrap().is_some());
+
+    ctx.delete_label("bye".to_string()).unwrap();
+
+    // The registry entry is gone ...
+    assert!(
+        ctx.get_label("bye").unwrap().is_none(),
+        "the deleted label must be un-registered"
+    );
+    // ... and the name is stripped from every card that carried it. The save
+    // path auto-registers any card label name missing from the registry, so a
+    // card left with the name would resurrect it on its next save; stripping it
+    // from the cards is what keeps the delete permanent.
+    for id in [card_a, card_b] {
+        assert!(
+            !ctx.get_card(id).unwrap().unwrap().labels.contains(&"bye".to_string()),
+            "delete must strip 'bye' from the card"
+        );
+    }
+    // A different label on the same card survives the delete.
+    assert_eq!(
+        ctx.get_card(card_a).unwrap().unwrap().labels,
+        vec!["stay".to_string()]
+    );
+
+    // Re-saving card_a must not resurrect the label: the card no longer carries
+    // it, so the auto-register step has nothing to re-add.
+    ctx.update_card(
+        card_a,
+        kanban_domain::CardUpdate {
+            title: Some("renamed".to_string()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(
+        ctx.get_label("bye").unwrap().is_none(),
+        "a later save must not resurrect a deleted label"
+    );
+    assert!(
+        ctx.get_label("stay").unwrap().is_some(),
+        "the retained label must still be registered"
+    );
+}

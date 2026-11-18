@@ -28,13 +28,38 @@ impl KanbanContext {
         Ok((label, invalidation))
     }
 
-    /// Delete a label by name.
+    /// Delete a label by name. Also strips the label from every card that
+    /// still carries the name: cards are the source of truth for their own
+    /// labels, and the save path auto-registers any card label name that is
+    /// missing from the registry — so a card left with the name would
+    /// resurrect the entry the user just deleted on its next save. The
+    /// delete + strip run as one undo unit.
     pub fn delete_label_impl(&mut self, name: String) -> KanbanResult<Invalidation> {
         if self.backend.remote_writes().is_some() {
             return Err(KanbanError::unsupported("delete_label"));
         }
-        let cmd = Command::Label(LabelCommand::Delete(DeleteLabel { name }));
-        self.execute(vec![cmd])
+        self.execute_with(move |store| {
+            let mut cmds = vec![Command::Label(LabelCommand::Delete(DeleteLabel {
+                name: name.clone(),
+            }))];
+            for card in store.list_all_cards()? {
+                if card.labels.iter().any(|t| t == &name) {
+                    let labels = card
+                        .labels
+                        .into_iter()
+                        .filter(|t| t != &name)
+                        .collect();
+                    cmds.push(Command::Card(CardCommand::Update(UpdateCard {
+                        card_id: card.id,
+                        updates: CardUpdate {
+                            labels: FieldUpdate::Set(labels),
+                            ..Default::default()
+                        },
+                    })));
+                }
+            }
+            Ok(cmds)
+        })
     }
 
     /// Add a label to a batch of cards by id. The label is auto-registered in

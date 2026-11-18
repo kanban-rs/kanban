@@ -266,7 +266,7 @@ mod tests {
                 column: None,
                 sprint: None,
                 status: None,
-                labels: None,
+                labels: vec![],
                 archived: false,
                 include_archived: false,
                 sort: None,

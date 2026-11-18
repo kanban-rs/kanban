@@ -310,7 +310,11 @@ fn build_filter(ctx: &CliContext, args: &CardListArgs) -> Result<CardListFilter,
         column_id,
         sprint_ids: sprint_id.map(|sid| std::iter::once(sid).collect()),
         status,
-        labels: kanban_domain::parse_csv_labels(args.labels.as_deref()),
+        labels: if args.labels.is_empty() {
+            None
+        } else {
+            Some(args.labels.clone())
+        },
         sort: args.sort.map(|s| s.to_sort_field()),
         sort_order: args.order.map(|o| o.to_sort_order()),
         archived,
@@ -765,7 +769,7 @@ mod build_filter_tests {
             column: None,
             sprint: None,
             status: None,
-            labels: None,
+            labels: vec![],
             archived: false,
             include_archived: false,
             sort: None,
