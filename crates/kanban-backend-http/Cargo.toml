@@ -14,10 +14,10 @@ name = "kanban_backend_http"
 path = "src/lib.rs"
 
 [dependencies]
-kanban-core = { path = "../kanban-core", version = "^0.12" }
-kanban-domain = { path = "../kanban-domain", version = "^0.12" }
-kanban-backend = { path = "../kanban-backend", version = "^0.12" }
-kanban-api = { path = "../kanban-api", version = "^0.12" }
+kanban-core = { path = "../kanban-core", version = "^0.13" }
+kanban-domain = { path = "../kanban-domain", version = "^0.13" }
+kanban-backend = { path = "../kanban-backend", version = "^0.13" }
+kanban-api = { path = "../kanban-api", version = "^0.13" }
 async-trait.workspace = true
 tokio.workspace = true
 reqwest.workspace = true
