@@ -24,7 +24,11 @@ async fn test_update_card_labels_sets_clears_and_undoes() -> KanbanResult<()> {
 
     // Starting state: no labels.
     let read = ctx.get_card(card.id)?.unwrap();
-    assert_eq!(read.labels, Vec::<String>::new(), "fresh card has no labels");
+    assert_eq!(
+        read.labels,
+        Vec::<String>::new(),
+        "fresh card has no labels"
+    );
 
     // Step 1: set labels = ["y"]
     let updated = ctx.update_card(
@@ -48,7 +52,11 @@ async fn test_update_card_labels_sets_clears_and_undoes() -> KanbanResult<()> {
             ..Default::default()
         },
     )?;
-    assert_eq!(cleared.labels, Vec::<String>::new(), "Clear removes all labels");
+    assert_eq!(
+        cleared.labels,
+        Vec::<String>::new(),
+        "Clear removes all labels"
+    );
 
     // Step 3: set labels = ["z", "w"]
     let set2 = ctx.update_card(
@@ -78,7 +86,11 @@ async fn test_update_card_labels_sets_clears_and_undoes() -> KanbanResult<()> {
     let undone2 = ctx.undo()?.expect("undo step 2 applied");
     let read2 = ctx.get_card(card.id)?.unwrap();
     let _ = undone2;
-    assert_eq!(read2.labels, vec!["y".to_string()], "undo Clear restores [y]");
+    assert_eq!(
+        read2.labels,
+        vec!["y".to_string()],
+        "undo Clear restores [y]"
+    );
 
     // Undo Step 1 → back to [] (original)
     let undone1 = ctx.undo()?.expect("undo step 1 applied");

@@ -749,6 +749,10 @@ mod tests {
             &boards,
             &CardListFilter::default(),
         );
-        assert_eq!(out_none.len(), 3, "no label filter should return all 3 cards");
+        assert_eq!(
+            out_none.len(),
+            3,
+            "no label filter should return all 3 cards"
+        );
     }
 }

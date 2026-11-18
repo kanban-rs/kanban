@@ -208,7 +208,8 @@ async fn test_delete_label_strips_it_from_cards_so_a_save_cannot_resurrect_it() 
     // Both cards carry "bye"; card_a also carries "stay".
     ctx.assign_label_to_cards_impl("bye".to_string(), vec![card_a, card_b])
         .unwrap();
-    ctx.assign_label_to_cards_impl("stay".to_string(), vec![card_a]).unwrap();
+    ctx.assign_label_to_cards_impl("stay".to_string(), vec![card_a])
+        .unwrap();
     assert!(ctx.get_label("bye").unwrap().is_some());
 
     ctx.delete_label("bye".to_string()).unwrap();
@@ -224,7 +225,11 @@ async fn test_delete_label_strips_it_from_cards_so_a_save_cannot_resurrect_it() 
     // from the cards is what keeps the delete permanent.
     for id in [card_a, card_b] {
         assert!(
-            !ctx.get_card(id).unwrap().unwrap().labels.contains(&"bye".to_string()),
+            !ctx.get_card(id)
+                .unwrap()
+                .unwrap()
+                .labels
+                .contains(&"bye".to_string()),
             "delete must strip 'bye' from the card"
         );
     }

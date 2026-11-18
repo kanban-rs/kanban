@@ -147,7 +147,11 @@ impl LabelManagerState {
 
     /// Whether a label is on every managed card (and at least one exists).
     pub fn is_on_all_cards(&self, name: &str) -> bool {
-        !self.cards.is_empty() && self.cards.iter().all(|c| c.labels.iter().any(|t| t == name))
+        !self.cards.is_empty()
+            && self
+                .cards
+                .iter()
+                .all(|c| c.labels.iter().any(|t| t == name))
     }
 
     /// The flat row list in layout order: the label rows (on-at-least-one first,

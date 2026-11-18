@@ -182,8 +182,12 @@ impl App {
             if dialog_state.filters.selected_labels.is_empty() {
                 self.filter.active_labels = None;
             } else {
-                let mut labels: Vec<String> =
-                    dialog_state.filters.selected_labels.iter().cloned().collect();
+                let mut labels: Vec<String> = dialog_state
+                    .filters
+                    .selected_labels
+                    .iter()
+                    .cloned()
+                    .collect();
                 labels.sort();
                 self.filter.active_labels = Some(labels);
             }

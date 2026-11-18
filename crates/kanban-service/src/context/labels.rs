@@ -44,11 +44,7 @@ impl KanbanContext {
             }))];
             for card in store.list_all_cards()? {
                 if card.labels.iter().any(|t| t == &name) {
-                    let labels = card
-                        .labels
-                        .into_iter()
-                        .filter(|t| t != &name)
-                        .collect();
+                    let labels = card.labels.into_iter().filter(|t| t != &name).collect();
                     cmds.push(Command::Card(CardCommand::Update(UpdateCard {
                         card_id: card.id,
                         updates: CardUpdate {

@@ -396,7 +396,12 @@ fn test_capture_inverse_tags_set_and_clear_undo() {
     }
     forward2.execute(&context).unwrap();
     assert!(
-        tc.store.get_card(card_id).unwrap().unwrap().labels.is_empty(),
+        tc.store
+            .get_card(card_id)
+            .unwrap()
+            .unwrap()
+            .labels
+            .is_empty(),
         "forward Clear applied"
     );
     for cmd in inverse2 {
