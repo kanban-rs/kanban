@@ -16,7 +16,7 @@ use crate::error::{AppError, AppJson};
 use crate::state::AppState;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::routing::{delete, get, post, put};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use kanban_service::api::{
     BatchOperationResponse, ChangeKind, DeleteResponse, LabelCardsRequest, LabelResponse,
@@ -79,8 +79,10 @@ async fn upsert_label_route(
     Ok((status, Json(MutationResponse::new(resp, &invalidation))))
 }
 
-/// `DELETE /v1/labels/{name}` — remove the label from the registry. Cards
-/// that still carry it keep their labels; only the registry entry goes.
+/// `DELETE /v1/labels/{name}` — remove the label from the registry AND strip
+/// it from every card that carries it, in one undo step. (The save path
+/// auto-registers any card label name missing from the registry, so leaving the
+/// name on a card would resurrect the entry on that card's next save.)
 async fn delete_label_route(
     State(state): State<AppState>,
     Path(name): Path<String>,
