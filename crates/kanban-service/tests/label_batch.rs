@@ -69,7 +69,8 @@ async fn test_assign_never_clobbers_existing_label_metadata() {
     ))
     .unwrap();
 
-    ctx.assign_label_to_cards_impl("backend".to_string(), vec![card_a])
+    let _ = ctx
+        .assign_label_to_cards_impl("backend".to_string(), vec![card_a])
         .unwrap();
 
     let label = ctx.get_label("backend").unwrap().expect("registry entry");
@@ -92,7 +93,8 @@ async fn test_assign_never_clobbers_existing_label_metadata() {
 async fn test_assign_twice_does_not_duplicate_the_tag() {
     let (mut ctx, card_a, card_b) = seeded().await;
 
-    ctx.assign_label_to_cards_impl("dup".to_string(), vec![card_a])
+    let _ = ctx
+        .assign_label_to_cards_impl("dup".to_string(), vec![card_a])
         .unwrap();
     let (count, _inv) = ctx
         .assign_label_to_cards_impl("dup".to_string(), vec![card_a, card_b])
@@ -140,12 +142,15 @@ async fn test_remove_keeps_registry_strips_only_the_named_label() {
     let (mut ctx, card_a, card_b) = seeded().await;
 
     // Give card a two labels: "keep" and "drop".
-    ctx.assign_label_to_cards_impl("keep".to_string(), vec![card_a])
+    let _ = ctx
+        .assign_label_to_cards_impl("keep".to_string(), vec![card_a])
         .unwrap();
-    ctx.assign_label_to_cards_impl("drop".to_string(), vec![card_a, card_b])
+    let _ = ctx
+        .assign_label_to_cards_impl("drop".to_string(), vec![card_a, card_b])
         .unwrap();
 
-    ctx.remove_label_from_cards_impl("drop".to_string(), vec![card_a, card_b])
+    let _ = ctx
+        .remove_label_from_cards_impl("drop".to_string(), vec![card_a, card_b])
         .unwrap();
 
     let label = ctx
@@ -167,7 +172,8 @@ async fn test_remove_keeps_registry_strips_only_the_named_label() {
 async fn test_remove_from_a_card_that_does_not_carry_the_label_is_a_noop() {
     let (mut ctx, card_a, card_b) = seeded().await;
 
-    ctx.assign_label_to_cards_impl("solo".to_string(), vec![card_a])
+    let _ = ctx
+        .assign_label_to_cards_impl("solo".to_string(), vec![card_a])
         .unwrap();
     let before = ctx.get_card(card_b).unwrap().unwrap();
 
@@ -187,7 +193,8 @@ async fn test_remove_from_a_card_that_does_not_carry_the_label_is_a_noop() {
 async fn test_undo_assign_reverts_cards_and_registry_in_one_step() {
     let (mut ctx, card_a, card_b) = seeded().await;
 
-    ctx.assign_label_to_cards_impl("tmp".to_string(), vec![card_a, card_b])
+    let _ = ctx
+        .assign_label_to_cards_impl("tmp".to_string(), vec![card_a, card_b])
         .unwrap();
 
     ctx.undo().unwrap();
@@ -206,9 +213,11 @@ async fn test_delete_label_strips_it_from_cards_so_a_save_cannot_resurrect_it() 
     let (mut ctx, card_a, card_b) = seeded().await;
 
     // Both cards carry "bye"; card_a also carries "stay".
-    ctx.assign_label_to_cards_impl("bye".to_string(), vec![card_a, card_b])
+    let _ = ctx
+        .assign_label_to_cards_impl("bye".to_string(), vec![card_a, card_b])
         .unwrap();
-    ctx.assign_label_to_cards_impl("stay".to_string(), vec![card_a])
+    let _ = ctx
+        .assign_label_to_cards_impl("stay".to_string(), vec![card_a])
         .unwrap();
     assert!(ctx.get_label("bye").unwrap().is_some());
 

@@ -359,10 +359,7 @@ mod tests {
 
     fn make(cards: Vec<ManagedCard>, registry: Vec<&str>) -> LabelManagerState {
         let mut s = LabelManagerState::default();
-        s.refresh(
-            cards,
-            registry.into_iter().map(|n| Label::named(n)).collect(),
-        );
+        s.refresh(cards, registry.into_iter().map(Label::named).collect());
         s
     }
 

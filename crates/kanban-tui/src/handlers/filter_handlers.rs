@@ -16,7 +16,13 @@ impl App {
             selected_sprint_ids: self.filter.active_sprint_filters.clone(),
             date_from: None,
             date_to: None,
-            selected_labels: self.filter.active_labels.iter().flatten().cloned().collect(),
+            selected_labels: self
+                .filter
+                .active_labels
+                .iter()
+                .flatten()
+                .cloned()
+                .collect(),
         };
 
         let mut dialog = FilterDialogState::new(filters);
