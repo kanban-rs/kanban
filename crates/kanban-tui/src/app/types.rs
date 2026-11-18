@@ -1,6 +1,6 @@
 use super::{
-    AnimationState, DialogInputState, FilterState, FocusState, MultiSelectState, PersistenceState,
-    RelationshipState, SelectionHub, SprintViewState, UiState, ViewState,
+    AnimationState, DialogInputState, FilterState, FocusState, LabelManagerState, MultiSelectState,
+    PersistenceState, RelationshipState, SelectionHub, SprintViewState, UiState, ViewState,
 };
 use crate::app::AppMode;
 use crate::tui_context::TuiContext;
@@ -73,6 +73,7 @@ pub struct App {
     pub model: Model,
     pub controller: Controller,
     pub relationship: RelationshipState,
+    pub label_manager: LabelManagerState,
     pub save_error: Option<String>,
     pub pending_key: Option<char>,
     pub has_data_file: bool,

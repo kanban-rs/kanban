@@ -146,6 +146,8 @@ impl SqliteStore {
         Self::stamp_empty_card_prefixes(pool).await?;
         Self::repair_unbacked_namespaces(pool).await?;
         Self::migrate_v12_to_v13_prefix_fk(pool).await?;
+        Self::migrate_v13_to_v14_labels(pool).await?;
+        Self::migrate_v14_to_v15_labels(pool).await?;
 
         // Once the ALTERs above have caught the schema up, normalise
         // schema_version. Doing it unconditionally is idempotent and
@@ -972,6 +974,27 @@ impl SqliteStore {
         Ok(())
     }
 
+    /// Schema 13 -> 14: add the `labels` column (a JSON-encoded array of label
+    /// strings) to `cards`. The column is created by `SCHEMA` for fresh
+    /// databases; this ALTERs it onto older ones. Guarded on the column being
+    /// absent, so it is idempotent and skips databases that already have it
+    /// (including fresh ones, where `SCHEMA` created it).
+    pub(crate) async fn migrate_v13_to_v14_labels(pool: &Pool<Sqlite>) -> KanbanResult<()> {
+        if !table_present(pool, "cards").await? {
+            return Ok(());
+        }
+        if column_present(pool, "cards", "labels").await? {
+            return Ok(());
+        }
+
+        sqlx::query("ALTER TABLE cards ADD COLUMN labels TEXT")
+            .execute(pool)
+            .await
+            .map_err(db_err)?;
+
+        Ok(())
+    }
+
     /// schema 9 -> 10: additive backfill of the `prefixes` table (created by
     /// `SCHEMA` before this runs). Populates one row per distinct effective
     /// prefix a workspace would currently hand out, seeded from the CURRENT
@@ -1097,6 +1120,51 @@ impl SqliteStore {
             .map_err(db_err)?;
         }
         tx.commit().await.map_err(db_err)?;
+
+        Ok(())
+    }
+
+    /// schema 14 -> 15: populate the `labels` registry and `card_labels`
+    /// join table from the flat `cards.labels` array that v14 introduced.
+    ///
+    /// SCHEMA has already created both tables (see schema.sql) — SCHEMA runs
+    /// before `migrate()` — so this step is purely a data backfill.
+    /// `INSERT OR IGNORE` makes the step idempotent; running it twice or on a
+    /// fresh DB (where `cards.labels` is already in the new shape) is safe.
+    ///
+    /// `cards.labels` stores a JSON array of strings (e.g. `["bug","critical"]`).
+    /// `json_each` expands the array element-by-element; `IS NOT NULL` skips
+    /// cards with no labels. The `cards.labels` column is intentionally left in
+    /// place — the service layer writes to both `cards.labels` and `card_labels`
+    /// on every card save, keeping the two in sync.
+    pub(crate) async fn migrate_v14_to_v15_labels(pool: &Pool<Sqlite>) -> KanbanResult<()> {
+        if !table_present(pool, "cards").await? || !column_present(pool, "cards", "labels").await? {
+            return Ok(());
+        }
+
+        // Create the `labels` rows for every distinct label name found in cards.labels.
+        // OR IGNORE (PK on `name`) means re-running this is safe.
+        sqlx::query(
+            "INSERT OR IGNORE INTO labels (name)
+             SELECT je.value
+             FROM cards c, json_each(c.labels) je
+             WHERE c.labels IS NOT NULL",
+        )
+        .execute(pool)
+        .await
+        .map_err(db_err)?;
+
+        // Create the card-to-label association rows.
+        // OR IGNORE (PK on (card_id, label_name)) means re-running this is safe.
+        sqlx::query(
+            "INSERT OR IGNORE INTO card_labels (card_id, label_name)
+             SELECT c.id, je.value
+             FROM cards c, json_each(c.labels) je
+             WHERE c.labels IS NOT NULL",
+        )
+        .execute(pool)
+        .await
+        .map_err(db_err)?;
 
         Ok(())
     }

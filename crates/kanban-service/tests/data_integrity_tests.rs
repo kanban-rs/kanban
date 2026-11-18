@@ -178,6 +178,7 @@ async fn test_import_with_invalid_column_reference_fails() -> KanbanResult<()> {
         cards: vec![orphan_card],
         archived_cards: vec![],
         sprints: vec![],
+        labels: Vec::new(),
         graph: kanban_domain::DependencyGraph::default(),
         prefixes: Vec::new(),
     };
@@ -231,6 +232,7 @@ async fn test_import_backfills_board_id_on_legacy_archived_card() -> KanbanResul
         cards: vec![card],
         archived_cards: vec![archived],
         sprints: vec![],
+        labels: Vec::new(),
         graph: kanban_domain::DependencyGraph::default(),
         prefixes: Vec::new(),
     };

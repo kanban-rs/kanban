@@ -477,6 +477,30 @@ impl KanbanOperations for CliContext {
         self.inner.delete_sprint(id)
     }
 
+    fn list_labels(&self) -> KanbanResult<Vec<kanban_domain::Label>> {
+        self.inner.list_labels()
+    }
+
+    fn get_label(&self, name: &str) -> KanbanResult<Option<kanban_domain::Label>> {
+        self.inner.get_label(name)
+    }
+
+    fn upsert_label(&mut self, label: kanban_domain::Label) -> KanbanResult<kanban_domain::Label> {
+        self.inner.upsert_label(label)
+    }
+
+    fn delete_label(&mut self, name: String) -> KanbanResult<()> {
+        self.inner.delete_label(name)
+    }
+
+    fn assign_label_to_cards(&mut self, label_name: &str, card_ids: &[Uuid]) -> KanbanResult<()> {
+        self.inner.assign_label_to_cards(label_name, card_ids)
+    }
+
+    fn remove_label_from_cards(&mut self, label_name: &str, card_ids: &[Uuid]) -> KanbanResult<()> {
+        self.inner.remove_label_from_cards(label_name, card_ids)
+    }
+
     fn export_board(&self, board_id: Option<Uuid>) -> KanbanResult<String> {
         self.inner.export_board(board_id)
     }

@@ -310,6 +310,11 @@ fn build_filter(ctx: &CliContext, args: &CardListArgs) -> Result<CardListFilter,
         column_id,
         sprint_ids: sprint_id.map(|sid| std::iter::once(sid).collect()),
         status,
+        labels: if args.labels.is_empty() {
+            None
+        } else {
+            Some(args.labels.clone())
+        },
         sort: args.sort.map(|s| s.to_sort_field()),
         sort_order: args.order.map(|o| o.to_sort_order()),
         archived,
@@ -357,11 +362,17 @@ fn build_create_options(args: &CardCreateArgs) -> Result<CreateCardOptions, Stri
         Some(d) => Some(parse_datetime_input(d)?),
         None => None,
     };
+    let labels = if args.labels.is_empty() {
+        None
+    } else {
+        Some(args.labels.clone())
+    };
     Ok(CreateCardOptions {
         description: args.description.clone(),
         priority,
         points: args.points,
         due_date,
+        labels,
         ..Default::default()
     })
 }
@@ -397,6 +408,13 @@ fn build_card_update(args: &CardUpdateArgs) -> Result<CardUpdate, String> {
                 Some(d) => FieldUpdate::Set(parse_datetime_input(d)?),
                 None => FieldUpdate::NoChange,
             }
+        },
+        labels: if args.clear_labels {
+            FieldUpdate::Clear
+        } else if !args.labels.is_empty() {
+            FieldUpdate::Set(args.labels.clone())
+        } else {
+            FieldUpdate::NoChange
         },
         sprint_id: FieldUpdate::NoChange,
     })
@@ -467,6 +485,18 @@ mod card_board_id_tests {
         }
         fn upsert_prefix(&self, prefix: kanban_domain::Prefix) -> KanbanResult<()> {
             self.inner.upsert_prefix(prefix)
+        }
+        fn get_label(&self, _name: &str) -> KanbanResult<Option<kanban_domain::Label>> {
+            unimplemented!()
+        }
+        fn list_labels(&self) -> KanbanResult<Vec<kanban_domain::Label>> {
+            unimplemented!()
+        }
+        fn upsert_label(&self, _label: kanban_domain::Label) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn delete_label(&self, _name: &str) -> KanbanResult<()> {
+            unimplemented!()
         }
         fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
             self.inner.get_board(id)
@@ -739,6 +769,7 @@ mod build_filter_tests {
             column: None,
             sprint: None,
             status: None,
+            labels: vec![],
             archived: false,
             include_archived: false,
             sort: None,

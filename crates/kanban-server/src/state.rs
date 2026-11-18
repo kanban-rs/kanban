@@ -155,6 +155,31 @@ impl AppState {
         self.broadcast_change(ctx.issued_by(), entity_type, entity_id, kind, invalidation);
         Ok(())
     }
+
+    /// The pair to [`persist_and_broadcast`][Self::persist_and_broadcast] for
+    /// mutations whose target has no identity in the event model: labels are
+    /// keyed by name and `EntityType` carries no label variant. Persists
+    /// first (a failed save must not emit a change event), then emits the
+    /// change with `entity_type`/`entity_id` left `None` (a shape
+    /// [`broadcast_unscoped_change`][Self::broadcast_unscoped_change]
+    /// already proves consumers accept) and the mutation's own
+    /// `invalidation` and change kind carried.
+    pub async fn persist_unscoped_change(
+        &self,
+        ctx: &KanbanContext,
+        kind: ChangeKind,
+        invalidation: &Invalidation,
+    ) -> KanbanResult<()> {
+        ctx.save().await?;
+        self.emit(
+            ctx.issued_by(),
+            None,
+            None,
+            Some(kind),
+            InvalidationDto::from(invalidation),
+        );
+        Ok(())
+    }
 }
 
 /// A [`Session`] lock scoped to one client's write request. Deref/DerefMut

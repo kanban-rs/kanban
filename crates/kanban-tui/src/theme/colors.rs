@@ -1,6 +1,7 @@
 use ratatui::style::Color;
 
 pub const FOCUSED_BORDER: Color = Color::Cyan;
+pub const INSERT_BORDER: Color = Color::Red;
 pub const UNFOCUSED_BORDER: Color = Color::White;
 pub const SELECTED_BG: Color = Color::Blue;
 

@@ -316,6 +316,104 @@ fn test_update_card_inverse_without_sprint_change_is_a_single_update() {
     assert_eq!(inverse.len(), 1);
 }
 
+/// Verify that `UpdateCard::capture_inverse` produces the correct inverse for
+/// `labels` using both the `Set` and `Clear` variants, and that executing
+/// forward-then-inverse restores the card to its pre-update state.
+#[test]
+fn test_capture_inverse_tags_set_and_clear_undo() {
+    let tc = TestContext::new();
+    let board = kanban_domain::Board::new("A", Some("AAA"));
+    let col = kanban_domain::Column::new(board.id, "Col", 0);
+    let mut card = kanban_domain::Card::new(board.id, col.id, "Card", 0);
+    let card_id = card.id;
+    card.labels = vec!["existing".to_string()];
+    tc.store.upsert_board(board).unwrap();
+    tc.store.upsert_column(col).unwrap();
+    tc.store.upsert_card(card).unwrap();
+
+    let context = tc.as_command_context();
+
+    // ---- Case 1: labels = Set(["a", "b"]) ----
+    let before1 = tc.store.get_card(card_id).unwrap().unwrap();
+    let forward1 = UpdateCard {
+        card_id,
+        updates: CardUpdate {
+            labels: FieldUpdate::Set(vec!["a".to_string(), "b".to_string()]),
+            ..CardUpdate::default()
+        },
+    };
+    let inverse1 = forward1.capture_inverse(&tc.store).unwrap();
+    assert_eq!(
+        inverse1.len(),
+        1,
+        "no sprint change → single Update command"
+    );
+    match &inverse1[0] {
+        Command::Card(CardCommand::Update(u)) => {
+            assert_eq!(
+                u.updates.labels,
+                FieldUpdate::Set(vec!["existing".to_string()]),
+                "inverse must restore the pre-set label list"
+            );
+        }
+        other => panic!("expected Update, got {other:?}"),
+    }
+    forward1.execute(&context).unwrap();
+    assert_eq!(
+        tc.store.get_card(card_id).unwrap().unwrap().labels,
+        vec!["a".to_string(), "b".to_string()],
+        "forward Set applied"
+    );
+    for cmd in inverse1 {
+        cmd.execute(&context).unwrap();
+    }
+    assert_eq!(
+        tc.store.get_card(card_id).unwrap().unwrap().labels,
+        before1.labels,
+        "inverse of Set restores original labels"
+    );
+
+    // ---- Case 2: labels = Clear ----
+    let before2 = tc.store.get_card(card_id).unwrap().unwrap();
+    let forward2 = UpdateCard {
+        card_id,
+        updates: CardUpdate {
+            labels: FieldUpdate::Clear,
+            ..CardUpdate::default()
+        },
+    };
+    let inverse2 = forward2.capture_inverse(&tc.store).unwrap();
+    assert_eq!(inverse2.len(), 1);
+    match &inverse2[0] {
+        Command::Card(CardCommand::Update(u)) => {
+            assert_eq!(
+                u.updates.labels,
+                FieldUpdate::Set(before2.labels.clone()),
+                "inverse of Clear must restore the pre-clear label list"
+            );
+        }
+        other => panic!("expected Update, got {other:?}"),
+    }
+    forward2.execute(&context).unwrap();
+    assert!(
+        tc.store
+            .get_card(card_id)
+            .unwrap()
+            .unwrap()
+            .labels
+            .is_empty(),
+        "forward Clear applied"
+    );
+    for cmd in inverse2 {
+        cmd.execute(&context).unwrap();
+    }
+    assert_eq!(
+        tc.store.get_card(card_id).unwrap().unwrap().labels,
+        before2.labels,
+        "inverse of Clear restores original labels"
+    );
+}
+
 #[test]
 fn test_archive_cards_all_invalid_ids_returns_error() {
     let tc = TestContext::new();
@@ -433,6 +531,7 @@ fn test_archive_with_corrupted_board_id_captures_nil_board_id() {
         position: 0,
         due_date: None,
         points: None,
+        labels: Vec::new(),
         card_number: 1,
         sprint_id: None,
         created_at: chrono::Utc::now(),

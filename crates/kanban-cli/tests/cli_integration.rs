@@ -1823,6 +1823,278 @@ mod card_tests {
         assert_eq!(json["data"]["points"], 5);
     }
 
+    /// KAN-1793: the CLI card-create path threads the repeatable `--labels` flag
+    /// into `CreateCardOptions.labels` -> the Card factory -> the persisted store.
+    /// The wire projection (CardResponse) intentionally omits labels in this leaf,
+    /// so the assertion reads the persisted store and proves the two labels land
+    /// on the card in the order given.
+    #[test]
+    fn test_cli_card_create_with_labels_produces_labels() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let (board_id, column_id) = setup_board_and_column(&file);
+
+        let output = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "card",
+                "create",
+                "--board",
+                &board_id,
+                "--column",
+                &column_id,
+                "--title",
+                "Tagged Task",
+                "--labels",
+                "a",
+                "--labels",
+                "b",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+
+        let json = parse_json_output(&String::from_utf8_lossy(&output));
+        assert!(json["success"].as_bool().unwrap());
+        assert_eq!(json["data"]["title"], "Tagged Task");
+
+        // CardResponse omits labels in this leaf, so verify on the store row.
+        let store: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        let cards = store["data"]["cards"]
+            .as_array()
+            .expect("store has a cards array");
+        let card = cards
+            .iter()
+            .find(|c| c["title"] == "Tagged Task")
+            .expect("the created card is persisted");
+        assert_eq!(
+            card["labels"],
+            serde_json::json!(["a", "b"]),
+            "two --labels flags land on the persisted card in order (KAN-1793)"
+        );
+    }
+
+    /// KAN-L3: the CLI card-update path maps `--labels` (repeatable) and
+    /// `--clear-labels` to `FieldUpdate::Set` and `FieldUpdate::Clear` respectively;
+    /// neither flag leaves `labels` as `NoChange`. CardResponse omits labels in
+    /// this leaf, so the assertion reads the persisted store row.
+    #[test]
+    fn test_cli_card_update_tags_produces_set_and_clear() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let (board_id, column_id) = setup_board_and_column(&file);
+
+        // Create a card with no labels initially.
+        let create_out = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "card",
+                "create",
+                "--board",
+                &board_id,
+                "--column",
+                &column_id,
+                "--title",
+                "Update Me",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let card_json = parse_json_output(&String::from_utf8_lossy(&create_out));
+        let card_id = extract_id(&card_json);
+
+        // Phase 1: --labels a --labels b → card.labels == ["a","b"]
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "card",
+                "update",
+                &card_id,
+                "--labels",
+                "a",
+                "--labels",
+                "b",
+            ])
+            .assert()
+            .success();
+
+        let store: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        let cards = store["data"]["cards"]
+            .as_array()
+            .expect("store has a cards array");
+        let card = cards
+            .iter()
+            .find(|c| c["id"] == card_id)
+            .expect("card found in store");
+        assert_eq!(
+            card["labels"],
+            serde_json::json!(["a", "b"]),
+            "--labels a --labels b sets card.labels to [a,b]"
+        );
+
+        // Phase 2: --clear-labels → card.labels == []
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "card",
+                "update",
+                &card_id,
+                "--clear-labels",
+            ])
+            .assert()
+            .success();
+
+        let store: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        let cards = store["data"]["cards"]
+            .as_array()
+            .expect("store has a cards array");
+        let card = cards
+            .iter()
+            .find(|c| c["id"] == card_id)
+            .expect("card found in store");
+        assert_eq!(
+            card["labels"],
+            serde_json::json!([]),
+            "--clear-labels empties card.labels"
+        );
+
+        // Phase 3: no tag flags → card.labels unchanged (NoChange)
+        kanban()
+            .args([
+                file.to_str().unwrap(),
+                "card",
+                "update",
+                &card_id,
+                "--title",
+                "Renamed",
+            ])
+            .assert()
+            .success();
+
+        let store: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        let cards = store["data"]["cards"]
+            .as_array()
+            .expect("store has a cards array");
+        let card = cards
+            .iter()
+            .find(|c| c["id"] == card_id)
+            .expect("card found in store");
+        assert_eq!(
+            card["labels"],
+            serde_json::json!([]),
+            "no --labels flags leaves card.labels unchanged (still [])"
+        );
+        assert_eq!(card["title"], "Renamed", "title update still works");
+    }
+
+    /// KAN-1791: the CLI batch `label assign/remove <name> <cards>...` applies a
+    /// label to (and removes it from) cards in one undo step, auto-registering
+    /// the label on assign and leaving the registry intact on remove — this
+    /// aligns the CLI surface with MCP/HTTP/TUI (which already had both ops).
+    #[test]
+    fn test_cli_label_assign_remove_batch() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let (board_id, column_id) = setup_board_and_column(&file);
+
+        let create_out = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "card",
+                "create",
+                "--board",
+                &board_id,
+                "--column",
+                &column_id,
+                "--title",
+                "Batch Task",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let card_id = extract_id(&parse_json_output(&String::from_utf8_lossy(&create_out)));
+
+        // 'bug' is not in the registry yet.
+        kanban()
+            .args([file.to_str().unwrap(), "label", "get", "bug"])
+            .assert()
+            .failure();
+
+        // Assign 'bug' to the card: auto-registers and applies.
+        let assign_out = kanban()
+            .args([file.to_str().unwrap(), "label", "assign", "bug", &card_id])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let assign_json = parse_json_output(&String::from_utf8_lossy(&assign_out));
+        assert!(assign_json["success"].as_bool().unwrap());
+        assert_eq!(assign_json["data"]["assigned_count"], 1);
+
+        // Now 'bug' is registered in the global registry ...
+        kanban()
+            .args([file.to_str().unwrap(), "label", "get", "bug"])
+            .assert()
+            .success();
+        // ... and the card carries it.
+        let store: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        let card = store["data"]["cards"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["id"] == card_id)
+            .unwrap();
+        assert!(
+            card["labels"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|l| l == "bug"),
+            "assign must add 'bug' to the card"
+        );
+
+        // Remove 'bug' from the card: the card loses it but the registry stays.
+        let remove_out = kanban()
+            .args([file.to_str().unwrap(), "label", "remove", "bug", &card_id])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let remove_json = parse_json_output(&String::from_utf8_lossy(&remove_out));
+        assert!(remove_json["success"].as_bool().unwrap());
+        assert_eq!(remove_json["data"]["removed_count"], 1);
+
+        // The card no longer carries 'bug' ...
+        let store: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        let card = store["data"]["cards"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["id"] == card_id)
+            .unwrap();
+        assert!(
+            !card["labels"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|l| l == "bug"),
+            "remove must drop 'bug' from the card"
+        );
+        // ... but 'bug' is still registered.
+        kanban()
+            .args([file.to_str().unwrap(), "label", "get", "bug"])
+            .assert()
+            .success();
+    }
+
     /// KAN-796: the CLI card-create path funnels through the Card factory
     /// (`Card::create` via the create command), so a created card carries the
     /// factory-seeded server-managed `card_number`, and the JSON output edge
@@ -4670,6 +4942,103 @@ mod error_tests {
             .stderr(predicate::str::contains("\"success\":false"))
             .stderr(predicate::str::contains("Invalid status"))
             .stderr(predicate::str::contains("notastatus"));
+    }
+
+    #[test]
+    fn test_cli_card_list_with_tag_flag_filters() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let (board_id, column_id) = setup_board_and_column(&file);
+        let f = file.to_str().unwrap();
+
+        // Three cards: two tagged with "bug" (Bug-urgent also carries "urgent"),
+        // one untagged.
+        kanban()
+            .args([
+                f,
+                "card",
+                "create",
+                "--board",
+                &board_id,
+                "--column",
+                &column_id,
+                "--title",
+                "Bug-urgent",
+                "--labels",
+                "bug",
+                "--labels",
+                "urgent",
+            ])
+            .assert()
+            .success();
+        kanban()
+            .args([
+                f, "card", "create", "--board", &board_id, "--column", &column_id, "--title",
+                "Bug-only", "--labels", "bug",
+            ])
+            .assert()
+            .success();
+        kanban()
+            .args([
+                f, "card", "create", "--board", &board_id, "--column", &column_id, "--title",
+                "Untagged",
+            ])
+            .assert()
+            .success();
+
+        fn titles(args: &[&str]) -> Vec<String> {
+            let stdout = kanban()
+                .args(args)
+                .assert()
+                .success()
+                .get_output()
+                .stdout
+                .clone();
+            let json = parse_json_output(&String::from_utf8_lossy(&stdout));
+            json["data"]["items"]
+                .as_array()
+                .expect("items array")
+                .iter()
+                .map(|it| it["title"].as_str().expect("title").to_string())
+                .collect()
+        }
+
+        // --labels bug -> Bug-urgent, Bug-only; Untagged excluded.
+        let t = titles(&[f, "card", "list", "--labels", "bug"]);
+        assert!(
+            t.contains(&"Bug-urgent".to_string()),
+            "expected Bug-urgent; got: {t:?}"
+        );
+        assert!(
+            t.contains(&"Bug-only".to_string()),
+            "expected Bug-only; got: {t:?}"
+        );
+        assert!(
+            !t.contains(&"Untagged".to_string()),
+            "Untagged should be excluded; got: {t:?}"
+        );
+
+        // --labels bug --labels urgent -> only Bug-urgent (must carry both).
+        let t = titles(&[f, "card", "list", "--labels", "bug", "--labels", "urgent"]);
+        assert!(
+            t.contains(&"Bug-urgent".to_string()),
+            "expected Bug-urgent; got: {t:?}"
+        );
+        assert!(
+            !t.contains(&"Bug-only".to_string()),
+            "Bug-only should be excluded; got: {t:?}"
+        );
+
+        // --labels nonexistent -> no matching cards.
+        let t = titles(&[f, "card", "list", "--labels", "nonexistent"]);
+        assert!(
+            !t.contains(&"Bug-urgent".to_string()),
+            "Bug-urgent should not appear; got: {t:?}"
+        );
+        assert!(
+            !t.contains(&"Bug-only".to_string()),
+            "Bug-only should not appear; got: {t:?}"
+        );
     }
 
     #[test]

@@ -1,6 +1,7 @@
 pub mod board;
 pub mod card;
 pub mod column;
+pub mod labels;
 pub mod sprint;
 pub mod transfer;
 
@@ -18,6 +19,7 @@ pub use column::{
     CreateColumnParams, DeleteColumnRequest, GetColumnRequest, ListColumnsRequest,
     ReorderColumnRequest, UpdateColumnRequest,
 };
+pub use labels::{DeleteLabelRequest, GetLabelRequest, ListLabelsRequest, UpsertLabelRequest};
 pub use sprint::{
     ActivateSprintRequest, CancelSprintRequest, CarryOverSprintCardsRequest, CompleteSprintRequest,
     CreateSprintParams, DeleteSprintRequest, GetSprintRequest, ListSprintsRequest,

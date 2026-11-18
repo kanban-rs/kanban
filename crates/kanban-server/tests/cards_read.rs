@@ -25,11 +25,11 @@ fn etag_of(response: &axum::response::Response) -> String {
         .to_string()
 }
 
-fn is_quoted_32_hex(tag: &str) -> bool {
-    tag.len() == 34
-        && tag.starts_with('"')
-        && tag.ends_with('"')
-        && tag[1..33]
+fn is_quoted_32_hex(label: &str) -> bool {
+    label.len() == 34
+        && label.starts_with('"')
+        && label.ends_with('"')
+        && label[1..33]
             .chars()
             .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
 }
@@ -1311,6 +1311,98 @@ async fn test_list_cards_unknown_status_value_returns_400() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_server_cards_label_filter_returns_matching_only() {
+    let dir = tempdir().unwrap();
+    let state = make_state(&dir.path().join("s.json"));
+
+    let board_id: Uuid;
+    {
+        let mut ctx = state.ctx.lock().await;
+        board_id = ctx
+            .create_board("Test Board".to_string(), Some("TB".to_string()))
+            .unwrap()
+            .id;
+        let col_id = ctx
+            .create_column(board_id, "Column".to_string(), None)
+            .unwrap()
+            .id;
+        ctx.create_card(
+            board_id,
+            col_id,
+            "Bug-urgent".to_string(),
+            CreateCardOptions {
+                labels: Some(vec!["bug".to_string(), "urgent".to_string()]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        ctx.create_card(
+            board_id,
+            col_id,
+            "Bug-only".to_string(),
+            CreateCardOptions {
+                labels: Some(vec!["bug".to_string()]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        ctx.create_card(
+            board_id,
+            col_id,
+            "Untagged".to_string(),
+            std::default::Default::default(),
+        )
+        .unwrap();
+    }
+
+    // ?labels=bug -> 2 items
+    let resp = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{board_id}/cards?labels=bug"),
+        None,
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json = json_of(resp).await;
+    assert_eq!(
+        json["items"].as_array().map(|a| a.len()).unwrap_or(0),
+        2,
+        "expected 2 for ?labels=bug; got: {json:?}"
+    );
+
+    // ?labels=bug,urgent -> 1 item (Bug-urgent only)
+    let resp = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{board_id}/cards?labels=bug,urgent"),
+        None,
+    )
+    .await;
+    let json = json_of(resp).await;
+    assert_eq!(
+        json["items"].as_array().map(|a| a.len()).unwrap_or(0),
+        1,
+        "expected 1 for ?labels=bug,urgent; got: {json:?}"
+    );
+
+    // ?labels=nonexistent -> 0 items
+    let resp = send(
+        &state,
+        "GET",
+        &format!("/v1/boards/{board_id}/cards?labels=nonexistent"),
+        None,
+    )
+    .await;
+    let json = json_of(resp).await;
+    assert_eq!(
+        json["items"].as_array().map(|a| a.len()).unwrap_or(0),
+        0,
+        "expected 0 for ?labels=nonexistent; got: {json:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_list_cards_search_matches_title_case_insensitive() {
     let dir = tempdir().unwrap();
     let state = make_state(&dir.path().join("s.json"));
@@ -1764,10 +1856,10 @@ async fn test_get_card_carries_etag_header() {
     .await;
 
     assert_eq!(response.status(), StatusCode::OK);
-    let tag = etag_of(&response);
+    let label = etag_of(&response);
     assert!(
-        is_quoted_32_hex(&tag),
-        "expected quoted 32-hex etag, got {tag}"
+        is_quoted_32_hex(&label),
+        "expected quoted 32-hex etag, got {label}"
     );
 }
 
@@ -1795,12 +1887,12 @@ async fn test_get_card_with_matching_if_none_match_returns_304() {
 
     let uri = format!("/v1/boards/{}/cards/{}", board_id, card_id);
     let first = send(&state, "GET", &uri, None).await;
-    let tag = etag_of(&first);
+    let label = etag_of(&first);
 
-    let second = send_with_headers(&state, "GET", &uri, None, &[("if-none-match", &tag)]).await;
+    let second = send_with_headers(&state, "GET", &uri, None, &[("if-none-match", &label)]).await;
 
     assert_eq!(second.status(), StatusCode::NOT_MODIFIED);
-    assert_eq!(etag_of(&second), tag);
+    assert_eq!(etag_of(&second), label);
     let bytes = axum::body::to_bytes(second.into_body(), usize::MAX)
         .await
         .unwrap();

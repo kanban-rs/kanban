@@ -110,6 +110,12 @@ impl KeybindingProvider for CardDetailProvider {
                 KeybindingAction::ManageChildren,
             ),
             Keybinding::new(
+                "l",
+                "labels",
+                "Manage labels on this card",
+                KeybindingAction::ManageLabels,
+            ),
+            Keybinding::new(
                 "d",
                 "delete",
                 "Delete this task",

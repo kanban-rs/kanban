@@ -13,7 +13,7 @@ use sqlx::{Pool, Sqlite};
 use std::path::Path;
 use tempfile::TempDir;
 
-use super::super::SqliteStore;
+use super::super::{SqliteStore, SUPPORTED_SCHEMA_VERSION};
 use super::make_rt;
 
 const BOARD: &str = "00000000-0000-0000-0000-0000000000b1";
@@ -227,7 +227,7 @@ fn test_the_upgrade_leaves_a_durable_v12_backup() {
                 .fetch_one(store.pool())
                 .await
                 .unwrap();
-        assert_eq!(live_version, 13);
+        assert_eq!(live_version, SUPPORTED_SCHEMA_VERSION as i64);
 
         let backup_path = SqliteStore::backup_path_for(&path, 12);
         assert!(backup_path.exists(), "no .v12.backup was written");

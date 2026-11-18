@@ -37,6 +37,14 @@ pub fn build_metadata_lines(
         } else {
             Line::from(Span::styled("No due date", label_text()))
         },
+        {
+            let (value, style) = if card.labels.is_empty() {
+                ("none".to_string(), label_text())
+            } else {
+                (card.labels.join(", "), normal_text())
+            };
+            metadata_line_multi(vec![("Labels", value, style)])
+        },
         Line::from(Span::styled(
             format!(
                 "Branch: {}",

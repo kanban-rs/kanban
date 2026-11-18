@@ -20,6 +20,7 @@ async fn test_import_failure_prevents_empty_state_save() {
         cards: vec![],
         archived_cards: vec![],
         sprints: vec![],
+        labels: Vec::new(),
         graph: kanban_domain::DependencyGraph::new(),
         prefixes: Vec::new(),
     };
@@ -101,6 +102,7 @@ async fn test_v2_format_is_imported_correctly() {
         cards: vec![card],
         archived_cards: vec![],
         sprints: vec![],
+        labels: Vec::new(),
         graph: kanban_domain::DependencyGraph::new(),
         prefixes: Vec::new(),
     };

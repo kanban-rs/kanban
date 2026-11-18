@@ -84,6 +84,7 @@ async fn test_save_worker_does_not_send_completion_on_conflict() {
         model: Model::default(),
         controller: kanban_view::Controller::default(),
         relationship: RelationshipState::default(),
+        label_manager: LabelManagerState::default(),
         save_error: None,
         pending_key: None,
         has_data_file: true,
@@ -180,6 +181,21 @@ macro_rules! delegate_data_store {
         }
         fn upsert_prefix(&self, prefix: kanban_domain::Prefix) -> kanban_domain::KanbanResult<()> {
             self.inner.as_data_store().upsert_prefix(prefix)
+        }
+        fn get_label(
+            &self,
+            name: &str,
+        ) -> kanban_domain::KanbanResult<Option<kanban_domain::Label>> {
+            self.inner.as_data_store().get_label(name)
+        }
+        fn list_labels(&self) -> kanban_domain::KanbanResult<Vec<kanban_domain::Label>> {
+            self.inner.as_data_store().list_labels()
+        }
+        fn upsert_label(&self, label: kanban_domain::Label) -> kanban_domain::KanbanResult<()> {
+            self.inner.as_data_store().upsert_label(label)
+        }
+        fn delete_label(&self, name: &str) -> kanban_domain::KanbanResult<()> {
+            self.inner.as_data_store().delete_label(name)
         }
         fn get_column(
             &self,
@@ -609,6 +625,7 @@ fn app_with_backend(
         model: Model::default(),
         controller: kanban_view::Controller::default(),
         relationship: RelationshipState::default(),
+        label_manager: LabelManagerState::default(),
         save_error: None,
         pending_key: None,
         has_data_file: false,

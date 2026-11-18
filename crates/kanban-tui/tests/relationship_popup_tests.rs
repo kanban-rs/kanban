@@ -101,6 +101,7 @@ fn test_manage_parents_popup_enter_creates_parent_edge() {
         cards: app.ctx.data_store().list_all_cards().unwrap(),
         archived_cards: app.ctx.data_store().list_archived_cards().unwrap(),
         sprints: app.ctx.data_store().list_all_sprints().unwrap(),
+        labels: app.ctx.data_store().list_labels().unwrap(),
         graph: app.ctx.data_store().get_graph().unwrap(),
         prefixes: Vec::new(),
     };
@@ -190,6 +191,7 @@ fn test_manage_parents_popup_cycle_surfaces_error_banner_to_user() {
         cards: app.ctx.data_store().list_all_cards().unwrap(),
         archived_cards: app.ctx.data_store().list_archived_cards().unwrap(),
         sprints: app.ctx.data_store().list_all_sprints().unwrap(),
+        labels: app.ctx.data_store().list_labels().unwrap(),
         graph: app.ctx.data_store().get_graph().unwrap(),
         prefixes: Vec::new(),
     };

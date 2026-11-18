@@ -19,8 +19,8 @@ pub struct CardFilters {
     pub date_from: Option<String>,
     /// Filter by creation/due date range end.
     pub date_to: Option<String>,
-    /// Filter to cards with these tags.
-    pub selected_tags: HashSet<String>,
+    /// Filter to cards with these labels.
+    pub selected_labels: HashSet<String>,
 }
 
 impl CardFilters {
@@ -35,7 +35,7 @@ impl CardFilters {
             || !self.selected_sprint_ids.is_empty()
             || self.date_from.is_some()
             || self.date_to.is_some()
-            || !self.selected_tags.is_empty()
+            || !self.selected_labels.is_empty()
     }
 
     /// Clear all filters.
@@ -44,7 +44,7 @@ impl CardFilters {
         self.selected_sprint_ids.clear();
         self.date_from = None;
         self.date_to = None;
-        self.selected_tags.clear();
+        self.selected_labels.clear();
     }
 }
 
@@ -78,7 +78,7 @@ mod tests {
         filters.show_unassigned_sprints = true;
         filters.selected_sprint_ids.insert(Uuid::new_v4());
         filters.date_from = Some("2024-01-01".to_string());
-        filters.selected_tags.insert("urgent".to_string());
+        filters.selected_labels.insert("urgent".to_string());
 
         assert!(filters.has_active_filters());
 

@@ -26,6 +26,7 @@ pub mod field_update;
 pub mod filter;
 pub mod graph_operations;
 pub mod invalidation;
+pub mod label;
 pub mod load_state;
 pub mod model;
 pub mod mutation_operations;
@@ -43,7 +44,6 @@ pub mod sprint;
 pub mod sprint_factory;
 pub mod sprint_log;
 pub mod sprint_membership;
-pub mod tag;
 pub mod task_list_view;
 pub mod undo_operations;
 pub mod wip;
@@ -82,6 +82,7 @@ pub use graph_operations::GraphOperations;
 pub use invalidation::{
     invalidation_from_batch, invalidation_from_inverse, EntityIds, Invalidation,
 };
+pub use label::Label;
 pub use load_state::LoadState;
 #[cfg(any(test, feature = "test-helpers"))]
 pub use model::ModelLoadStates;
@@ -101,7 +102,8 @@ pub use prefix_integrity::{
 };
 pub use prefix_resolution::{resolve as resolve_prefix, PrefixAxis};
 pub use query::{
-    count_filtered_cards, filter_and_sort_boards, filter_and_sort_cards, resolve_board_sort,
+    card_matches_labels, count_filtered_cards, filter_and_sort_boards, filter_and_sort_cards,
+    parse_csv_labels, resolve_board_sort,
     sprint::{
         calculate_points, calculate_points_by_ids, get_sprint_cards, get_sprint_completed_cards,
         get_sprint_uncompleted_cards, partition_sprint_cards, sort_card_ids,
@@ -123,7 +125,6 @@ pub use sort::{
 pub use sprint::{Sprint, SprintId, SprintStatus, SprintUpdate};
 pub use sprint_factory::{NewSprint, SprintRecord};
 pub use sprint_log::SprintLog;
-pub use tag::{Tag, TagId};
 pub use task_list_view::TaskListView;
 pub use undo_operations::UndoOperations;
 pub use wip::check_wip_limit;

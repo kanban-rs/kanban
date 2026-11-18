@@ -29,6 +29,7 @@ pub enum DialogMode {
     ExternalChangeDetected,
     ManageParents,
     ManageChildren,
+    ManageLabels,
     CarryOverSprint,
     ExportBoards,
     ChooseStorageFile,

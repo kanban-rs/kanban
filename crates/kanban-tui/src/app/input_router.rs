@@ -51,6 +51,10 @@ impl App {
                 | AppMode::Dialog(DialogMode::SetSprintCardPrefix)
                 | AppMode::Dialog(DialogMode::ChooseStorageFile)
                 | AppMode::Dialog(DialogMode::EditBackgroundHighlight)
+                // Manage Labels' "New label" row is a text input, so the dialog
+                // suppresses `q`-quit and `?`-help while it is open (Esc closes it);
+                // this mirrors the other input-capturing dialogs.
+                | AppMode::Dialog(DialogMode::ManageLabels)
         );
 
         if matches!(key.code, KeyCode::Char('q') | KeyCode::Char('Q'))
@@ -180,6 +184,10 @@ impl App {
                 }
                 DialogMode::ManageParents => self.handle_manage_parents_popup(key.code),
                 DialogMode::ManageChildren => self.handle_manage_children_popup(key.code),
+                DialogMode::ManageLabels => {
+                    should_restart_events =
+                        self.handle_manage_labels_popup(key.code, terminal, event_handler)
+                }
                 DialogMode::CarryOverSprint => self.handle_carry_over_sprint_popup(key.code),
                 DialogMode::ExportBoards => self.handle_export_boards_dialog(key.code),
                 DialogMode::ChooseStorageFile => self.handle_choose_storage_file_dialog(key.code),
@@ -327,6 +335,14 @@ impl App {
             KeyCode::Char('v') => {
                 self.pending_key = None;
                 self.handle_card_selection_toggle();
+            }
+            KeyCode::Char('m') => {
+                self.pending_key = None;
+                // Manage labels on the focused card, or on every multi-selected
+                // card when selection is active. No-op on the boards panel.
+                if self.focus.active == Focus::Cards {
+                    self.handle_manage_labels_from_list();
+                }
             }
             KeyCode::Char('V') => {
                 self.pending_key = None;

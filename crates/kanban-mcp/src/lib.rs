@@ -26,6 +26,9 @@ pub use requests::column::{
     CreateColumnParams, DeleteColumnRequest, GetColumnRequest, ListColumnsRequest,
     ReorderColumnRequest, UpdateColumnRequest,
 };
+pub use requests::labels::{
+    DeleteLabelRequest, GetLabelRequest, ListLabelsRequest, UpsertLabelRequest,
+};
 pub use requests::sprint::{
     ActivateSprintRequest, CancelSprintRequest, CarryOverSprintCardsRequest, CompleteSprintRequest,
     CreateSprintParams, DeleteSprintRequest, GetSprintRequest, ListSprintsRequest,
@@ -70,6 +73,7 @@ impl KanbanMcpServer {
                 + Self::card_relations_router()
                 + Self::card_batch_router()
                 + Self::sprint_router()
+                + Self::label_router()
                 + Self::transfer_router(),
         })
     }

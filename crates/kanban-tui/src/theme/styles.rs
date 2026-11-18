@@ -10,6 +10,10 @@ pub fn focused_border() -> Style {
     Style::default().fg(FOCUSED_BORDER)
 }
 
+pub fn insert_border() -> Style {
+    Style::default().fg(INSERT_BORDER)
+}
+
 pub fn unfocused_border() -> Style {
     Style::default().fg(UNFOCUSED_BORDER)
 }

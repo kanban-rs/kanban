@@ -95,6 +95,7 @@ mod tests {
             position: 0,
             due_date: None,
             points: None,
+            labels: Vec::new(),
             card_number: number,
             prefix: prefix.into(),
             sprint_id: None,

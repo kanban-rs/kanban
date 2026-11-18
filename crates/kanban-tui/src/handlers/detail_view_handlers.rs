@@ -1,14 +1,16 @@
 use crate::app::{
-    App, AppMode, BoardField, BoardFocus, CardField, CardFocus, DialogMode, SprintTaskPanel,
+    App, AppMode, BoardField, BoardFocus, CardField, CardFocus, DialogMode, LabelAction, LabelRow,
+    SprintTaskPanel,
 };
+use crate::dialog::handle_dialog_input;
 use crate::editor::edit_in_external_editor;
 use crate::events::EventHandler;
 use crossterm::event::KeyCode;
 use kanban_core::Editable;
 use kanban_domain::card_lifecycle::sorted_board_columns;
 use kanban_domain::{
-    BoardSettingsDto, CardMetadataDto, Column, DependencyGraph, FieldSearcher, LoadState,
-    MutationOperations, Searcher,
+    BoardSettingsDto, CardMetadataDto, Column, DependencyGraph, FieldSearcher, KanbanOperations,
+    Label, LoadState, MutationOperations, Searcher,
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
@@ -315,6 +317,9 @@ impl App {
             }
             KeyCode::Char('R') => {
                 self.handle_manage_children();
+            }
+            KeyCode::Char('l') => {
+                self.handle_manage_labels();
             }
             KeyCode::Enter => match self.focus.card_focus {
                 CardFocus::Parents => self.navigate_to_selected_parent(),
@@ -1210,6 +1215,469 @@ impl App {
         self.open_dialog(DialogMode::ManageParents);
     }
 
+    /// Open the Manage Labels dialog for the active card, priming the managed
+    /// card (its key + `Card.labels`) and a snapshot of the global label registry.
+    pub fn handle_manage_labels(&mut self) {
+        let Some(active_id) = self.selection.active_card_id else {
+            return;
+        };
+        let Some(card) = self.model.card_by_id_state(active_id).loaded().copied() else {
+            return;
+        };
+        let registry = match self.ctx.list_labels() {
+            Ok(labels) => labels,
+            Err(e) => {
+                self.set_error(format!("Failed to load labels: {e}"));
+                return;
+            }
+        };
+        let cards = vec![crate::app::ManagedCard {
+            key: format!("{}-{}", card.prefix, card.card_number),
+            labels: card.labels.clone(),
+        }];
+        self.label_manager.card_ids = vec![active_id];
+        // `refresh` defaults the cursor to the first selectable row, so no
+        // separate initial-selection step is needed here.
+        self.label_manager.refresh(cards, registry);
+        self.open_dialog(DialogMode::ManageLabels);
+    }
+
+    /// Open the Manage Labels dialog from the card list. When multi-select is
+    /// active every selected card is managed and each change applies to all of
+    /// them (the "Applied" section shows the labels they all share); otherwise
+    /// the single selected card is managed.
+    pub fn handle_manage_labels_from_list(&mut self) {
+        if self.focus.active != crate::app::Focus::Cards {
+            return;
+        }
+        let card_ids: Vec<uuid::Uuid> = if self.multi_select.selected_cards.is_empty() {
+            match self.get_selected_card_id() {
+                Some(id) => vec![id],
+                None => return,
+            }
+        } else {
+            self.multi_select.selected_cards.iter().copied().collect()
+        };
+        if card_ids.is_empty() {
+            return;
+        }
+        let registry = match self.ctx.list_labels() {
+            Ok(labels) => labels,
+            Err(e) => {
+                self.set_error(format!("Failed to load labels: {e}"));
+                return;
+            }
+        };
+        let cards: Vec<crate::app::ManagedCard> = card_ids
+            .iter()
+            .filter_map(|id| self.model.card_by_id_state(*id).loaded().copied())
+            .map(|c| crate::app::ManagedCard {
+                key: format!("{}-{}", c.prefix, c.card_number),
+                labels: c.labels.clone(),
+            })
+            .collect();
+        self.label_manager.card_ids = card_ids;
+        self.label_manager.refresh(cards, registry);
+        self.open_dialog(DialogMode::ManageLabels);
+    }
+
+    /// Dispatch a key press in the Manage Labels dialog to the service.
+    pub fn handle_manage_labels_popup(
+        &mut self,
+        key_code: KeyCode,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        event_handler: &EventHandler,
+    ) -> bool {
+        // The "New label" row has two sub-states (create_insert on
+        // LabelManagerState):
+        //
+        //   INSERT (red border)  – cursor arrived via navigation or the user
+        //                            typed a character; typed chars fill the
+        //                            input buffer, j/k are typed as chars,
+        //                            ESC → normal mode, Enter confirms.
+        //   NORMAL (cyan border)   – cursor is on the row, not typing; j/k
+        //                            navigate the dialog list, any char →
+        //                            INSERT + typed, ESC → close dialog,
+        //                            Enter confirms.
+        //
+        // Physical arrow keys (Up/Down) always navigate in both modes.
+        if matches!(self.label_manager.current_row(), Some(LabelRow::Create)) {
+            let in_insert = self.label_manager.create_insert;
+
+            // --- Navigation: arrows always, j/k in normal mode only ---
+            let arrow_nav = matches!(key_code, KeyCode::Up | KeyCode::Down);
+            let jk_nav = !in_insert && matches!(key_code, KeyCode::Char('j') | KeyCode::Char('k'));
+            if arrow_nav || jk_nav {
+                let is_down = matches!(key_code, KeyCode::Down | KeyCode::Char('j'));
+                if is_down {
+                    self.label_manager.navigate_down();
+                } else {
+                    self.label_manager.navigate_up();
+                }
+                // If the cursor moved off the Create row, exit insert mode.
+                // If it clamped and stayed (e.g. Down at the last row),
+                // keeping the current mode is the correct no-op.
+                if self.label_manager.current_row() != Some(LabelRow::Create) {
+                    self.label_manager.create_insert = false;
+                }
+                return false;
+            }
+
+            match key_code {
+                KeyCode::Esc => {
+                    if in_insert {
+                        // INSERT → NORMAL: stay on the Create row, border
+                        // reverts to cyan, typed text is kept in the buffer.
+                        self.label_manager.create_insert = false;
+                    } else {
+                        // NORMAL: close the dialog (existing behaviour).
+                        self.input.clear();
+                        self.label_manager.selection.clear();
+                        self.pop_mode();
+                    }
+                    return false;
+                }
+                KeyCode::Enter => {
+                    // Confirm (both modes): create or open the editor.
+                    // Note: Char(' ') is NOT confirm here; space is an ordinary
+                    // typed character on the Create row (handled by the _ arm).
+                    if self.input.is_empty() {
+                        self.input.clear();
+                        self.label_manager.create_insert = false;
+                        // Empty: open the full shape editor to set name, color
+                        // and description (the pre-existing create path).
+                        return self.edit_label(terminal, event_handler, None);
+                    }
+                    let name = self.input.as_str().trim().to_string();
+                    self.input.clear();
+                    self.label_manager.create_insert = false;
+                    self.create_label_from_input(name);
+                    return false;
+                }
+                KeyCode::Char('i') | KeyCode::Char('n') if !in_insert => {
+                    // NORMAL → INSERT: switch to insert mode without typing
+                    // the key (like vim's `i` — pure mode switch).
+                    // Both `i` and `n` are accepted.
+                    self.label_manager.create_insert = true;
+                    return false;
+                }
+                _ => {
+                    // Typing a character (incl. j/k in insert mode), backspace,
+                    // or a text-cursor key (left/right/home/end).
+                    // Enters/stays in INSERT mode and delegates to the shared
+                    // input handler for the actual buffer operation.
+                    // return stops fall-through to resolve(), which would map
+                    // Char(' ') (and similar) to LabelAction::CreateLabel.
+                    self.label_manager.create_insert = true;
+                    let _ = handle_dialog_input(&mut self.input, key_code, true);
+                    return false;
+                }
+            }
+        }
+        let card_ids = self.label_manager.card_ids.clone();
+        if card_ids.is_empty() {
+            return false;
+        }
+        let action = self.label_manager.resolve(key_code);
+        match action {
+            LabelAction::Close => {
+                self.label_manager.selection.clear();
+                self.pop_mode();
+            }
+            LabelAction::NavigateDown | LabelAction::NavigateUp => {
+                // resolve() already moved the cursor.  We reach this arm only
+                // when the cursor was NOT on the Create row before the key
+                // (that branch intercepts j/k first).  If we ended up on the
+                // Create row, activate insert mode: "selecting focus on the
+                // input box enters input mode" (green border, ready to type).
+                if self.label_manager.current_row() == Some(LabelRow::Create) {
+                    self.label_manager.create_insert = true;
+                }
+            }
+            LabelAction::RemoveFromCard(name) => self.remove_label_from_card(&name, &card_ids),
+            LabelAction::ApplyToCard(name) => self.apply_label_to_card(&name, &card_ids),
+            LabelAction::DeleteLabel(name) => self.delete_label(&name, &card_ids),
+            LabelAction::EditLabel(name) => {
+                return self.edit_label(terminal, event_handler, Some(name));
+            }
+            LabelAction::CreateLabel => return self.edit_label(terminal, event_handler, None),
+            LabelAction::None => {}
+        }
+        false
+    }
+
+    /// Apply a registry label to every managed card (auto-registering it if
+    /// missing), then re-read the cards and registry back into the dialog.
+    fn apply_label_to_card(&mut self, label_name: &str, card_ids: &[uuid::Uuid]) {
+        match self
+            .ctx
+            .assign_label_to_cards_impl(label_name.to_string(), card_ids.to_vec())
+        {
+            Ok((_, inv)) => {
+                self.resolve_after_command(inv);
+                let n = card_ids.len();
+                let scope = if n == 1 {
+                    "card".to_string()
+                } else {
+                    format!("{n} cards")
+                };
+                self.set_success(format!("Label \"{label_name}\" applied to {scope}"));
+                self.refresh_label_manager(card_ids);
+            }
+            Err(e) => {
+                tracing::error!("Failed to apply label: {e}");
+                self.set_error(format!("Failed to apply label: {e}"));
+            }
+        }
+    }
+
+    /// Create a label from a typed name (no color or description). This is
+    /// registry-only: it does not assign the label to any card. Assigning a
+    /// label to card(s) is always an explicit step (the row's apply action),
+    /// so a multi-select in the list view never silently labels the selected
+    /// cards. The full shape editor (name + color + description) is reachable
+    /// by confirming the row with an empty input (the `edit_label` create
+    /// path) and behaves the same way on a plain create.
+    fn create_label_from_input(&mut self, name: String) {
+        let label = Label::named(name);
+        let name = label.name.clone();
+        match self.ctx.upsert_label_impl(label) {
+            Ok((_, inv)) => {
+                self.resolve_after_command(inv);
+                self.set_success(format!("Label \"{name}\" created"));
+                let card_ids = self.label_manager.card_ids.clone();
+                self.refresh_label_manager(&card_ids);
+            }
+            Err(e) => {
+                tracing::error!("Failed to create label: {e}");
+                self.set_error(format!("Failed to create label: {e}"));
+            }
+        }
+    }
+
+    /// Remove a label from every managed card, leaving the registry entry
+    /// intact.
+    fn remove_label_from_card(&mut self, label_name: &str, card_ids: &[uuid::Uuid]) {
+        match self
+            .ctx
+            .remove_label_from_cards_impl(label_name.to_string(), card_ids.to_vec())
+        {
+            Ok((_, inv)) => {
+                self.resolve_after_command(inv);
+                let n = card_ids.len();
+                let scope = if n == 1 {
+                    "card".to_string()
+                } else {
+                    format!("{n} cards")
+                };
+                self.set_success(format!("Label \"{label_name}\" removed from {scope}"));
+                self.refresh_label_manager(card_ids);
+            }
+            Err(e) => {
+                tracing::error!("Failed to remove label: {e}");
+                self.set_error(format!("Failed to remove label: {e}"));
+            }
+        }
+    }
+
+    /// Delete a label from the global registry. Every managed card may still
+    /// point at it, so drop it from all of them (idempotent) so no card is left
+    /// pointing at a registry entry that no longer exists.
+    fn delete_label(&mut self, label_name: &str, card_ids: &[uuid::Uuid]) {
+        match self.ctx.delete_label_impl(label_name.to_string()) {
+            Ok(inv) => {
+                self.resolve_after_command(inv);
+                // A card's label may now point at a deleted registry entry; drop
+                // it from every managed card (a no-op for ones not carrying it).
+                if let Ok((_, inv2)) = self
+                    .ctx
+                    .remove_label_from_cards_impl(label_name.to_string(), card_ids.to_vec())
+                {
+                    self.resolve_after_command(inv2);
+                }
+                self.set_success(format!("Label \"{label_name}\" deleted"));
+                self.refresh_label_manager(card_ids);
+            }
+            Err(e) => {
+                tracing::error!("Failed to delete label: {e}");
+                self.set_error(format!("Failed to delete label: {e}"));
+            }
+        }
+    }
+
+    /// Open the JSON label editor to edit (Some name) or create (None) a
+    /// label, then upsert it and refresh the dialog. Rename (edit path) keeps
+    /// the active card pointing at the label under its new name.
+    fn edit_label(
+        &mut self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        event_handler: &EventHandler,
+        label_name: Option<String>,
+    ) -> bool {
+        let initial = match &label_name {
+            Some(name) => match self.ctx.get_label(name) {
+                Ok(label) => label.unwrap_or_else(|| Label::named(name)),
+                Err(e) => {
+                    self.set_error(format!("Failed to load label: {e}"));
+                    return false;
+                }
+            },
+            None => Label {
+                name: String::new(),
+                color: None,
+                description: None,
+            },
+        };
+
+        let json = if label_name.is_none() {
+            // Create: emit all three fields as empty strings so the user sees
+            // the full label shape in the editor (skip_serializing_if drops the
+            // None color/description otherwise, leaving only "name").
+            serde_json::to_string_pretty(
+                &serde_json::json!({ "name": "", "color": "", "description": "" }),
+            )
+            .unwrap_or_else(|_| "{}".to_string())
+        } else {
+            // Edit: emit all three fields too, using "" for a missing
+            // color/description, so the editor shows and can edit the full
+            // label (serialising the Label struct would drop the None fields).
+            serde_json::to_string_pretty(&serde_json::json!({
+                "name": initial.name,
+                "color": initial.color.as_deref().unwrap_or(""),
+                "description": initial.description.as_deref().unwrap_or(""),
+            }))
+            .unwrap_or_else(|_| "{}".to_string())
+        };
+        let temp_file = std::env::temp_dir().join(match &label_name {
+            Some(name) => format!("kanban-label-{name}.json"),
+            None => "kanban-new-label.json".to_string(),
+        });
+
+        match edit_in_external_editor(terminal, event_handler, temp_file, &json) {
+            Ok(Some(new_content)) => match serde_json::from_str::<Label>(&new_content) {
+                Ok(mut label) => {
+                    // Trim whitespace and normalise empty Option fields so a
+                    // user leaving a field blank is stored as None, not as "".
+                    label.name = label.name.trim().to_string();
+                    let trimmed_or_none = |field: String| -> Option<String> {
+                        let t = field.trim();
+                        if t.is_empty() {
+                            None
+                        } else {
+                            Some(t.to_string())
+                        }
+                    };
+                    label.color = label.color.and_then(trimmed_or_none);
+                    label.description = label.description.and_then(trimmed_or_none);
+                    if label.name.is_empty() {
+                        if label_name.is_none() {
+                            // Create mode: closing the editor without a name is
+                            // a no-op (user bailed before entering a name).
+                            return true;
+                        }
+                        self.set_error("Label name is required");
+                        return true;
+                    }
+                    // A rename is an edit (Some old name) whose new name differs.
+                    let renamed = label_name.as_deref() != Some(label.name.as_str());
+                    // Renaming: drop the old name from every managed card so
+                    // none of them point at a stale registry entry.
+                    if renamed {
+                        if let Some(old) = &label_name {
+                            self.drop_tag_from_managed(old);
+                        }
+                    }
+                    match self.ctx.upsert_label_impl(label.clone()) {
+                        Ok((_, inv)) => {
+                            self.resolve_after_command(inv);
+                            // A rename upserts by the new name, so the old
+                            // registry entry would otherwise linger as a
+                            // duplicate. Delete it now that the new one exists.
+                            if renamed {
+                                if let Some(old) = &label_name {
+                                    match self.ctx.delete_label_impl(old.clone()) {
+                                        Ok(dinv) => self.resolve_after_command(dinv),
+                                        Err(e) => {
+                                            tracing::error!(
+                                                "Failed to delete old label '{old}' after rename: {e}"
+                                            );
+                                            self.set_error(format!(
+                                                "Saved label but could not delete the old '{old}': {e}"
+                                            ));
+                                        }
+                                    }
+                                }
+                            }
+                            self.set_success(format!("Label \"{}\" saved", label.name));
+                            let card_ids = self.label_manager.card_ids.clone();
+                            if !card_ids.is_empty() {
+                                self.refresh_label_manager(&card_ids);
+                                // After a rename, re-apply the new name to the
+                                // managed cards so they keep the label.
+                                if renamed {
+                                    if let Ok((_, inv)) = self
+                                        .ctx
+                                        .assign_label_to_cards_impl(label.name.clone(), card_ids)
+                                    {
+                                        self.resolve_after_command(inv);
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to upsert label: {e}");
+                            self.set_error(format!("Failed to upsert label: {e}"));
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to parse label JSON: {e}");
+                    self.set_error(format!("Failed to parse label JSON: {e}"));
+                }
+            },
+            Ok(None) => {}
+            Err(e) => {
+                tracing::error!("Failed to edit label: {e}");
+                self.set_error(format!("Failed to edit label: {e}"));
+            }
+        }
+        true
+    }
+
+    /// Re-read every managed card's `labels` and the global registry into the
+    /// dialog state, preserving the cursor where possible.
+    fn refresh_label_manager(&mut self, card_ids: &[uuid::Uuid]) {
+        let cards: Vec<crate::app::ManagedCard> = card_ids
+            .iter()
+            .filter_map(|id| self.model.card_by_id_state(*id).loaded().copied())
+            .map(|c| crate::app::ManagedCard {
+                key: format!("{}-{}", c.prefix, c.card_number),
+                labels: c.labels.clone(),
+            })
+            .collect();
+        let registry = self.ctx.list_labels().unwrap_or_default();
+        self.label_manager.refresh(cards, registry);
+    }
+
+    /// Drop a label from every managed card that still carries it (skipping ones
+    /// that do not), so a rename or delete never leaves a card pointing at a
+    /// stale registry entry.
+    fn drop_tag_from_managed(&mut self, label: &str) {
+        let card_ids = self.label_manager.card_ids.clone();
+        for card_id in card_ids.iter() {
+            if let Some(card) = self.model.card_by_id_state(*card_id).loaded().copied() {
+                if card.labels.iter().any(|t| t == label) {
+                    if let Ok((_, inv)) = self
+                        .ctx
+                        .remove_label_from_cards_impl(label.to_string(), vec![*card_id])
+                    {
+                        self.resolve_after_command(inv);
+                    }
+                }
+            }
+        }
+    }
+
     pub fn handle_manage_children(&mut self) {
         let Some(active_id) = self.selection.active_card_id else {
             return;
@@ -1475,6 +1943,7 @@ mod tests {
             cards: app.ctx.data_store().list_all_cards().unwrap(),
             archived_cards: app.ctx.data_store().list_archived_cards().unwrap(),
             sprints: app.ctx.data_store().list_all_sprints().unwrap(),
+            labels: app.ctx.data_store().list_labels().unwrap(),
             graph: app.ctx.data_store().get_graph().unwrap(),
             prefixes: Vec::new(),
         };

@@ -141,6 +141,7 @@ CREATE TABLE IF NOT EXISTS cards (
     position INTEGER NOT NULL,
     due_date TEXT,
     points INTEGER CHECK (points >= 0 AND points <= 255),
+    labels TEXT,
     card_number INTEGER NOT NULL DEFAULT 0,
     -- The namespace this card's identifier belongs to, frozen at creation.
     -- '' means "no namespace" and is the only value exempt from the
@@ -285,3 +286,23 @@ CREATE TABLE IF NOT EXISTS command_log (
 );
 
 CREATE INDEX IF NOT EXISTS idx_command_log_batch ON command_log(batch_index);
+
+-- Labels: global taxonomy registry (schema 15).
+-- `name` is the natural primary key; case-sensitive (Bug ≠ bug).
+-- card_labels is the join table to cards; FK to labels(name) ensures the
+-- association cannot outlive the registry entry without explicit cleanup.
+CREATE TABLE IF NOT EXISTS labels (
+    name        TEXT PRIMARY KEY,
+    color       TEXT,
+    description TEXT
+);
+
+CREATE TABLE IF NOT EXISTS card_labels (
+    card_id     TEXT NOT NULL,
+    label_name  TEXT NOT NULL,
+    PRIMARY KEY (card_id, label_name),
+    FOREIGN KEY (card_id)    REFERENCES cards(id)     ON DELETE CASCADE,
+    FOREIGN KEY (label_name) REFERENCES labels(name)  ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_card_labels_label_name ON card_labels(label_name);

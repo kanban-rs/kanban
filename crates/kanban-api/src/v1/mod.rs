@@ -9,6 +9,7 @@ mod events;
 mod graph;
 mod health;
 mod invalidation;
+mod labels;
 mod mutation_response;
 mod pagination;
 mod patch;
@@ -40,6 +41,7 @@ pub use graph::{
 };
 pub use health::HealthResponse;
 pub use invalidation::{EntityIdsDto, InvalidationDto};
+pub use labels::{LabelCardsRequest, LabelResponse, UpsertLabelRequest};
 pub use mutation_response::{DeleteResponse, MutationResponse};
 pub use pagination::{Page, PageParams};
 pub use patch::Patch;

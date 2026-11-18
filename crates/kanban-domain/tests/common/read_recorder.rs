@@ -61,6 +61,18 @@ impl DataStore for ReadRecorderStore {
     fn upsert_prefix(&self, prefix: Prefix) -> KanbanResult<()> {
         self.inner.upsert_prefix(prefix)
     }
+    fn get_label(&self, name: &str) -> KanbanResult<Option<kanban_domain::Label>> {
+        self.inner.get_label(name)
+    }
+    fn list_labels(&self) -> KanbanResult<Vec<kanban_domain::Label>> {
+        self.inner.list_labels()
+    }
+    fn upsert_label(&self, label: kanban_domain::Label) -> KanbanResult<()> {
+        self.inner.upsert_label(label)
+    }
+    fn delete_label(&self, name: &str) -> KanbanResult<()> {
+        self.inner.delete_label(name)
+    }
 
     fn get_column(&self, id: Uuid) -> KanbanResult<Option<Column>> {
         self.inner.get_column(id)

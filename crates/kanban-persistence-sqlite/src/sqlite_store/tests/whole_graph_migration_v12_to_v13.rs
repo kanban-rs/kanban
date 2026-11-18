@@ -16,7 +16,7 @@ use sqlx::{Pool, Sqlite};
 use std::path::Path;
 use tempfile::TempDir;
 
-use super::super::SqliteStore;
+use super::super::{SqliteStore, SUPPORTED_SCHEMA_VERSION};
 use super::make_rt;
 
 const BOARD: &str = "00000000-0000-0000-0000-0000000000b1";
@@ -159,7 +159,7 @@ fn test_the_rebuild_preserves_the_whole_graph_across_two_columns_and_every_edge_
                 .fetch_one(pool)
                 .await
                 .unwrap();
-        assert_eq!(schema_version, 13);
+        assert_eq!(schema_version, SUPPORTED_SCHEMA_VERSION as i64);
 
         for (what, sql, expected) in [
             ("columns", "SELECT COUNT(*) FROM columns", 2),

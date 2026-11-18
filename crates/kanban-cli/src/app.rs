@@ -155,6 +155,9 @@ async fn dispatch_subcommand(ctx: &mut CliContext, cmd: Commands) -> anyhow::Res
         Commands::Relation(relation_cmd) => {
             handlers::relation::handle(ctx, relation_cmd.action).await?;
         }
+        Commands::Label(label_cmd) => {
+            handlers::label::handle(ctx, label_cmd.action).await?;
+        }
         Commands::Sprint(sprint_cmd) => {
             handlers::sprint::handle(ctx, sprint_cmd.action).await?;
         }

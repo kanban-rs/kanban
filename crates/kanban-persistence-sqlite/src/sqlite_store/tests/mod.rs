@@ -20,6 +20,7 @@ mod metadata;
 mod migration_coverage;
 mod migration_v11_to_v12;
 mod migration_v12_to_v13;
+mod migration_v13_to_v14;
 mod migration_v2_to_v3;
 mod migration_v4_to_v5;
 mod migration_v5_to_v6;

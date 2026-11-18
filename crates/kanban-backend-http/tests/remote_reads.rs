@@ -83,6 +83,7 @@ async fn seed_card(
         due_date: None,
         points: None,
         sprint_id,
+        labels: None,
     };
     let resp = server
         .client()

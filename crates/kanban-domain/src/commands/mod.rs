@@ -8,6 +8,7 @@ pub mod card;
 pub mod cascade_commands;
 pub mod column_commands;
 pub mod dependency_commands;
+pub mod label_commands;
 pub mod sprint_commands;
 
 pub(crate) fn default_card_prefix() -> String {
@@ -19,6 +20,7 @@ pub use card::*;
 pub use cascade_commands::{CascadeCommand, SetArchivedCardsSprint};
 pub use column_commands::*;
 pub use dependency_commands::*;
+pub use label_commands::*;
 pub use sprint_commands::*;
 
 /// Every domain mutation flows through this enum.
@@ -31,6 +33,7 @@ pub enum Command {
     Sprint(SprintCommand),
     Dependency(DependencyCommand),
     Cascade(CascadeCommand),
+    Label(LabelCommand),
 }
 
 impl Command {
@@ -42,6 +45,7 @@ impl Command {
             Command::Sprint(cmd) => cmd.execute(context),
             Command::Dependency(cmd) => cmd.execute(context),
             Command::Cascade(cmd) => cmd.execute(context),
+            Command::Label(cmd) => cmd.execute(context),
         }
     }
 
@@ -53,6 +57,7 @@ impl Command {
             Command::Sprint(cmd) => cmd.description(),
             Command::Dependency(cmd) => cmd.description(),
             Command::Cascade(cmd) => cmd.description(),
+            Command::Label(cmd) => cmd.description(),
         }
     }
 
@@ -70,6 +75,7 @@ impl Command {
             Command::Sprint(cmd) => cmd.capture_inverse(store),
             Command::Dependency(cmd) => cmd.capture_inverse(store),
             Command::Cascade(cmd) => cmd.capture_inverse(store),
+            Command::Label(cmd) => cmd.capture_inverse(store),
         }
     }
 
@@ -84,6 +90,7 @@ impl Command {
             Command::Sprint(cmd) => cmd.touched_entities(),
             Command::Dependency(cmd) => cmd.touched_entities(),
             Command::Cascade(cmd) => cmd.touched_entities(),
+            Command::Label(cmd) => cmd.touched_entities(),
         }
     }
 }

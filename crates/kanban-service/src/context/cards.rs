@@ -173,6 +173,7 @@ impl KanbanContext {
                             points: spec.points,
                             due_date: spec.due_date,
                             sprint_id: spec.sprint_id,
+                            labels: Some(spec.labels),
                         },
                         timestamp: chrono::Utc::now(),
                     },
@@ -243,6 +244,7 @@ impl KanbanContext {
             due_date: options.due_date,
             points: options.points,
             sprint_id: options.sprint_id,
+            labels: options.labels.unwrap_or_default(),
         };
         self.create_card_from_spec(None, spec)
     }
@@ -608,6 +610,7 @@ fn replace_update_from_spec(spec: NewCard) -> CardUpdate {
         due_date,
         points,
         sprint_id: _,
+        labels,
     } = spec;
     CardUpdate {
         title: Some(title),
@@ -626,6 +629,13 @@ fn replace_update_from_spec(spec: NewCard) -> CardUpdate {
         points: match points {
             Some(p) => FieldUpdate::Set(p),
             None => FieldUpdate::Clear,
+        },
+        // Replace-from-spec: an empty label list in the spec clears all labels;
+        // a non-empty list sets them (same Some/None pattern as `points`).
+        labels: if labels.is_empty() {
+            FieldUpdate::Clear
+        } else {
+            FieldUpdate::Set(labels)
         },
         sprint_id: FieldUpdate::NoChange,
     }

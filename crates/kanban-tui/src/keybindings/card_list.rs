@@ -175,6 +175,12 @@ impl KeybindingProvider for CardListProvider {
                     "Manage child cards",
                     KeybindingAction::ManageChildren,
                 ),
+                Keybinding::new(
+                    "m",
+                    "labels",
+                    "Manage task label(s)",
+                    KeybindingAction::ManageLabels,
+                ),
                 Keybinding::new("u", "undo", "Undo last action", KeybindingAction::Undo),
                 Keybinding::new(
                     "U",
