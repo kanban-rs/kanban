@@ -105,12 +105,6 @@ Type "Show applied partial none"
 Sleep 300ms
 Enter
 Sleep 600ms
-Type "n"
-Sleep 300ms
-Type "Record the demo"
-Sleep 300ms
-Enter
-Sleep 600ms
 # KAN-14 (most recently created) is now under the cursor.
 
 # ── B4: apply one label to KAN-12 only ─────────────────────────────────────
@@ -131,9 +125,9 @@ Enter
 Sleep 500ms
 # Applied to KAN-12 only.  Close the dialog and the detail view.
 Escape
-Sleep 250ms
 Escape
-Sleep 250ms
+Escape
+Sleep 2250ms
 
 # ── B5: multi-select KAN-12, KAN-13, KAN-14 ────────────────────────────────
 # `v` toggles multi-select on each card.
@@ -148,26 +142,35 @@ Sleep 350ms
 Type "v"
 Sleep 350ms
 # KAN-12 + KAN-13 + KAN-14 are in the multi-select set.
-Sleep 2250ms
-# 
-# # ── B6: open Labels and read the applied-state marks ───────────────────────
-# Type "m"
-# Sleep 1200ms
-# # The three registry labels, each marked by its applied state:
-# #   [-] storage   on 1 of the 3   (partial: the card key is listed)
-# #   [ ] urgent    on none
-# #   [ ] bug       on none
-# # Hold this state so it registers clearly in the GIF.
-# Sleep 1500ms
-# 
-# # ── B7: close and quit ─────────────────────────────────────────────────────
-# Escape
-# Sleep 400ms
-# Sleep 500ms
-# Type "q"
-# Sleep 400ms
-# Escape
-# Sleep 400ms
-# 
-# # End
-# Sleep 2000ms
+
+# ── B6: open Labels and read the applied-state marks ───────────────────────
+Type "m"
+Sleep 1200ms
+# The three registry labels, each marked by its applied state:
+#   [-] storage   on 1 of the 3   (partial: the card key is listed)
+#   [ ] urgent    on none
+#   [ ] bug       on none
+# Hold this state so it registers clearly in the GIF.
+Sleep 1500ms
+
+# ── B7: close and quit ─────────────────────────────────────────────────────
+Type "j"
+Sleep 350ms
+Enter
+Sleep 350ms
+Escape
+Sleep 550ms
+Type "m"
+Sleep 1500ms
+
+# ── B8: close and quit ─────────────────────────────────────────────────────
+Escape
+Sleep 400ms
+Sleep 500ms
+Type "q"
+Sleep 400ms
+Escape
+Sleep 400ms
+
+# End
+Sleep 2000ms
