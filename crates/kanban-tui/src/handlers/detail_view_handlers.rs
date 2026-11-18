@@ -1431,35 +1431,21 @@ impl App {
         }
     }
 
-    /// Create a label from a typed name (no color or description) and apply it
-    /// to every managed card, so the "New label" row reads as a fast path for
-    /// "just make a label named X". The full shape editor (name + color +
-    /// description) is still reachable by confirming the row with an empty
-    /// input (the `edit_label` create path).
+    /// Create a label from a typed name (no color or description). This is
+    /// registry-only: it does not assign the label to any card. Assigning a
+    /// label to card(s) is always an explicit step (the row's apply action),
+    /// so a multi-select in the list view never silently labels the selected
+    /// cards. The full shape editor (name + color + description) is reachable
+    /// by confirming the row with an empty input (the `edit_label` create
+    /// path) and behaves the same way on a plain create.
     fn create_label_from_input(&mut self, name: String) {
         let label = Label::named(name);
         let name = label.name.clone();
         match self.ctx.upsert_label_impl(label) {
             Ok((_, inv)) => {
                 self.resolve_after_command(inv);
+                self.set_success(format!("Label \"{name}\" created"));
                 let card_ids = self.label_manager.card_ids.clone();
-                if !card_ids.is_empty() {
-                    if let Ok((_, inv)) = self
-                        .ctx
-                        .assign_label_to_cards_impl(name.clone(), card_ids.clone())
-                    {
-                        self.resolve_after_command(inv);
-                    }
-                    let n = card_ids.len();
-                    let scope = if n == 1 {
-                        "card".to_string()
-                    } else {
-                        format!("{n} cards")
-                    };
-                    self.set_success(format!("Label \"{name}\" created and applied to {scope}"));
-                } else {
-                    self.set_success(format!("Label \"{name}\" created"));
-                }
                 self.refresh_label_manager(&card_ids);
             }
             Err(e) => {

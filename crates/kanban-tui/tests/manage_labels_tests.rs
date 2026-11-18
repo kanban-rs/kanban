@@ -246,7 +246,7 @@ async fn test_new_label_row_backspace_edits() {
 }
 
 #[tokio::test]
-async fn test_new_label_row_enter_with_name_creates_and_applies() {
+async fn test_new_label_row_enter_with_name_creates_only_not_applied() {
     let (mut app, card_id) = card_with_labels_fixture();
     select_create_row(&mut app);
     let mut terminal = headless_terminal();
@@ -264,11 +264,12 @@ async fn test_new_label_row_enter_with_name_creates_and_applies() {
         "registry must contain 'urgent', got: {:?}",
         labels.iter().map(|l| l.name.as_str()).collect::<Vec<_>>()
     );
-    // ... and it is applied to the managed card.
+    // ... but creation must NOT auto-apply it: assigning is an explicit step
+    // (the row's apply action), so the managed card is unchanged.
     let card = app.ctx.get_card(card_id).unwrap().unwrap();
     assert!(
-        card.labels.contains(&"urgent".to_string()),
-        "card must carry 'urgent', got: {:?}",
+        !card.labels.contains(&"urgent".to_string()),
+        "creating must not assign; card must not carry 'urgent', got: {:?}",
         card.labels
     );
     // Input clears after creating, and the dialog stays open to show the result.
