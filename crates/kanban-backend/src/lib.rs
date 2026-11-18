@@ -230,6 +230,18 @@ mod tests {
         fn upsert_prefix(&self, _prefix: kanban_domain::Prefix) -> KanbanResult<()> {
             unimplemented!()
         }
+        fn get_label(&self, _name: &str) -> KanbanResult<Option<kanban_domain::Label>> {
+            unimplemented!()
+        }
+        fn list_labels(&self) -> KanbanResult<Vec<kanban_domain::Label>> {
+            unimplemented!()
+        }
+        fn upsert_label(&self, _label: kanban_domain::Label) -> KanbanResult<()> {
+            unimplemented!()
+        }
+        fn delete_label(&self, _name: &str) -> KanbanResult<()> {
+            unimplemented!()
+        }
         fn get_board(&self, _id: Uuid) -> KanbanResult<Option<Board>> {
             unimplemented!()
         }

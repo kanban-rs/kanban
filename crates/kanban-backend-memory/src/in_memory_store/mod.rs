@@ -5,6 +5,7 @@ mod cards;
 mod columns;
 mod command_log;
 mod graph;
+mod labels;
 mod ordering;
 mod prefixes;
 mod snapshot;
@@ -101,6 +102,24 @@ impl DataStore for InMemoryStore {
 
     fn upsert_prefix(&self, prefix: kanban_domain::Prefix) -> KanbanResult<()> {
         self.upsert_prefix_impl(prefix)
+    }
+
+    // Label
+
+    fn get_label(&self, name: &str) -> KanbanResult<Option<kanban_domain::Label>> {
+        self.get_label_impl(name)
+    }
+
+    fn list_labels(&self) -> KanbanResult<Vec<kanban_domain::Label>> {
+        self.list_labels_impl()
+    }
+
+    fn upsert_label(&self, label: kanban_domain::Label) -> KanbanResult<()> {
+        self.upsert_label_impl(label)
+    }
+
+    fn delete_label(&self, name: &str) -> KanbanResult<()> {
+        self.delete_label_impl(name)
     }
 
     // Board

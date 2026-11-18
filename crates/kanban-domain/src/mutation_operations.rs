@@ -2,8 +2,8 @@ use crate::commands::Command;
 use crate::dependencies::{RelatesKind, Severity};
 use crate::{
     Board, BoardCreateOutcome, BoardUpdate, Card, CardCreateOutcome, CardUpdate, Column,
-    ColumnCreateOutcome, ColumnUpdate, CreateCardOptions, Invalidation, KanbanResult, NewBoard,
-    NewCard, NewColumn, Sprint, SprintCreateOutcome, SprintUpdate,
+    ColumnCreateOutcome, ColumnUpdate, CreateCardOptions, Invalidation, KanbanResult, Label,
+    NewBoard, NewCard, NewColumn, Sprint, SprintCreateOutcome, SprintUpdate,
 };
 use uuid::Uuid;
 
@@ -192,6 +192,19 @@ pub trait MutationOperations {
         auto_consume_name: bool,
     ) -> KanbanResult<(SprintCreateOutcome, Invalidation)>;
 
+    fn upsert_label_impl(&mut self, label: Label) -> KanbanResult<(Label, Invalidation)>;
+    fn delete_label_impl(&mut self, name: String) -> KanbanResult<Invalidation>;
+    fn assign_label_to_cards_impl(
+        &mut self,
+        label_name: String,
+        card_ids: Vec<Uuid>,
+    ) -> KanbanResult<(usize, Invalidation)>;
+    fn remove_label_from_cards_impl(
+        &mut self,
+        label_name: String,
+        card_ids: Vec<Uuid>,
+    ) -> KanbanResult<(usize, Invalidation)>;
+
     fn execute(&mut self, commands: Vec<Command>) -> KanbanResult<Invalidation>;
 }
 
@@ -210,8 +223,8 @@ mod tests {
         let decl = &src[..src.find("#[cfg(test)]").unwrap()];
         assert_eq!(
             decl.matches("\n    fn ").count(),
-            44,
-            "MutationOperations must declare exactly 44 methods"
+            48,
+            "MutationOperations must declare exactly 48 methods"
         );
         assert!(
             !decl.contains("\n    }"),

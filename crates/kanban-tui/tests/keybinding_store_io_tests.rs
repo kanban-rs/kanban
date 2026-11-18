@@ -62,6 +62,7 @@ fn classify(action: &KeybindingAction) -> Purity {
         | SetSelectedCardsPriority
         | ManageParents
         | ManageChildren
+        | ManageLabels
         | CarryOver
         | Undo
         | Redo

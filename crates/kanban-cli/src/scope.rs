@@ -93,7 +93,8 @@ impl CommandScope {
             Commands::Import(_)
             | Commands::Completions { .. }
             | Commands::Migrate(_)
-            | Commands::Init { .. } => {}
+            | Commands::Init { .. }
+            | Commands::Label(_) => {}
         }
 
         scope
@@ -265,6 +266,7 @@ mod tests {
                 column: None,
                 sprint: None,
                 status: None,
+                labels: vec![],
                 archived: false,
                 include_archived: false,
                 sort: None,

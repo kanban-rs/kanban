@@ -42,6 +42,7 @@ async fn test_import_board_checkpoints_wal_on_sqlite_path() {
         cards: vec![],
         archived_cards: vec![],
         sprints: vec![],
+        labels: Vec::new(),
         graph: Default::default(),
         prefixes: Vec::new(),
     };

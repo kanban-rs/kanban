@@ -195,6 +195,7 @@ fn import_into_context(ctx: &KanbanContext, export_path: &str) -> KanbanResult<(
         cards: entities.cards,
         archived_cards: entities.archived_cards,
         sprints: entities.sprints,
+        labels: vec![],
         graph: DependencyGraph::default(),
         prefixes,
     };

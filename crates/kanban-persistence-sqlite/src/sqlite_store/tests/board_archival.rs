@@ -1,7 +1,7 @@
 use tempfile::TempDir;
 use uuid::Uuid;
 
-use super::super::SqliteStore;
+use super::super::{SqliteStore, SUPPORTED_SCHEMA_VERSION};
 use super::make_rt;
 use super::migration_v2_to_v3::seed_v2_db;
 use kanban_domain::{Archived, Board, Column, DataStore};
@@ -99,7 +99,10 @@ fn test_open_migrates_old_db_to_current_schema_with_board_archival_and_backup() 
             .fetch_one(store.pool())
             .await
             .unwrap();
-        assert_eq!(version, 13, "old DB migrates to the current schema");
+        assert_eq!(
+            version, SUPPORTED_SCHEMA_VERSION,
+            "old DB migrates to the current schema"
+        );
 
         // board_archival table exists after the schema step.
         let has_table: bool = sqlx::query_scalar(

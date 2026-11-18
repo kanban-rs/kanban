@@ -3,7 +3,7 @@ use kanban_core::{AppConfig, AppType};
 use kanban_domain::{
     ArchivedBoard, ArchivedCard, Board, BoardListFilter, BoardUpdate, Card, CardListFilter,
     CardSummary, CardUpdate, Column, ColumnUpdate, CreateCardOptions, KanbanOperations,
-    KanbanResult, Sprint, SprintUpdate,
+    KanbanResult, Label, Sprint, SprintUpdate,
 };
 pub use kanban_domain::{
     BoardCreateOutcome, CardCreateOutcome, ColumnCreateOutcome, SprintCreateOutcome,
@@ -21,6 +21,7 @@ mod core;
 mod filters;
 mod graph;
 pub use graph::BoardRelations;
+mod labels;
 mod mutation_ops;
 mod persistence;
 #[cfg(test)]
@@ -308,6 +309,29 @@ impl KanbanOperations for KanbanContext {
     }
     fn delete_sprint(&mut self, id: Uuid) -> KanbanResult<()> {
         KanbanContext::delete_sprint_impl(self, id).map(|_| ())
+    }
+
+    fn list_labels(&self) -> KanbanResult<Vec<Label>> {
+        KanbanContext::list_labels_impl(self)
+    }
+    fn get_label(&self, name: &str) -> KanbanResult<Option<Label>> {
+        KanbanContext::get_label_impl(self, name)
+    }
+    fn upsert_label(&mut self, label: Label) -> KanbanResult<Label> {
+        Ok(KanbanContext::upsert_label_impl(self, label)?.0)
+    }
+    fn delete_label(&mut self, name: String) -> KanbanResult<()> {
+        KanbanContext::delete_label_impl(self, name).map(|_| ())
+    }
+
+    fn assign_label_to_cards(&mut self, label_name: &str, card_ids: &[Uuid]) -> KanbanResult<()> {
+        KanbanContext::assign_label_to_cards_impl(self, label_name.to_string(), card_ids.to_vec())
+            .map(|_| ())
+    }
+
+    fn remove_label_from_cards(&mut self, label_name: &str, card_ids: &[Uuid]) -> KanbanResult<()> {
+        KanbanContext::remove_label_from_cards_impl(self, label_name.to_string(), card_ids.to_vec())
+            .map(|_| ())
     }
 
     fn export_board(&self, board_id: Option<Uuid>) -> KanbanResult<String> {

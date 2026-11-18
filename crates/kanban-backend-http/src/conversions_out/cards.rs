@@ -11,6 +11,7 @@ pub(crate) fn create_card_request(id: Option<Uuid>, spec: &NewCard) -> (String, 
         due_date,
         points,
         sprint_id,
+        labels,
     } = spec;
     let path = format!("/v1/columns/{column_id}/cards");
     let body = CreateCardRequest {
@@ -21,6 +22,7 @@ pub(crate) fn create_card_request(id: Option<Uuid>, spec: &NewCard) -> (String, 
         due_date: *due_date,
         points: *points,
         sprint_id: *sprint_id,
+        labels: Some(labels.clone()),
     };
     (path, body)
 }
@@ -47,6 +49,7 @@ pub(crate) fn update_card_request(updates: &CardUpdate) -> UpdateCardRequest {
         due_date,
         points,
         sprint_id,
+        labels,
     } = updates;
     UpdateCardRequest {
         title: title.clone(),
@@ -58,6 +61,7 @@ pub(crate) fn update_card_request(updates: &CardUpdate) -> UpdateCardRequest {
         due_date: Patch::from(due_date.clone()),
         points: Patch::from(points.clone()),
         sprint_id: Patch::from(sprint_id.clone()),
+        labels: Patch::from(labels.clone()),
     }
 }
 
@@ -79,6 +83,7 @@ mod tests {
             due_date: None,
             points: None,
             sprint_id: None,
+            labels: Vec::new(),
         };
 
         let (path, body) = create_card_request(Some(id), &spec);
@@ -103,6 +108,7 @@ mod tests {
             due_date: FieldUpdate::Clear,
             points: FieldUpdate::Set(3),
             sprint_id: FieldUpdate::NoChange,
+            labels: FieldUpdate::Set(vec!["t".to_string()]),
         };
 
         let req = update_card_request(&updates);
@@ -116,6 +122,7 @@ mod tests {
         assert_eq!(req.due_date, Patch::Clear);
         assert_eq!(req.points, Patch::Set(3));
         assert_eq!(req.sprint_id, Patch::NoChange);
+        assert_eq!(req.labels, Patch::Set(vec!["t".to_string()]));
     }
 
     #[test]

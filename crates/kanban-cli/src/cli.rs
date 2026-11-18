@@ -1,4 +1,4 @@
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
 
 use kanban_core::CLI_VERSION_DISPLAY;
 
@@ -25,6 +25,8 @@ pub enum Commands {
     Card(CardCommand),
     /// Card-relation operations (parent/child)
     Relation(RelationCommand),
+    /// Label operations (global taxonomy registry)
+    Label(LabelCommand),
     /// Sprint operations
     Sprint(SprintCommand),
     /// Export board data
@@ -507,6 +509,10 @@ pub struct CardCreateArgs {
     pub points: Option<u8>,
     #[arg(long)]
     pub due_date: Option<String>,
+    /// Label the new card (repeatable). Pass the same flag several times to attach
+    /// more than one label; omit for no labels.
+    #[arg(long, action = ArgAction::Append)]
+    pub labels: Vec<String>,
     /// Assign the new card to a sprint. Pass a UUID, name, or number to pick a
     /// specific sprint; pass without a value to use the board's sole active
     /// sprint (errors if zero or more than one active sprint exists).
@@ -528,6 +534,10 @@ pub struct CardListArgs {
     pub sprint: Option<String>,
     #[arg(long)]
     pub status: Option<String>,
+    /// Label filter (repeatable). A card must carry ALL of the listed labels to
+    /// match (e.g. `--labels bug --labels urgent`).
+    #[arg(long, action = ArgAction::Append)]
+    pub labels: Vec<String>,
     /// Show only archived cards (mutually exclusive with --include-archived).
     #[arg(long, conflicts_with = "include_archived")]
     pub archived: bool,
@@ -566,6 +576,10 @@ pub struct CardUpdateArgs {
     pub due_date: Option<String>,
     #[arg(long)]
     pub clear_due_date: bool,
+    #[arg(long, action = ArgAction::Append)]
+    pub labels: Vec<String>,
+    #[arg(long)]
+    pub clear_labels: bool,
 }
 
 // Sprint commands
@@ -684,6 +698,62 @@ pub struct SprintUpdateArgs {
     pub clear_start_date: bool,
     #[arg(long)]
     pub clear_end_date: bool,
+}
+
+// Label commands
+#[derive(Args)]
+pub struct LabelCommand {
+    #[command(subcommand)]
+    pub action: LabelAction,
+}
+
+#[derive(Subcommand)]
+pub enum LabelAction {
+    /// List all labels in the global registry
+    List {
+        #[arg(long)]
+        page: Option<u32>,
+        #[arg(long)]
+        page_size: Option<u32>,
+    },
+    /// Get a label by its exact name
+    Get {
+        /// Exact name of the label (case-sensitive)
+        name: String,
+    },
+    /// Create or update a label (upsert by name)
+    Upsert {
+        /// Exact name of the label (case-sensitive; identity key)
+        #[arg(long)]
+        name: String,
+        /// CSS-style colour, e.g. '#ff0000' or 'red'
+        #[arg(long)]
+        color: Option<String>,
+        /// Free-text description
+        #[arg(long)]
+        description: Option<String>,
+    },
+    /// Delete a label by its exact name
+    Delete {
+        /// Exact name of the label (case-sensitive)
+        name: String,
+    },
+    /// Assign a label to multiple cards at once. The label is auto-registered
+    /// if it does not exist yet.
+    Assign {
+        /// Exact name of the label (case-sensitive)
+        name: String,
+        /// Card UUIDs or identifiers (e.g. 'KAN-1', '42')
+        cards: Vec<String>,
+    },
+    /// Remove a label from multiple cards at once. The label itself is kept
+    /// in the registry.
+    Remove {
+        /// Exact name of the label (case-sensitive)
+        name: String,
+        /// Card UUIDs or identifiers (e.g. 'KAN-1', '42')
+        cards: Vec<String>,
+    },
 }
 
 // Migrate command

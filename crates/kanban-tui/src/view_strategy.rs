@@ -139,6 +139,7 @@ mod tests {
             all_sprints: &[],
             active_sprint_filters: HashSet::new(),
             hide_assigned_cards: false,
+            active_label_filters: None,
             search_query: None,
         };
 

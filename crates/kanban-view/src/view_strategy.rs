@@ -9,6 +9,7 @@ pub struct ViewRefreshContext<'a> {
     pub all_sprints: &'a [Sprint],
     pub active_sprint_filters: std::collections::HashSet<Uuid>,
     pub hide_assigned_cards: bool,
+    pub active_label_filters: Option<Vec<String>>,
     pub search_query: Option<&'a str>,
 }
 

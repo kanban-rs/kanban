@@ -9,6 +9,10 @@ use uuid::Uuid;
 pub struct FilterState {
     pub active_sprint_filters: HashSet<Uuid>,
     pub hide_assigned_cards: bool,
+    /// Active label filter. `None` = no label constraint; `Some(labels)` = cards
+    /// must contain ALL listed labels (AND semantics), matching
+    /// `kanban_domain::card_matches_labels`.
+    pub active_labels: Option<Vec<String>>,
     pub current_sort_field: Option<SortField>,
     pub current_sort_order: Option<SortOrder>,
     pub sort_field_selection: SelectionState,

@@ -120,7 +120,7 @@ fn test_down_from_tags_wraps_to_sprints_at_first_item() {
         let ds = app.filter.dialog_state.as_ref().unwrap();
         assert_eq!(
             ds.current_section,
-            kanban_view::filters::FilterDialogSection::Tags
+            kanban_view::filters::FilterDialogSection::Labels
         );
     }
 
@@ -201,6 +201,7 @@ fn test_task_row_sprint_suffix_not_loaded_renders_marker_not_blank() {
         all_sprints: &[],
         active_sprint_filters: Default::default(),
         hide_assigned_cards: false,
+        active_label_filters: None,
         search_query: None,
     });
 
@@ -255,6 +256,7 @@ fn test_task_row_sprint_suffix_loaded_renders_the_sprint_name() {
         all_sprints: std::slice::from_ref(&sprint),
         active_sprint_filters: Default::default(),
         hide_assigned_cards: false,
+        active_label_filters: None,
         search_query: None,
     });
 

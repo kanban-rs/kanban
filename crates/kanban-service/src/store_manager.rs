@@ -263,6 +263,7 @@ impl StoreManager {
                 sprints: entities.sprints,
                 graph: DependencyGraph::default(),
                 prefixes,
+                labels: Vec::new(),
             };
             self.write_sqlite_destination(filename, snapshot).await
         }

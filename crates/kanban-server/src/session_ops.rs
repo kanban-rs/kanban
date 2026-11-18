@@ -188,6 +188,36 @@ impl KanbanOperations for Session {
         mutate_unit(self, |c| c.delete_sprint_impl(id)).map(|_| ())
     }
 
+    fn list_labels(&self) -> KanbanResult<Vec<kanban_domain::Label>> {
+        self.ctx.list_labels()
+    }
+
+    fn get_label(&self, name: &str) -> KanbanResult<Option<kanban_domain::Label>> {
+        self.ctx.get_label(name)
+    }
+
+    fn upsert_label(&mut self, label: kanban_domain::Label) -> KanbanResult<kanban_domain::Label> {
+        mutate(self, |c| c.upsert_label_impl(label)).map(|(value, _)| value)
+    }
+
+    fn delete_label(&mut self, name: String) -> KanbanResult<()> {
+        mutate_unit(self, |c| c.delete_label_impl(name)).map(|_| ())
+    }
+
+    fn assign_label_to_cards(&mut self, label_name: &str, card_ids: &[Uuid]) -> KanbanResult<()> {
+        mutate(self, |c| {
+            c.assign_label_to_cards_impl(label_name.to_string(), card_ids.to_vec())
+        })
+        .map(|(_n, _invalidation)| ())
+    }
+
+    fn remove_label_from_cards(&mut self, label_name: &str, card_ids: &[Uuid]) -> KanbanResult<()> {
+        mutate(self, |c| {
+            c.remove_label_from_cards_impl(label_name.to_string(), card_ids.to_vec())
+        })
+        .map(|(_n, _invalidation)| ())
+    }
+
     fn export_board(&self, board_id: Option<Uuid>) -> KanbanResult<String> {
         self.ctx.export_board(board_id)
     }

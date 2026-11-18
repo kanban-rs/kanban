@@ -386,6 +386,18 @@ impl DataStore for NoWholeStoreReads {
     fn upsert_prefix(&self, prefix: Prefix) -> KanbanResult<()> {
         self.0.upsert_prefix(prefix)
     }
+    fn get_label(&self, name: &str) -> KanbanResult<Option<kanban_domain::Label>> {
+        self.0.get_label(name)
+    }
+    fn list_labels(&self) -> KanbanResult<Vec<kanban_domain::Label>> {
+        self.0.list_labels()
+    }
+    fn upsert_label(&self, label: kanban_domain::Label) -> KanbanResult<()> {
+        self.0.upsert_label(label)
+    }
+    fn delete_label(&self, name: &str) -> KanbanResult<()> {
+        self.0.delete_label(name)
+    }
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
         self.0.get_board(id)
     }
@@ -860,6 +872,18 @@ impl DataStore for UnsupportedArchivedBoards {
     }
     fn upsert_prefix(&self, prefix: Prefix) -> KanbanResult<()> {
         self.0.upsert_prefix(prefix)
+    }
+    fn get_label(&self, name: &str) -> KanbanResult<Option<kanban_domain::Label>> {
+        self.0.get_label(name)
+    }
+    fn list_labels(&self) -> KanbanResult<Vec<kanban_domain::Label>> {
+        self.0.list_labels()
+    }
+    fn upsert_label(&self, label: kanban_domain::Label) -> KanbanResult<()> {
+        self.0.upsert_label(label)
+    }
+    fn delete_label(&self, name: &str) -> KanbanResult<()> {
+        self.0.delete_label(name)
     }
     fn get_board(&self, id: Uuid) -> KanbanResult<Option<Board>> {
         self.0.get_board(id)

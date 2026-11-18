@@ -276,6 +276,7 @@ mod tests {
             cards: vec![],
             archived_cards: vec![],
             sprints: vec![],
+            labels: Vec::new(),
             graph: crate::DependencyGraph::new(),
             prefixes: Vec::new(),
         };
@@ -302,6 +303,7 @@ mod tests {
             cards: vec![live_card.clone(), archived_card_row.clone()],
             archived_cards: vec![ac_marker],
             sprints: vec![],
+            labels: Vec::new(),
             graph: crate::DependencyGraph::new(),
             prefixes: Vec::new(),
         };
@@ -339,6 +341,7 @@ mod tests {
             cards: vec![archived_card_row.clone()],
             archived_cards: vec![ac_marker],
             sprints: vec![],
+            labels: Vec::new(),
             graph: crate::DependencyGraph::new(),
             prefixes: Vec::new(),
         };
@@ -366,6 +369,7 @@ mod tests {
             cards: vec![],
             archived_cards: vec![],
             sprints: vec![],
+            labels: Vec::new(),
             graph: crate::DependencyGraph::new(),
             prefixes: Vec::new(),
         };
@@ -401,6 +405,7 @@ mod tests {
             cards: vec![live_card.clone(), archived_card_row.clone()],
             archived_cards: vec![ac_marker],
             sprints: vec![],
+            labels: Vec::new(),
             graph: crate::DependencyGraph::new(),
             prefixes: Vec::new(),
         };

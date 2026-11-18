@@ -3,7 +3,7 @@ use std::path::Path;
 use tempfile::TempDir;
 use uuid::Uuid;
 
-use super::super::SqliteStore;
+use super::super::{SqliteStore, SUPPORTED_SCHEMA_VERSION};
 use super::make_rt;
 
 /// Seed a schema_version-6 shaped DB directly: `boards` already lacks the
@@ -179,7 +179,7 @@ fn test_migrated_database_reports_schema_version_9() {
             .await
             .unwrap();
         assert_eq!(
-            version, 13,
+            version, SUPPORTED_SCHEMA_VERSION,
             "schema_version must be bumped to the current version"
         );
     });

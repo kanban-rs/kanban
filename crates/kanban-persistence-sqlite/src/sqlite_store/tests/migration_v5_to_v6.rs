@@ -3,7 +3,7 @@ use std::path::Path;
 use tempfile::TempDir;
 use uuid::Uuid;
 
-use super::super::SqliteStore;
+use super::super::{SqliteStore, SUPPORTED_SCHEMA_VERSION};
 use super::migration_v2_to_v3::open_seeded_pool;
 use super::{completion_rows, make_rt};
 
@@ -298,7 +298,10 @@ fn test_sqlite_migration_v5_to_v6_writes_v5_backup() {
                 .fetch_one(store.pool())
                 .await
                 .unwrap();
-        assert_eq!(live_version, 13, "live store must be migrated to current");
+        assert_eq!(
+            live_version, SUPPORTED_SCHEMA_VERSION,
+            "live store must be migrated to current"
+        );
     });
 }
 

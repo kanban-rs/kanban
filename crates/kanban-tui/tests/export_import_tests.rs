@@ -347,6 +347,7 @@ async fn test_async_load_initial_state_sqlite() {
         cards: vec![],
         archived_cards: vec![],
         sprints: vec![],
+        labels: Vec::new(),
         graph: Default::default(),
         prefixes: Vec::new(),
     };
