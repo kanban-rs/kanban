@@ -1,9 +1,9 @@
 //! Global label registry.
 //!
 //! A `Label` is a named, optional-coloured, optional-descriptive taxonomy
-//! entry shared across the workspace. It is distinct from `Card.tags`, which
+//! entry shared across the workspace. It is distinct from `Card.labels`, which
 //! are free-form strings on a card: the `labels` table is the canonical
-//! registry, while `Card.tags` is the per-card association (the set of label
+//! registry, while `Card.labels` is the per-card association (the set of label
 //! names applied to that card).
 //!
 //! Backed by the `labels` table in the SQLite schema and the top-level
@@ -44,7 +44,7 @@ impl Label {
     }
 
     /// Construct a label with only a name (used when migrating existing
-    /// `Card.tags` values to the new registry).
+    /// `Card.labels` values to the new registry).
     pub fn named(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),

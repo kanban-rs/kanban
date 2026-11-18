@@ -37,7 +37,7 @@ pub trait DataStore: Send + Sync {
     // A globally-scoped taxonomy entry (name, colour, description). The `name`
     // field is the natural primary key; `upsert_label` is keyed by name, so
     // two callers that both write `Label { name: "bug", … }` converge on one
-    // row. `delete_label` removes the registry entry only; card tags that
+    // row. `delete_label` removes the registry entry only; card labels that
     // reference the name continue to exist on the cards.
     //
     // Deliberately NOT defaulted: the same reasoning as `upsert_prefix` — a

@@ -38,10 +38,10 @@ pub fn build_metadata_lines(
             Line::from(Span::styled("No due date", label_text()))
         },
         {
-            let (value, style) = if card.tags.is_empty() {
+            let (value, style) = if card.labels.is_empty() {
                 ("none".to_string(), label_text())
             } else {
-                (card.tags.join(", "), normal_text())
+                (card.labels.join(", "), normal_text())
             };
             metadata_line_multi(vec![("Labels", value, style)])
         },

@@ -82,7 +82,7 @@ fn test_render_filter_popup_with_sprint_shows_sprint_name() {
 }
 
 #[test]
-fn test_tag_filter_excludes_non_matching_cards() {
+fn test_label_filter_excludes_non_matching_cards() {
     use kanban_domain::{CreateCardOptions, KanbanOperations};
 
     let mut app = App::test_default();
@@ -98,7 +98,7 @@ fn test_tag_filter_excludes_non_matching_cards() {
             column.id,
             "Bug card".to_string(),
             CreateCardOptions {
-                tags: Some(vec!["bug".to_string()]),
+                labels: Some(vec!["bug".to_string()]),
                 ..Default::default()
             },
         )
@@ -110,7 +110,7 @@ fn test_tag_filter_excludes_non_matching_cards() {
             column.id,
             "Feature card".to_string(),
             CreateCardOptions {
-                tags: Some(vec!["feature".to_string()]),
+                labels: Some(vec!["feature".to_string()]),
                 ..Default::default()
             },
         )
@@ -119,7 +119,7 @@ fn test_tag_filter_excludes_non_matching_cards() {
     app.selection.active_board_id = Some(board.id);
     app.reload_model();
 
-    // Without an active tag filter both cards are visible.
+    // Without an active label filter both cards are visible.
     app.prepare_frame();
     let all = app
         .view
@@ -129,11 +129,11 @@ fn test_tag_filter_excludes_non_matching_cards() {
         .unwrap_or_default();
     assert!(
         all.contains(&card_bug.id) && all.contains(&card_feature.id),
-        "no tag filter: both cards must be visible"
+        "no label filter: both cards must be visible"
     );
 
-    // Setting the tag filter to "bug" hides the "feature" card.
-    app.filter.active_tags = Some(vec!["bug".to_string()]);
+    // Setting the label filter to "bug" hides the "feature" card.
+    app.filter.active_labels = Some(vec!["bug".to_string()]);
     app.prepare_frame();
     let filtered = app
         .view
@@ -141,18 +141,18 @@ fn test_tag_filter_excludes_non_matching_cards() {
         .get_active_task_list()
         .map(|l| l.cards.clone())
         .unwrap_or_default();
-    assert_eq!(filtered.len(), 1, "tag filter should show exactly 1 card");
+    assert_eq!(filtered.len(), 1, "label filter should show exactly 1 card");
     assert!(
         filtered.contains(&card_bug.id),
-        "card with the 'bug' tag must be visible"
+        "card with the 'bug' label must be visible"
     );
     assert!(
         !filtered.contains(&card_feature.id),
-        "card without the 'bug' tag must be hidden"
+        "card without the 'bug' label must be hidden"
     );
 
-    // Clearing the tag filter restores both cards.
-    app.filter.active_tags = None;
+    // Clearing the label filter restores both cards.
+    app.filter.active_labels = None;
     app.prepare_frame();
     let restored = app
         .view
@@ -162,6 +162,6 @@ fn test_tag_filter_excludes_non_matching_cards() {
         .unwrap_or_default();
     assert!(
         restored.contains(&card_bug.id) && restored.contains(&card_feature.id),
-        "clearing the tag filter shows all cards again"
+        "clearing the label filter shows all cards again"
     );
 }

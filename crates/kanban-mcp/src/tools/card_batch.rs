@@ -312,7 +312,7 @@ mod tests {
                         due_date: None,
                         points: None,
                         sprint_id: None,
-                        tags: None,
+                        labels: None,
                     },
                 }))
                 .await
@@ -487,7 +487,7 @@ mod tests {
                         due_date: None,
                         points: None,
                         sprint_id: None,
-                        tags: None,
+                        labels: None,
                     },
                 }))
                 .await

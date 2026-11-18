@@ -5,7 +5,7 @@ use std::cell::Cell;
 pub enum FilterDialogSection {
     Sprints,
     DateRange,
-    Tags,
+    Labels,
 }
 
 #[derive(Debug, Clone)]
@@ -16,7 +16,7 @@ pub struct FilterDialogState {
     pub item_scroll: Cell<usize>,
     pub filters: CardFilters,
     /// The raw text input buffer for the Tags section.
-    pub tags_input: String,
+    pub labels_input: String,
 }
 
 impl FilterDialogState {
@@ -27,7 +27,7 @@ impl FilterDialogState {
             item_selection: 0,
             item_scroll: Cell::new(0),
             filters,
-            tags_input: String::new(),
+            labels_input: String::new(),
         }
     }
 
@@ -38,7 +38,7 @@ impl FilterDialogState {
         self.current_section = match self.section_index {
             0 => FilterDialogSection::Sprints,
             1 => FilterDialogSection::DateRange,
-            2 => FilterDialogSection::Tags,
+            2 => FilterDialogSection::Labels,
             _ => FilterDialogSection::Sprints,
         };
     }
@@ -54,7 +54,7 @@ impl FilterDialogState {
         self.current_section = match self.section_index {
             0 => FilterDialogSection::Sprints,
             1 => FilterDialogSection::DateRange,
-            2 => FilterDialogSection::Tags,
+            2 => FilterDialogSection::Labels,
             _ => FilterDialogSection::Sprints,
         };
     }
@@ -81,7 +81,7 @@ mod tests {
         assert_eq!(state.current_section, FilterDialogSection::DateRange);
 
         state.next_section();
-        assert_eq!(state.current_section, FilterDialogSection::Tags);
+        assert_eq!(state.current_section, FilterDialogSection::Labels);
 
         state.next_section();
         assert_eq!(state.current_section, FilterDialogSection::Sprints);
@@ -92,7 +92,7 @@ mod tests {
         let mut state = FilterDialogState::new(CardFilters::default());
 
         state.prev_section();
-        assert_eq!(state.current_section, FilterDialogSection::Tags);
+        assert_eq!(state.current_section, FilterDialogSection::Labels);
         assert_eq!(state.section_index, 2);
     }
 

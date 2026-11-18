@@ -80,7 +80,7 @@ async fn upsert_label_route(
 }
 
 /// `DELETE /v1/labels/{name}` — remove the label from the registry. Cards
-/// that still carry it keep their tags; only the registry entry goes.
+/// that still carry it keep their labels; only the registry entry goes.
 async fn delete_label_route(
     State(state): State<AppState>,
     Path(name): Path<String>,

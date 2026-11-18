@@ -49,9 +49,9 @@ pub struct CardListFilter {
     pub status: Option<CardStatus>,
     /// `CompositeSearcher::all` semantics; empty string is a no-op.
     pub search: Option<String>,
-    /// Tag filter. `None` or empty list = no tag constraint (all cards pass).
-    /// Non-empty list = card must contain ALL listed tags (AND semantics).
-    pub tags: Option<Vec<String>>,
+    /// Label filter. `None` or empty list = no label constraint (all cards pass).
+    /// Non-empty list = card must contain ALL listed labels (AND semantics).
+    pub labels: Option<Vec<String>>,
     pub sort: Option<SortField>,
     pub sort_order: Option<SortOrder>,
     /// Three-state archival selector. Defaults to `LiveOnly`, so callers that
@@ -107,9 +107,9 @@ fn board_for<'a>(card: &Card, board: Option<&'a Board>, boards: &'a [Board]) -> 
     boards.iter().find(|b| b.id == card.board_id)
 }
 
-/// Parse a comma-separated tag string into a trimmed, non-empty list.
+/// Parse a comma-separated label string into a trimmed, non-empty list.
 /// `None` input or an empty result list yields `None` (a no-op filter).
-pub fn parse_csv_tags(raw: Option<&str>) -> Option<Vec<String>> {
+pub fn parse_csv_labels(raw: Option<&str>) -> Option<Vec<String>> {
     raw.and_then(|s| {
         let v: Vec<String> = s
             .split(',')
@@ -124,10 +124,10 @@ pub fn parse_csv_tags(raw: Option<&str>) -> Option<Vec<String>> {
     })
 }
 
-/// Shared tag predicate: a card matches when it contains ALL tags in `wanted`.
+/// Shared label predicate: a card matches when it contains ALL labels in `wanted`.
 /// An empty `wanted` slice means no constraint (matches every card).
-pub fn card_matches_tags(card: &Card, wanted: &[String]) -> bool {
-    wanted.iter().all(|t| card.tags.contains(t))
+pub fn card_matches_labels(card: &Card, wanted: &[String]) -> bool {
+    wanted.iter().all(|t| card.labels.contains(t))
 }
 
 fn passes_filter(
@@ -173,8 +173,8 @@ fn passes_filter(
             return false;
         }
     }
-    if let Some(ref tags) = filter.tags {
-        if !tags.is_empty() && !card_matches_tags(card, tags) {
+    if let Some(ref labels) = filter.labels {
+        if !labels.is_empty() && !card_matches_labels(card, labels) {
             return false;
         }
     }
@@ -681,55 +681,55 @@ mod tests {
     }
 
     #[test]
-    fn test_card_matches_tags_requires_all_requested() {
+    fn test_card_matches_labels_requires_all_requested() {
         let (board_a, _) = two_boards_with_prefixes("AAA", "BBB");
         let col_a = Column::new(board_a.id, "Todo".to_string(), 0);
         let mut card = Card::new(board_a.id, col_a.id, "one", 0);
-        card.tags = vec!["foo".into(), "bar".into()];
+        card.labels = vec!["foo".into(), "bar".into()];
 
         assert!(
-            card_matches_tags(&card, &[]),
+            card_matches_labels(&card, &[]),
             "empty wanted slice matches every card"
         );
-        assert!(card_matches_tags(&card, &["foo".to_string()]));
-        assert!(!card_matches_tags(&card, &["baz".to_string()]));
-        assert!(card_matches_tags(
+        assert!(card_matches_labels(&card, &["foo".to_string()]));
+        assert!(!card_matches_labels(&card, &["baz".to_string()]));
+        assert!(card_matches_labels(
             &card,
             &["foo".to_string(), "bar".to_string()]
         ));
         assert!(
-            !card_matches_tags(&card, &["foo".to_string(), "baz".to_string()]),
-            "AND semantics: one absent tag must reject"
+            !card_matches_labels(&card, &["foo".to_string(), "baz".to_string()]),
+            "AND semantics: one absent label must reject"
         );
     }
 
     #[test]
-    fn test_filter_by_tags_returns_only_matching() {
+    fn test_filter_by_labels_returns_only_matching() {
         let (board_a, _) = two_boards_with_prefixes("AAA", "BBB");
         let col_a = Column::new(board_a.id, "Todo".to_string(), 0);
         let mut card_a = Card::new(board_a.id, col_a.id, "with-x", 0);
-        card_a.tags = vec!["x".into(), "y".into()];
+        card_a.labels = vec!["x".into(), "y".into()];
         let mut card_b = Card::new(board_a.id, col_a.id, "with-x-only", 1);
-        card_b.tags = vec!["x".into()];
-        let card_c = Card::new(board_a.id, col_a.id, "no-tags", 2);
+        card_b.labels = vec!["x".into()];
+        let card_c = Card::new(board_a.id, col_a.id, "no-labels", 2);
         let cards = vec![card_a.clone(), card_b.clone(), card_c];
         let columns = vec![col_a];
         let boards = vec![board_a.clone()];
 
         let filter_x = CardListFilter {
-            tags: Some(vec!["x".to_string()]),
+            labels: Some(vec!["x".to_string()]),
             ..Default::default()
         };
         let out_x = filter_and_sort_cards(&cards, &columns, &[], None, &boards, &filter_x);
         assert_eq!(
             out_x.len(),
             2,
-            "expected 2 cards with tag 'x'; got: {:?}",
+            "expected 2 cards with label 'x'; got: {:?}",
             out_x.iter().map(|c| c.title.clone()).collect::<Vec<_>>()
         );
 
         let filter_xy = CardListFilter {
-            tags: Some(vec!["x".to_string(), "y".to_string()]),
+            labels: Some(vec!["x".to_string(), "y".to_string()]),
             ..Default::default()
         };
         let out_xy = filter_and_sort_cards(&cards, &columns, &[], None, &boards, &filter_xy);
@@ -749,6 +749,6 @@ mod tests {
             &boards,
             &CardListFilter::default(),
         );
-        assert_eq!(out_none.len(), 3, "no tag filter should return all 3 cards");
+        assert_eq!(out_none.len(), 3, "no label filter should return all 3 cards");
     }
 }

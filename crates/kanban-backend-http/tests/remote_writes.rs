@@ -49,7 +49,7 @@ fn a_new_card(column_id: Uuid) -> NewCard {
         due_date: None,
         points: Some(3),
         sprint_id: None,
-        tags: Vec::new(),
+        labels: Vec::new(),
     }
 }
 
@@ -303,15 +303,15 @@ async fn test_create_card_over_http_hits_the_card_route_and_returns_server_state
     server.shutdown().await;
 }
 
-/// POST create with a `tags` payload is accepted by the server, mirroring the
+/// POST create with a `labels` payload is accepted by the server, mirroring the
 /// points-create test above. The create wire projection (`CardResponse`)
-/// deliberately omits tags in this leaf, so the assert reads the file-backed
-/// store and confirms the server persisted the tags in the order sent
+/// deliberately omits labels in this leaf, so the assert reads the file-backed
+/// store and confirms the server persisted the labels in the order sent
 /// (KAN-1793) rather than echoing them back over the wire.
 #[tokio::test(flavor = "multi_thread")]
-async fn test_api_post_create_with_tags_returns_them() {
+async fn test_api_post_create_with_labels_returns_them() {
     let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("tags.kanban");
+    let file = dir.path().join("labels.kanban");
     let server = TestServer::start_on_json(&file).await;
     let mut ctx = ctx_over(&server).await;
     let (board, _) = ctx.create_board_from_spec(None, a_new_board()).unwrap();
@@ -321,17 +321,17 @@ async fn test_api_post_create_with_tags_returns_them() {
     let id = Uuid::new_v4();
 
     let mut spec = a_new_card(column.id);
-    spec.tags = vec!["alpha".to_string(), "beta".to_string()];
+    spec.labels = vec!["alpha".to_string(), "beta".to_string()];
 
     let (card, _invalidation) = ctx
         .create_card_from_spec(Some(id), spec)
-        .expect("create with tags should succeed over http");
+        .expect("create with labels should succeed over http");
 
     assert_eq!(card.id, id);
     assert_eq!(card.column_id, column.id);
     assert_eq!(card.board_id, board.id);
 
-    // tags is not on the create response wire yet, so verify server persisted it.
+    // labels is not on the create response wire yet, so verify server persisted it.
     let store: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
     let cards = store["data"]["cards"]
         .as_array()
@@ -341,9 +341,9 @@ async fn test_api_post_create_with_tags_returns_them() {
         .find(|c| c["id"] == id.to_string())
         .expect("the created card is persisted");
     assert_eq!(
-        card["tags"],
+        card["labels"],
         serde_json::json!(["alpha", "beta"]),
-        "tags POSTed at create are persisted by the server in order (KAN-1793)"
+        "labels POSTed at create are persisted by the server in order (KAN-1793)"
     );
 
     server.shutdown().await;

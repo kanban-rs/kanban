@@ -51,7 +51,7 @@ fn test_create_card_command_funnels_through_factory_seeds_defaults() {
 }
 
 #[test]
-fn test_create_card_options_with_tags_yields_card_with_same_tags() {
+fn test_create_card_options_with_labels_yields_card_with_same_tags() {
     let tc = TestContext::new();
     let board = kanban_domain::Board::new("B", Some("TST"));
     let col = kanban_domain::Column::new(board.id, "Col", 0);
@@ -70,7 +70,7 @@ fn test_create_card_options_with_tags_yields_card_with_same_tags() {
         title: "Tagged".to_string(),
         position: 0,
         options: CreateCardOptions {
-            tags: Some(vec!["x".to_string(), "y".to_string()]),
+            labels: Some(vec!["x".to_string(), "y".to_string()]),
             ..Default::default()
         },
         timestamp: Utc::now(),
@@ -79,7 +79,7 @@ fn test_create_card_options_with_tags_yields_card_with_same_tags() {
     cmd.execute(&context).unwrap();
 
     let card = tc.store.get_card(card_id).unwrap().unwrap();
-    assert_eq!(card.tags, vec!["x".to_string(), "y".to_string()]);
+    assert_eq!(card.labels, vec!["x".to_string(), "y".to_string()]);
 }
 
 #[test]
@@ -345,7 +345,7 @@ fn test_create_card_with_options_only_uses_embedded_timestamp() {
             points: Some(3),
             due_date: None,
             sprint_id: None,
-            tags: None,
+            labels: None,
         },
         timestamp: fixed_time,
         default_card_prefix: "task".to_string(),
@@ -392,7 +392,7 @@ fn test_create_card_with_options_and_sprint_uses_embedded_timestamp() {
             points: Some(3),
             due_date: None,
             sprint_id: Some(sprint_id),
-            tags: None,
+            labels: None,
         },
         timestamp: fixed_time,
         default_card_prefix: "task".to_string(),

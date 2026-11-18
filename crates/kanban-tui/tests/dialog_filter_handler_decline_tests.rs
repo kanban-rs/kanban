@@ -114,7 +114,7 @@ fn make_filter_dialog_state(current_section: FilterDialogSection) -> FilterDialo
         selected_sprint_ids: Default::default(),
         date_from: None,
         date_to: None,
-        selected_tags: Default::default(),
+        selected_labels: Default::default(),
     };
     let mut dialog_state = FilterDialogState::new(filters);
     dialog_state.current_section = current_section;

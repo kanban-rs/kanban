@@ -193,7 +193,7 @@ mod tests {
             position: 0,
             due_date: None,
             points: None,
-            tags: Vec::new(),
+            labels: Vec::new(),
             card_number: number,
             prefix: String::new(),
             sprint_id: None,

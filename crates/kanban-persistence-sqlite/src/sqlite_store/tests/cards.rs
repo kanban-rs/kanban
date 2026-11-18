@@ -25,7 +25,7 @@ fn fully_populated_card(column_id: Uuid) -> Card {
         position: 7,
         due_date: Some("2024-05-05T00:00:00Z".parse().unwrap()),
         points: Some(3),
-        tags: Vec::new(),
+        labels: Vec::new(),
         card_number: 42,
         sprint_id: None,
         created_at: "2024-01-01T00:00:00Z".parse().unwrap(),
@@ -364,7 +364,7 @@ fn test_get_card_by_board_and_number_uses_indexed_search_not_full_scan() {
     });
 }
 
-/// Write a card carrying `tags=["x","y"]`, read it back, and assert the tags
+/// Write a card carrying `labels=["x","y"]`, read it back, and assert the labels
 /// survived the round-trip through SQLite.
 #[test]
 fn test_sqlite_card_tags_round_trip() {
@@ -386,7 +386,7 @@ fn test_sqlite_card_tags_round_trip() {
             position: 0,
             due_date: None,
             points: None,
-            tags: vec!["x".to_string(), "y".to_string()],
+            labels: vec!["x".to_string(), "y".to_string()],
             card_number: 1,
             sprint_id: None,
             created_at: "2024-01-01T00:00:00Z".parse().unwrap(),
@@ -398,9 +398,9 @@ fn test_sqlite_card_tags_round_trip() {
         .unwrap();
 
         let card_id = card.id;
-        store.upsert_card(card).expect("upsert card with tags");
+        store.upsert_card(card).expect("upsert card with labels");
 
         let loaded = store.get_card(card_id).expect("get card").expect("Some");
-        assert_eq!(loaded.tags, vec!["x".to_string(), "y".to_string()]);
+        assert_eq!(loaded.labels, vec!["x".to_string(), "y".to_string()]);
     });
 }

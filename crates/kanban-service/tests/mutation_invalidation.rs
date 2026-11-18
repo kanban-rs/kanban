@@ -158,7 +158,7 @@ async fn test_migrate_sprint_logs_invalidates_only_the_cards_it_rewrote() -> Kan
             due_date: None,
             points: None,
             sprint_id: None,
-            tags: Vec::new(),
+            labels: Vec::new(),
         },
         uuid::Uuid::new_v4(),
         1,
@@ -180,7 +180,7 @@ async fn test_migrate_sprint_logs_invalidates_only_the_cards_it_rewrote() -> Kan
             due_date: None,
             points: None,
             sprint_id: None,
-            tags: Vec::new(),
+            labels: Vec::new(),
         },
         uuid::Uuid::new_v4(),
         2,
@@ -512,7 +512,7 @@ async fn test_create_card_from_spec_returns_an_invalidation_naming_the_card() ->
             due_date: None,
             points: None,
             sprint_id: None,
-            tags: Vec::new(),
+            labels: Vec::new(),
         },
     )?;
 
@@ -546,7 +546,7 @@ async fn test_create_or_replace_card_returns_the_create_invalidation_on_the_crea
             due_date: None,
             points: None,
             sprint_id: None,
-            tags: Vec::new(),
+            labels: Vec::new(),
         },
     )?;
 
@@ -575,7 +575,7 @@ async fn test_create_or_replace_card_returns_the_update_invalidation_on_the_repl
             due_date: None,
             points: None,
             sprint_id: None,
-            tags: Vec::new(),
+            labels: Vec::new(),
         },
     )?;
 
@@ -589,7 +589,7 @@ async fn test_create_or_replace_card_returns_the_update_invalidation_on_the_repl
             due_date: None,
             points: None,
             sprint_id: None,
-            tags: Vec::new(),
+            labels: Vec::new(),
         },
     )?;
 

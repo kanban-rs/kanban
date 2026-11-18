@@ -129,7 +129,7 @@ fn app_with_asymmetric_column_tier(board_columns_state: LoadState<Vec<Column>>) 
         all_sprints: &[],
         active_sprint_filters: Default::default(),
         hide_assigned_cards: false,
-        active_tag_filters: None,
+        active_label_filters: None,
         search_query: None,
     };
     app.view.strategy.refresh_task_lists(&ctx);

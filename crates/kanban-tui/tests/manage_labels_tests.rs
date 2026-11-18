@@ -18,7 +18,7 @@ fn headless_terminal() -> Terminal<CrosstermBackend<std::io::Stdout>> {
     .unwrap()
 }
 
-/// Create a board + card, set up labels and tags, load the model, and return
+/// Create a board + card, set up labels and labels, load the model, and return
 /// the App with the active card selected and the ManageLabels dialog open.
 fn card_with_labels_fixture() -> (App, uuid::Uuid) {
     let mut app = App::test_default();
@@ -44,7 +44,7 @@ fn card_with_labels_fixture() -> (App, uuid::Uuid) {
     // Apply "design" to the card (auto-registers already done above).
     app.ctx.assign_label_to_cards("design", &[card.id]).unwrap();
 
-    // Load card into the model so handle_manage_labels can read card.tags.
+    // Load card into the model so handle_manage_labels can read card.labels.
     let snap = kanban_domain::Snapshot {
         archived_boards: Vec::new(),
         boards: app.ctx.data_store().list_boards().unwrap(),
@@ -90,16 +90,16 @@ fn test_handle_manage_labels_opens_dialog_with_applied_and_registry() {
     );
 
     let card = app.ctx.get_card(card_id).unwrap().unwrap();
-    assert_eq!(card.tags, vec!["design".to_string()]);
+    assert_eq!(card.labels, vec!["design".to_string()]);
 
-    // The managed card carries the card's tags, and the row list reflects them:
+    // The managed card carries the card's labels, and the row list reflects them:
     // design (applied) ordered above p1 (not applied).
     assert!(
         app.label_manager
             .cards
             .iter()
-            .any(|c| c.tags == vec!["design"]),
-        "managed card must carry the card's tags, got: {:?}",
+            .any(|c| c.labels == vec!["design"]),
+        "managed card must carry the card's labels, got: {:?}",
         app.label_manager.cards
     );
     let row_names: Vec<_> = app
@@ -150,9 +150,9 @@ async fn test_handle_manage_labels_popup_enter_on_applied_row_removes_from_card(
 
     let card = app.ctx.get_card(card_id).unwrap().unwrap();
     assert!(
-        !card.tags.contains(&"design".to_string()),
+        !card.labels.contains(&"design".to_string()),
         "card must no longer carry the removed label, got: {:?}",
-        card.tags
+        card.labels
     );
     // Registry entry must still exist
     let labels = app.ctx.list_labels().unwrap();
@@ -195,9 +195,9 @@ async fn test_handle_manage_labels_popup_enter_on_registry_row_applies_to_card()
 
     let card = app.ctx.get_card(card_id).unwrap().unwrap();
     assert!(
-        card.tags.contains(&"p1".to_string()),
+        card.labels.contains(&"p1".to_string()),
         "card must now carry the newly applied label, got: {:?}",
-        card.tags
+        card.labels
     );
 }
 
@@ -267,9 +267,9 @@ async fn test_new_label_row_enter_with_name_creates_and_applies() {
     // ... and it is applied to the managed card.
     let card = app.ctx.get_card(card_id).unwrap().unwrap();
     assert!(
-        card.tags.contains(&"urgent".to_string()),
+        card.labels.contains(&"urgent".to_string()),
         "card must carry 'urgent', got: {:?}",
-        card.tags
+        card.labels
     );
     // Input clears after creating, and the dialog stays open to show the result.
     assert!(app.input.is_empty());
@@ -388,7 +388,7 @@ async fn test_navigating_to_create_row_enters_insert_mode() {
     let events = EventHandler::new();
 
     // Fixture cursor is on Label(0) "design".  Move to Label(1) "p1" first
-    // (p1 has no tags on the card, so it's the last label before Create).
+    // (p1 has no labels on the card, so it's the last label before Create).
     let p1_row = app
         .label_manager
         .rows

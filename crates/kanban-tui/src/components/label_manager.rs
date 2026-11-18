@@ -345,7 +345,7 @@ mod tests {
     use super::*;
     use kanban_domain::Label;
 
-    /// Build an App whose label manager manages the given cards (key + tags)
+    /// Build an App whose label manager manages the given cards (key + labels)
     /// against the given registry.
     fn state(cards: Vec<(&str, Vec<&str>)>, registry: &[&str]) -> App {
         let mut app = App::default();
@@ -353,7 +353,7 @@ mod tests {
             .into_iter()
             .map(|(k, ts)| crate::app::ManagedCard {
                 key: k.to_string(),
-                tags: ts.into_iter().map(|s| s.to_string()).collect(),
+                labels: ts.into_iter().map(|s| s.to_string()).collect(),
             })
             .collect();
         app.label_manager

@@ -38,11 +38,11 @@ pub fn render_filter_options_popup(app: &App, frame: &mut Frame) {
     if let Some(ref dialog_state) = app.filter.dialog_state {
         render_filter_sprints_section(app, frame, chunks[0], dialog_state);
         render_filter_date_range_section(frame, chunks[1], dialog_state.section_index);
-        render_filter_tags_section(
+        render_filter_labels_section(
             frame,
             chunks[2],
             dialog_state.section_index,
-            &dialog_state.tags_input,
+            &dialog_state.labels_input,
         );
     }
 }
@@ -184,11 +184,11 @@ fn render_filter_date_range_section(
     frame.render_widget(section, area);
 }
 
-fn render_filter_tags_section(
+fn render_filter_labels_section(
     frame: &mut Frame,
     area: ratatui::layout::Rect,
     section_index: usize,
-    tags_input: &str,
+    labels_input: &str,
 ) {
     let label_style = if section_index == 2 {
         bold_highlight()
@@ -200,20 +200,20 @@ fn render_filter_tags_section(
     } else {
         label_text()
     };
-    let tag_lines = vec![
-        Line::from(Span::styled("Tags", label_style)),
+    let label_lines = vec![
+        Line::from(Span::styled("Labels", label_style)),
         Line::from(vec![
-            Span::styled("Filter by tags: ", label_text()),
-            Span::styled(tags_input.to_string(), input_style),
+            Span::styled("Filter by labels: ", label_text()),
+            Span::styled(labels_input.to_string(), input_style),
         ]),
         Line::from(Span::styled(
-            "  Comma-separated tags, e.g. bug,urgent",
+            "  Comma-separated labels, e.g. bug,urgent",
             label_text(),
         )),
     ];
 
     let section =
-        Paragraph::new(tag_lines).block(Block::default().borders(Borders::ALL).border_style(
+        Paragraph::new(label_lines).block(Block::default().borders(Borders::ALL).border_style(
             if section_index == 2 {
                 focused_border()
             } else {

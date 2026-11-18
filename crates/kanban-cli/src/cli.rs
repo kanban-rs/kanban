@@ -510,9 +510,9 @@ pub struct CardCreateArgs {
     #[arg(long)]
     pub due_date: Option<String>,
     /// Tag the new card (repeatable). Pass the same flag several times to attach
-    /// more than one tag; omit for no tags.
+    /// more than one tag; omit for no labels.
     #[arg(long, action = ArgAction::Append)]
-    pub tags: Vec<String>,
+    pub labels: Vec<String>,
     /// Assign the new card to a sprint. Pass a UUID, name, or number to pick a
     /// specific sprint; pass without a value to use the board's sole active
     /// sprint (errors if zero or more than one active sprint exists).
@@ -534,10 +534,10 @@ pub struct CardListArgs {
     pub sprint: Option<String>,
     #[arg(long)]
     pub status: Option<String>,
-    /// Tag filter. Comma-separated tags; a card must carry ALL listed tags
-    /// to match (e.g. `--tags bug,urgent`).
+    /// Label filter. Comma-separated labels; a card must carry ALL listed labels
+    /// to match (e.g. `--labels bug,urgent`).
     #[arg(long)]
-    pub tags: Option<String>,
+    pub labels: Option<String>,
     /// Show only archived cards (mutually exclusive with --include-archived).
     #[arg(long, conflicts_with = "include_archived")]
     pub archived: bool,
@@ -577,9 +577,9 @@ pub struct CardUpdateArgs {
     #[arg(long)]
     pub clear_due_date: bool,
     #[arg(long, action = ArgAction::Append)]
-    pub tags: Vec<String>,
+    pub labels: Vec<String>,
     #[arg(long)]
-    pub clear_tags: bool,
+    pub clear_labels: bool,
 }
 
 // Sprint commands

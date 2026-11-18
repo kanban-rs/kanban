@@ -1216,7 +1216,7 @@ impl App {
     }
 
     /// Open the Manage Labels dialog for the active card, priming the managed
-    /// card (its key + `Card.tags`) and a snapshot of the global label registry.
+    /// card (its key + `Card.labels`) and a snapshot of the global label registry.
     pub fn handle_manage_labels(&mut self) {
         let Some(active_id) = self.selection.active_card_id else {
             return;
@@ -1233,7 +1233,7 @@ impl App {
         };
         let cards = vec![crate::app::ManagedCard {
             key: format!("{}-{}", card.prefix, card.card_number),
-            tags: card.tags.clone(),
+            labels: card.labels.clone(),
         }];
         self.label_manager.card_ids = vec![active_id];
         // `refresh` defaults the cursor to the first selectable row, so no
@@ -1273,7 +1273,7 @@ impl App {
             .filter_map(|id| self.model.card_by_id_state(*id).loaded().copied())
             .map(|c| crate::app::ManagedCard {
                 key: format!("{}-{}", c.prefix, c.card_number),
-                tags: c.tags.clone(),
+                labels: c.labels.clone(),
             })
             .collect();
         self.label_manager.card_ids = card_ids;
@@ -1501,7 +1501,7 @@ impl App {
         match self.ctx.delete_label_impl(label_name.to_string()) {
             Ok(inv) => {
                 self.resolve_after_command(inv);
-                // A card's tag may now point at a deleted registry entry; drop
+                // A card's label may now point at a deleted registry entry; drop
                 // it from every managed card (a no-op for ones not carrying it).
                 if let Ok((_, inv2)) = self
                     .ctx
@@ -1658,7 +1658,7 @@ impl App {
         true
     }
 
-    /// Re-read every managed card's `tags` and the global registry into the
+    /// Re-read every managed card's `labels` and the global registry into the
     /// dialog state, preserving the cursor where possible.
     fn refresh_label_manager(&mut self, card_ids: &[uuid::Uuid]) {
         let cards: Vec<crate::app::ManagedCard> = card_ids
@@ -1666,24 +1666,24 @@ impl App {
             .filter_map(|id| self.model.card_by_id_state(*id).loaded().copied())
             .map(|c| crate::app::ManagedCard {
                 key: format!("{}-{}", c.prefix, c.card_number),
-                tags: c.tags.clone(),
+                labels: c.labels.clone(),
             })
             .collect();
         let registry = self.ctx.list_labels().unwrap_or_default();
         self.label_manager.refresh(cards, registry);
     }
 
-    /// Drop a tag from every managed card that still carries it (skipping ones
+    /// Drop a label from every managed card that still carries it (skipping ones
     /// that do not), so a rename or delete never leaves a card pointing at a
     /// stale registry entry.
-    fn drop_tag_from_managed(&mut self, tag: &str) {
+    fn drop_tag_from_managed(&mut self, label: &str) {
         let card_ids = self.label_manager.card_ids.clone();
         for card_id in card_ids.iter() {
             if let Some(card) = self.model.card_by_id_state(*card_id).loaded().copied() {
-                if card.tags.iter().any(|t| t == tag) {
+                if card.labels.iter().any(|t| t == label) {
                     if let Ok((_, inv)) = self
                         .ctx
-                        .remove_label_from_cards_impl(tag.to_string(), vec![*card_id])
+                        .remove_label_from_cards_impl(label.to_string(), vec![*card_id])
                     {
                         self.resolve_after_command(inv);
                     }

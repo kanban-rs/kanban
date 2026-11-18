@@ -34,14 +34,14 @@ impl SqliteStore {
 
         let insert_result = sqlx::query(
             "INSERT INTO cards (id, column_id, board_id, title, description, priority, status,
-                position, due_date, points, tags, card_number, prefix, sprint_id, created_at,
+                position, due_date, points, labels, card_number, prefix, sprint_id, created_at,
                 updated_at, completed_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET
                 column_id=excluded.column_id, board_id=excluded.board_id, title=excluded.title,
                 description=excluded.description, priority=excluded.priority,
                 status=excluded.status, position=excluded.position,
-                due_date=excluded.due_date, points=excluded.points, tags=excluded.tags,
+                due_date=excluded.due_date, points=excluded.points, labels=excluded.labels,
                 card_number=excluded.card_number, prefix=excluded.prefix,
                 sprint_id=excluded.sprint_id,
                 updated_at=excluded.updated_at, completed_at=excluded.completed_at",
@@ -56,7 +56,7 @@ impl SqliteStore {
         .bind(card.position)
         .bind(opt_dt(&card.due_date))
         .bind(card.points.map(|v| v as i32))
-        .bind(serde_json::to_string(&card.tags).map_err(ser_err)?)
+        .bind(serde_json::to_string(&card.labels).map_err(ser_err)?)
         .bind(card.card_number as i32)
         .bind(&card.prefix)
         .bind(card.sprint_id.map(|id| id.to_string()))
@@ -93,24 +93,24 @@ impl SqliteStore {
             .map_err(db_err)?;
         }
 
-        // Keep `card_labels` in sync with `card.tags`: delete old rows,
+        // Keep `card_labels` in sync with `card.labels`: delete old rows,
         // register each label in the global `labels` table, and re-insert
-        // the association rows. `cards.tags` itself is written by the INSERT
+        // the association rows. `cards.labels` itself is written by the INSERT
         // above; `card_labels` is the normalized registry-backed representation.
         sqlx::query("DELETE FROM card_labels WHERE card_id = ?")
             .bind(&id)
             .execute(&mut *conn)
             .await
             .map_err(db_err)?;
-        for tag in &card.tags {
+        for label in &card.labels {
             sqlx::query("INSERT OR IGNORE INTO labels (name) VALUES (?)")
-                .bind(tag)
+                .bind(label)
                 .execute(&mut *conn)
                 .await
                 .map_err(db_err)?;
             sqlx::query("INSERT OR IGNORE INTO card_labels (card_id, label_name) VALUES (?, ?)")
                 .bind(&id)
-                .bind(tag)
+                .bind(label)
                 .execute(&mut *conn)
                 .await
                 .map_err(db_err)?;
@@ -281,7 +281,7 @@ impl SqliteStore {
     ) -> KanbanResult<Vec<Card>> {
         let sql = format!(
             "SELECT id, column_id, board_id, title, description, priority, status, position,
-                    due_date, points, tags, card_number, prefix, sprint_id, created_at,
+                    due_date, points, labels, card_number, prefix, sprint_id, created_at,
                     updated_at, completed_at
              FROM cards {} {}
              ORDER BY position ASC, created_at ASC, id ASC",

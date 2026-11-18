@@ -92,9 +92,9 @@ impl UpdateCard {
                     None => FieldUpdate::Clear,
                 },
             },
-            tags: match upd.tags {
+            labels: match upd.labels {
                 FieldUpdate::NoChange => FieldUpdate::NoChange,
-                _ => match &card.tags {
+                _ => match &card.labels {
                     v if v.is_empty() => FieldUpdate::Clear,
                     v => FieldUpdate::Set(v.clone()),
                 },
@@ -159,7 +159,7 @@ impl CreateCard {
             due_date: self.options.due_date,
             points: self.options.points,
             sprint_id: None,
-            tags: self.options.tags.clone().unwrap_or_default(),
+            labels: self.options.labels.clone().unwrap_or_default(),
         };
         // The value must match what the identifier reader resolves, so a sprint
         // override is applied below once the sprint is known.

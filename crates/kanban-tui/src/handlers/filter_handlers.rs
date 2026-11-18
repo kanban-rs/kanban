@@ -9,11 +9,11 @@ impl App {
             return;
         }
 
-        // Pre-populate the tag filter with the currently active tags so the
+        // Pre-populate the label filter with the currently active labels so the
         // popup opens on the user's existing filter rather than blank.
         let initial_tag_input = self
             .filter
-            .active_tags
+            .active_labels
             .as_deref()
             .map(|v| v.join(","))
             .unwrap_or_default();
@@ -23,16 +23,16 @@ impl App {
             selected_sprint_ids: self.filter.active_sprint_filters.clone(),
             date_from: None,
             date_to: None,
-            selected_tags: Default::default(),
+            selected_labels: Default::default(),
         };
-        if let Some(ref tags) = self.filter.active_tags {
-            for t in tags.iter() {
-                filters.selected_tags.insert(t.clone());
+        if let Some(ref labels) = self.filter.active_labels {
+            for t in labels.iter() {
+                filters.selected_labels.insert(t.clone());
             }
         }
 
         let mut dialog = FilterDialogState::new(filters);
-        dialog.tags_input = initial_tag_input;
+        dialog.labels_input = initial_tag_input;
 
         self.filter.dialog_state = Some(dialog);
         self.open_dialog(DialogMode::FilterOptions);
@@ -54,38 +54,38 @@ impl App {
 
         if let Some(ref mut dialog_state) = self.filter.dialog_state {
             // ---- Tags section: free-form text input ----
-            let in_tags_section = dialog_state.current_section == FilterDialogSection::Tags;
+            let in_tags_section = dialog_state.current_section == FilterDialogSection::Labels;
 
             match key_code {
                 KeyCode::Esc => {
                     self.filter.dialog_state = None;
                     self.pop_mode();
                 }
-                // Printable characters appended to the tags buffer only when the
+                // Printable characters appended to the labels buffer only when the
                 // Tags section is focused; ignored otherwise. `j` and `k` are
                 // reserved for section navigation (see below) and are excluded.
                 KeyCode::Char(c)
                     if in_tags_section && c.is_alphanumeric() && c != 'j' && c != 'k' =>
                 {
-                    dialog_state.tags_input.push(c);
+                    dialog_state.labels_input.push(c);
                 }
                 KeyCode::Char(c) if in_tags_section && (c == ',' || c == ' ') => {
-                    dialog_state.tags_input.push(c);
+                    dialog_state.labels_input.push(c);
                 }
                 KeyCode::Backspace if in_tags_section => {
-                    dialog_state.tags_input.pop();
+                    dialog_state.labels_input.pop();
                 }
                 // Enter applies the filter and closes the popup.
                 KeyCode::Enter => {
-                    // Parse the raw tags input into the dialog's CardFilters so
+                    // Parse the raw labels input into the dialog's CardFilters so
                     // `apply_filters` can pick it up; an empty string clears the
-                    // tag filter.
+                    // label filter.
                     let parsed =
-                        kanban_domain::parse_csv_tags(Some(dialog_state.tags_input.as_str()));
-                    dialog_state.filters.selected_tags.clear();
-                    if let Some(ref tags) = parsed {
-                        for t in tags.iter() {
-                            dialog_state.filters.selected_tags.insert(t.clone());
+                        kanban_domain::parse_csv_labels(Some(dialog_state.labels_input.as_str()));
+                    dialog_state.filters.selected_labels.clear();
+                    if let Some(ref labels) = parsed {
+                        for t in labels.iter() {
+                            dialog_state.filters.selected_labels.insert(t.clone());
                         }
                     }
                     self.apply_filters();
@@ -177,22 +177,22 @@ impl App {
             self.filter.hide_assigned_cards = dialog_state.filters.show_unassigned_sprints;
             self.filter.active_sprint_filters = dialog_state.filters.selected_sprint_ids.clone();
 
-            // Convert the selected_tags set into the active_tags vec (or None
-            // when empty, meaning "no tag filter").
-            if dialog_state.filters.selected_tags.is_empty() {
-                self.filter.active_tags = None;
+            // Convert the selected_labels set into the active_labels vec (or None
+            // when empty, meaning "no label filter").
+            if dialog_state.filters.selected_labels.is_empty() {
+                self.filter.active_labels = None;
             } else {
-                let mut tags: Vec<String> =
-                    dialog_state.filters.selected_tags.iter().cloned().collect();
-                tags.sort();
-                self.filter.active_tags = Some(tags);
+                let mut labels: Vec<String> =
+                    dialog_state.filters.selected_labels.iter().cloned().collect();
+                labels.sort();
+                self.filter.active_labels = Some(labels);
             }
 
             tracing::info!(
-                "Applied filters: unassigned={}, sprints={}, tags={:?}",
+                "Applied filters: unassigned={}, sprints={}, labels={:?}",
                 self.filter.hide_assigned_cards,
                 self.filter.active_sprint_filters.len(),
-                self.filter.active_tags
+                self.filter.active_labels
             );
         }
     }

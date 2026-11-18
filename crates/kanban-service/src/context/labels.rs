@@ -60,14 +60,14 @@ impl KanbanContext {
                 let card = store
                     .get_card(*card_id)?
                     .ok_or_else(|| KanbanError::not_found("Card", *card_id))?;
-                let mut tags = card.tags.clone();
-                if !tags.iter().any(|t| t == &label_name) {
-                    tags.push(label_name.clone());
+                let mut labels = card.labels.clone();
+                if !labels.iter().any(|t| t == &label_name) {
+                    labels.push(label_name.clone());
                 }
                 cmds.push(Command::Card(CardCommand::Update(UpdateCard {
                     card_id: *card_id,
                     updates: CardUpdate {
-                        tags: FieldUpdate::Set(tags),
+                        labels: FieldUpdate::Set(labels),
                         ..Default::default()
                     },
                 })));
@@ -94,17 +94,17 @@ impl KanbanContext {
                 let card = store
                     .get_card(*card_id)?
                     .ok_or_else(|| KanbanError::not_found("Card", *card_id))?;
-                let tags = card
-                    .tags
+                let labels = card
+                    .labels
                     .iter()
                     .filter(|t| t.as_str() != label_name.as_str())
                     .cloned()
                     .collect();
-                if tags != card.tags {
+                if labels != card.labels {
                     cmds.push(Command::Card(CardCommand::Update(UpdateCard {
                         card_id: *card_id,
                         updates: CardUpdate {
-                            tags: FieldUpdate::Set(tags),
+                            labels: FieldUpdate::Set(labels),
                             ..Default::default()
                         },
                     })));

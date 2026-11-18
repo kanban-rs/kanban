@@ -77,7 +77,7 @@ pub struct Card {
     pub position: i32,
     pub due_date: Option<DateTime<Utc>>,
     pub points: Option<u8>,
-    pub tags: Vec<String>,
+    pub labels: Vec<String>,
     pub card_number: u32,
     /// The namespace this card's identifier belongs to, normalised and fixed
     /// at creation. Stored rather than resolved through the board, so renaming
@@ -108,7 +108,7 @@ pub struct CardSummary {
     pub due_date: Option<DateTime<Utc>>,
     pub points: Option<u8>,
     #[serde(default)]
-    pub tags: Vec<String>,
+    pub labels: Vec<String>,
     #[serde(default)]
     pub card_number: u32,
     #[serde(default)]
@@ -136,7 +136,7 @@ impl From<&Card> for CardSummary {
             position: card.position,
             due_date: card.due_date,
             points: card.points,
-            tags: card.tags.clone(),
+            labels: card.labels.clone(),
             card_number: card.card_number,
             sprint_id: card.sprint_id,
             created_at: card.created_at,
@@ -166,7 +166,7 @@ impl Card {
             position,
             due_date: None,
             points: None,
-            tags: Vec::new(),
+            labels: Vec::new(),
             card_number: 0,
             prefix: String::new(),
             sprint_id: None,
@@ -339,10 +339,10 @@ impl Card {
         updates.due_date.apply_to(&mut self.due_date);
         updates.points.apply_to(&mut self.points);
         updates.sprint_id.apply_to(&mut self.sprint_id);
-        match updates.tags {
+        match updates.labels {
             FieldUpdate::NoChange => {}
-            FieldUpdate::Set(value) => self.tags = value,
-            FieldUpdate::Clear => self.tags = Vec::new(),
+            FieldUpdate::Set(value) => self.labels = value,
+            FieldUpdate::Clear => self.labels = Vec::new(),
         }
         self.updated_at = now;
     }
@@ -365,9 +365,9 @@ pub struct CardUpdate {
     pub sprint_id: FieldUpdate<Uuid>,
     /// Three-state like the other `FieldUpdate`s: `Set(..)` replaces, `Clear`
     /// empties to `[]`. `#[serde(default)]` so command logs persisted before
-    /// this field existed (missing `tags` key) still deserialise to `NoChange`.
+    /// this field existed (missing `labels` key) still deserialise to `NoChange`.
     #[serde(default)]
-    pub tags: FieldUpdate<Vec<String>>,
+    pub labels: FieldUpdate<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -379,7 +379,7 @@ pub struct CreateCardOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sprint_id: Option<Uuid>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tags: Option<Vec<String>>,
+    pub labels: Option<Vec<String>>,
 }
 
 impl GraphNode for Card {

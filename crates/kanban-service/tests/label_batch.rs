@@ -54,7 +54,7 @@ async fn test_assign_registers_missing_label_and_tags_all_cards() {
 
     for id in [a, b] {
         let card = ctx.get_card(id).unwrap().unwrap();
-        assert_eq!(card.tags, vec!["urgent".to_string()]);
+        assert_eq!(card.labels, vec!["urgent".to_string()]);
     }
 }
 
@@ -85,7 +85,7 @@ async fn test_assign_never_clobbers_existing_label_metadata() {
     );
 
     let card = ctx.get_card(card_a).unwrap().unwrap();
-    assert_eq!(card.tags, vec!["backend".to_string()]);
+    assert_eq!(card.labels, vec!["backend".to_string()]);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -101,12 +101,12 @@ async fn test_assign_twice_does_not_duplicate_the_tag() {
     assert_eq!(count, 2);
     let card = ctx.get_card(card_a).unwrap().unwrap();
     assert_eq!(
-        card.tags,
+        card.labels,
         vec!["dup".to_string()],
-        "re-assigning a card must not append the tag again"
+        "re-assigning a card must not append the label again"
     );
     assert_eq!(
-        ctx.get_card(card_b).unwrap().unwrap().tags,
+        ctx.get_card(card_b).unwrap().unwrap().labels,
         vec!["dup".to_string()]
     );
 }
@@ -130,7 +130,7 @@ async fn test_assign_fails_atomically_when_any_card_is_missing() {
 
     let card = ctx.get_card(card_a).unwrap().unwrap();
     assert!(
-        card.tags.is_empty(),
+        card.labels.is_empty(),
         "the valid card must not be tagged when the batch fails"
     );
 }
@@ -139,7 +139,7 @@ async fn test_assign_fails_atomically_when_any_card_is_missing() {
 async fn test_remove_keeps_registry_strips_only_the_named_label() {
     let (mut ctx, card_a, card_b) = seeded().await;
 
-    // Give card a two tags: "keep" and "drop".
+    // Give card a two labels: "keep" and "drop".
     ctx.assign_label_to_cards_impl("keep".to_string(), vec![card_a])
         .unwrap();
     ctx.assign_label_to_cards_impl("drop".to_string(), vec![card_a, card_b])
@@ -154,13 +154,13 @@ async fn test_remove_keeps_registry_strips_only_the_named_label() {
         .expect("delete is out of scope; remove must not delete the registry entry");
     assert_eq!(label.name, "drop");
 
-    let kept = ctx.get_card(card_a).unwrap().unwrap().tags;
+    let kept = ctx.get_card(card_a).unwrap().unwrap().labels;
     assert_eq!(
         kept,
         vec!["keep".to_string()],
         "removing 'drop' must leave 'keep' intact"
     );
-    assert!(ctx.get_card(card_b).unwrap().unwrap().tags.is_empty());
+    assert!(ctx.get_card(card_b).unwrap().unwrap().labels.is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -193,7 +193,7 @@ async fn test_undo_assign_reverts_cards_and_registry_in_one_step() {
     ctx.undo().unwrap();
 
     for id in [card_a, card_b] {
-        assert!(ctx.get_card(id).unwrap().unwrap().tags.is_empty());
+        assert!(ctx.get_card(id).unwrap().unwrap().labels.is_empty());
     }
     assert!(
         ctx.get_label("tmp").unwrap().is_none(),

@@ -33,7 +33,7 @@ pub struct CardResponse {
     pub due_date: Option<DateTime<Utc>>,
     pub points: Option<u8>,
     #[serde(default)]
-    pub tags: Vec<String>,
+    pub labels: Vec<String>,
     pub card_number: u32,
     pub sprint_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
@@ -78,7 +78,7 @@ impl From<&Card> for CardResponse {
             completed_at,
             sprint_logs: _,
             prefix,
-            tags,
+            labels,
         } = card;
         Self {
             id: *id,
@@ -92,7 +92,7 @@ impl From<&Card> for CardResponse {
             position: *position,
             due_date: *due_date,
             points: *points,
-            tags: tags.clone(),
+            labels: labels.clone(),
             card_number: *card_number,
             sprint_id: *sprint_id,
             created_at: *created_at,
@@ -118,7 +118,7 @@ mod tests {
             due_date: None,
             points: Some(3),
             sprint_id: None,
-            tags: Vec::new(),
+            labels: Vec::new(),
         };
         Card::create(
             spec,

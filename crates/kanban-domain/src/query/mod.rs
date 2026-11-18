@@ -11,8 +11,8 @@ pub mod filter_sort;
 pub mod sprint;
 
 pub use filter_sort::{
-    card_matches_tags, count_filtered_cards, filter_and_sort_boards, filter_and_sort_cards,
-    parse_csv_tags, resolve_board_sort, ArchivedFilter, BoardListFilter, CardListFilter,
+    card_matches_labels, count_filtered_cards, filter_and_sort_boards, filter_and_sort_cards,
+    parse_csv_labels, resolve_board_sort, ArchivedFilter, BoardListFilter, CardListFilter,
 };
 
 use crate::{Board, Card, Column, Sprint};
@@ -29,7 +29,7 @@ pub struct CardQueryBuilder<'a> {
     sprint_filter: Option<HashSet<Uuid>>,
     hide_assigned: bool,
     search_query: Option<String>,
-    tag_filter: Option<Vec<String>>,
+    label_filter: Option<Vec<String>>,
 }
 
 impl<'a> CardQueryBuilder<'a> {
@@ -49,7 +49,7 @@ impl<'a> CardQueryBuilder<'a> {
             sprint_filter: None,
             hide_assigned: false,
             search_query: None,
-            tag_filter: None,
+            label_filter: None,
         }
     }
 
@@ -80,12 +80,12 @@ impl<'a> CardQueryBuilder<'a> {
         self
     }
 
-    /// Filter to cards containing ALL listed tags (AND semantics).
+    /// Filter to cards containing ALL listed labels (AND semantics).
     /// An empty slice or `None` input is a no-op (all cards pass).
-    pub fn with_tags(mut self, tags: impl IntoIterator<Item = String>) -> Self {
-        let v: Vec<String> = tags.into_iter().collect();
+    pub fn with_labels(mut self, labels: impl IntoIterator<Item = String>) -> Self {
+        let v: Vec<String> = labels.into_iter().collect();
         if !v.is_empty() {
-            self.tag_filter = Some(v);
+            self.label_filter = Some(v);
         }
         self
     }
@@ -102,7 +102,7 @@ impl<'a> CardQueryBuilder<'a> {
             sprint_ids: self.sprint_filter,
             hide_assigned: self.hide_assigned,
             search: self.search_query,
-            tags: self.tag_filter,
+            labels: self.label_filter,
             ..Default::default()
         };
         filter_and_sort_cards(

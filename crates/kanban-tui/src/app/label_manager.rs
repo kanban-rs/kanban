@@ -15,7 +15,7 @@
 //!
 //! With a single managed card the partial state is unreachable, so the dialog
 //! collapses to the ordinary on-card / not-on-card toggle. [`LabelManagerState`]
-//! keeps the managed cards (identifier + their tags) and a computed
+//! keeps the managed cards (identifier + their labels) and a computed
 //! [`LabelItem`] per label; [`LabelManagerState::entries`] is the source of
 //! truth for the flat ordering, and [`LabelManagerState::resolve`] maps a key
 //! to a semantic [`LabelAction`], so the apply/remove/delete/create decision
@@ -30,11 +30,11 @@ use uuid::Uuid;
 /// [`LabelRow::Label`], [`LabelRow::Create`] are selectable; [`LabelRow::Divider`]
 /// and [`LabelRow::Note`] are not (the cursor skims over them). A `Label` row is
 /// a single entry in [`LabelManagerState::rows`], which unifies global-registry
-/// labels and stray tags (tags on a card with no registry definition) and is
+/// labels and stray labels (labels on a card with no registry definition) and is
 /// independent of applied state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LabelRow {
-    /// A label row: a global-registry label or a stray tag. Index into
+    /// A label row: a global-registry label or a stray label. Index into
     /// [`LabelManagerState::rows`].
     Label(usize),
     /// The internal divider between "on at least one card" (above) and "on
@@ -71,24 +71,24 @@ pub enum LabelAction {
 }
 
 /// A managed card reduced to what the dialog needs: its human-readable key
-/// (e.g. `KAN-12`, used for the partial-state listing) and its current tags.
+/// (e.g. `KAN-12`, used for the partial-state listing) and its current labels.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ManagedCard {
     /// Human-readable identifier, e.g. `KAN-12`.
     pub key: String,
-    /// The card's tags (label names), in the card's own order.
-    pub tags: Vec<String>,
+    /// The card's labels (label names), in the card's own order.
+    pub labels: Vec<String>,
 }
 
 /// One computed label entry for the dialog list. A label is "on" a card when
-/// that card's `tags` contain this entry's `name`; see
+/// that card's `labels` contain this entry's `name`; see
 /// [`LabelManagerState::applied_card_keys`] for the per-card membership.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LabelItem {
-    /// The label name (tag string).
+    /// The label name (label string).
     pub name: String,
     /// Whether the label has a global registry definition. `false` for stray
-    /// tags, which then disable `x` (delete) and `e` (edit).
+    /// labels, which then disable `x` (delete) and `e` (edit).
     pub defined: bool,
     /// The registry description, when the label is defined.
     pub description: Option<String>,
@@ -100,7 +100,7 @@ pub struct LabelManagerState {
     /// view) but several when opened from the card list with multi-select
     /// active. Changes apply to all of them.
     pub card_ids: Vec<Uuid>,
-    /// The managed cards (identifier + tags), aligned 1:1 with [`Self::card_ids`].
+    /// The managed cards (identifier + labels), aligned 1:1 with [`Self::card_ids`].
     /// Drives the per-label applied state and the partial listing.
     pub cards: Vec<ManagedCard>,
     /// The computed label entries, ordered "on at least one" first (above the
@@ -140,14 +140,14 @@ impl LabelManagerState {
     pub fn applied_card_keys(&self, name: &str) -> Vec<String> {
         self.cards
             .iter()
-            .filter(|c| c.tags.iter().any(|t| t == name))
+            .filter(|c| c.labels.iter().any(|t| t == name))
             .map(|c| c.key.clone())
             .collect()
     }
 
     /// Whether a label is on every managed card (and at least one exists).
     pub fn is_on_all_cards(&self, name: &str) -> bool {
-        !self.cards.is_empty() && self.cards.iter().all(|c| c.tags.iter().any(|t| t == name))
+        !self.cards.is_empty() && self.cards.iter().all(|c| c.labels.iter().any(|t| t == name))
     }
 
     /// The flat row list in layout order: the label rows (on-at-least-one first,
@@ -231,10 +231,10 @@ impl LabelManagerState {
     /// Build the computed label entries from the managed cards and the global
     /// registry, then re-pin the cursor.
     ///
-    /// The entry set is the registry's labels plus any tag on a managed card
+    /// The entry set is the registry's labels plus any label on a managed card
     /// that has no registry definition (so it can still be shown and removed).
     /// Entries are ordered "on at least one card" first (registry order, then
-    /// stray tags), then "on none of the cards" (registry order).
+    /// stray labels), then "on none of the cards" (registry order).
     pub fn refresh(&mut self, cards: Vec<ManagedCard>, registry: Vec<Label>) {
         let mut defined_applied: Vec<LabelItem> = Vec::new();
         let mut defined_not: Vec<LabelItem> = Vec::new();
@@ -248,7 +248,7 @@ impl LabelManagerState {
             };
             let on_some = cards
                 .iter()
-                .any(|c| c.tags.iter().any(|t| t == &label.name));
+                .any(|c| c.labels.iter().any(|t| t == &label.name));
             if on_some {
                 defined_applied.push(item);
             } else {
@@ -257,15 +257,15 @@ impl LabelManagerState {
         }
         let mut strays: Vec<LabelItem> = Vec::new();
         for card in &cards {
-            for tag in &card.tags {
-                if seen.contains(tag) {
+            for label in &card.labels {
+                if seen.contains(label) {
                     continue;
                 }
-                seen.insert(tag.clone());
-                // A stray tag is on at least one card (this one is), so it goes
+                seen.insert(label.clone());
+                // A stray label is on at least one card (this one is), so it goes
                 // in the applied group; x/e are disabled via `defined == false`.
                 strays.push(LabelItem {
-                    name: tag.clone(),
+                    name: label.clone(),
                     defined: false,
                     description: None,
                 });
@@ -308,7 +308,7 @@ impl LabelManagerState {
                 self.navigate_up();
                 LabelAction::NavigateUp
             }
-            // `e` edits a label that has a global definition. Stray tags have no
+            // `e` edits a label that has a global definition. Stray labels have no
             // registry definition to edit, so `e` is a no-op on them.
             KeyCode::Char('e') => match self.current_label() {
                 Some(i) if self.rows[i].defined => {
@@ -316,7 +316,7 @@ impl LabelManagerState {
                 }
                 _ => LabelAction::None,
             },
-            // `x` deletes a label that has a global definition. Stray tags have
+            // `x` deletes a label that has a global definition. Stray labels have
             // no registry entry to delete (removing them from the cards is
             // Enter's job), so `x` is a no-op on them.
             KeyCode::Char('x') => match self.current_label() {
@@ -346,10 +346,10 @@ impl LabelManagerState {
 mod tests {
     use super::*;
 
-    fn card(key: &str, tags: Vec<&str>) -> ManagedCard {
+    fn card(key: &str, labels: Vec<&str>) -> ManagedCard {
         ManagedCard {
             key: key.to_string(),
-            tags: tags.into_iter().map(|t| t.to_string()).collect(),
+            labels: labels.into_iter().map(|t| t.to_string()).collect(),
         }
     }
 
@@ -450,7 +450,7 @@ mod tests {
         let mut s = make(vec![card("KAN-1", vec!["stray"])], vec![]);
         assert_eq!(s.rows.len(), 1);
         assert!(!s.rows[0].defined);
-        // Single card with the tag -> on-all -> Enter removes it.
+        // Single card with the label -> on-all -> Enter removes it.
         s.selection.set(Some(0));
         assert_eq!(
             s.resolve(crossterm::event::KeyCode::Enter),
@@ -460,12 +460,12 @@ mod tests {
         assert_eq!(
             s.resolve(crossterm::event::KeyCode::Char('x')),
             LabelAction::None,
-            "x must be a no-op on a stray tag"
+            "x must be a no-op on a stray label"
         );
         assert_eq!(
             s.resolve(crossterm::event::KeyCode::Char('e')),
             LabelAction::None,
-            "e must be a no-op on a stray tag"
+            "e must be a no-op on a stray label"
         );
     }
 

@@ -266,7 +266,7 @@ mod tests {
                 column: None,
                 sprint: None,
                 status: None,
-                tags: None,
+                labels: None,
                 archived: false,
                 include_archived: false,
                 sort: None,

@@ -55,9 +55,9 @@ pub struct ListCardsRequest {
     #[schemars(description = "Items per page (default: 50)")]
     pub page_size: Option<u32>,
     #[schemars(
-        description = "Only return cards that contain ALL of these tags (AND semantics). Omit for no tag filter."
+        description = "Only return cards that contain ALL of these labels (AND semantics). Omit for no label filter."
     )]
-    pub tags: Option<Vec<String>>,
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -87,9 +87,9 @@ pub struct UpdateCardRequest {
     #[schemars(description = "Story points (optional, 0-255)")]
     pub points: Option<u8>,
     #[schemars(
-        description = "Tags to set on the card; pass an empty list to clear all tags; omit to leave unchanged."
+        description = "Tags to set on the card; pass an empty list to clear all labels; omit to leave unchanged."
     )]
-    pub tags: Option<Vec<String>>,
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
