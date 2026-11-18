@@ -1,4 +1,4 @@
-use kanban_domain::CardFilters;
+use kanban_domain::{CardFilters, Label};
 use std::cell::Cell;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -15,8 +15,9 @@ pub struct FilterDialogState {
     pub item_selection: usize,
     pub item_scroll: Cell<usize>,
     pub filters: CardFilters,
-    /// The raw text input buffer for the Tags section.
-    pub labels_input: String,
+    /// All labels from the global registry, fetched once when the dialog opens.
+    /// Indexing by `item_selection` is valid only when `section_index == 2`.
+    pub all_labels: Vec<Label>,
 }
 
 impl FilterDialogState {
@@ -27,7 +28,7 @@ impl FilterDialogState {
             item_selection: 0,
             item_scroll: Cell::new(0),
             filters,
-            labels_input: String::new(),
+            all_labels: Vec::new(),
         }
     }
 

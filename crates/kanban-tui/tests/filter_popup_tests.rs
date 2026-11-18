@@ -44,12 +44,13 @@ fn test_render_filter_options_popup_shows_date_range_section() {
 }
 
 #[test]
-fn test_render_filter_options_popup_shows_tags_section() {
+fn test_render_filter_options_popup_shows_labels_section() {
     let app = setup_app_with_filter_dialog();
     let output = helpers::render_widget_to_string(120, 40, |frame| {
         kanban_tui::components::render_filter_options_popup(&app, frame);
     });
-    assert!(output.contains("Tags"));
+    assert!(output.contains("Labels"));
+    assert!(output.contains("(no labels in registry)"));
 }
 
 #[test]
