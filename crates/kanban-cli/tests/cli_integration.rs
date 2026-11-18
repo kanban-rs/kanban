@@ -1991,6 +1991,110 @@ mod card_tests {
         assert_eq!(card["title"], "Renamed", "title update still works");
     }
 
+    /// KAN-1791: the CLI batch `label assign/remove <name> <cards>...` applies a
+    /// label to (and removes it from) cards in one undo step, auto-registering
+    /// the label on assign and leaving the registry intact on remove — this
+    /// aligns the CLI surface with MCP/HTTP/TUI (which already had both ops).
+    #[test]
+    fn test_cli_label_assign_remove_batch() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.json");
+        let (board_id, column_id) = setup_board_and_column(&file);
+
+        let create_out = kanban()
+            .args([
+                file.to_str().unwrap(),
+                "card",
+                "create",
+                "--board",
+                &board_id,
+                "--column",
+                &column_id,
+                "--title",
+                "Batch Task",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let card_id = extract_id(&parse_json_output(&String::from_utf8_lossy(&create_out)));
+
+        // 'bug' is not in the registry yet.
+        kanban()
+            .args([file.to_str().unwrap(), "label", "get", "bug"])
+            .assert()
+            .failure();
+
+        // Assign 'bug' to the card: auto-registers and applies.
+        let assign_out = kanban()
+            .args([file.to_str().unwrap(), "label", "assign", "bug", &card_id])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let assign_json = parse_json_output(&String::from_utf8_lossy(&assign_out));
+        assert!(assign_json["success"].as_bool().unwrap());
+        assert_eq!(assign_json["data"]["assigned_count"], 1);
+
+        // Now 'bug' is registered in the global registry ...
+        kanban()
+            .args([file.to_str().unwrap(), "label", "get", "bug"])
+            .assert()
+            .success();
+        // ... and the card carries it.
+        let store: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        let card = store["data"]["cards"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["id"] == card_id)
+            .unwrap();
+        assert!(
+            card["labels"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|l| l == "bug"),
+            "assign must add 'bug' to the card"
+        );
+
+        // Remove 'bug' from the card: the card loses it but the registry stays.
+        let remove_out = kanban()
+            .args([file.to_str().unwrap(), "label", "remove", "bug", &card_id])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let remove_json = parse_json_output(&String::from_utf8_lossy(&remove_out));
+        assert!(remove_json["success"].as_bool().unwrap());
+        assert_eq!(remove_json["data"]["removed_count"], 1);
+
+        // The card no longer carries 'bug' ...
+        let store: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        let card = store["data"]["cards"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["id"] == card_id)
+            .unwrap();
+        assert!(
+            !card["labels"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|l| l == "bug"),
+            "remove must drop 'bug' from the card"
+        );
+        // ... but 'bug' is still registered.
+        kanban()
+            .args([file.to_str().unwrap(), "label", "get", "bug"])
+            .assert()
+            .success();
+    }
+
     /// KAN-796: the CLI card-create path funnels through the Card factory
     /// (`Card::create` via the create command), so a created card carries the
     /// factory-seeded server-managed `card_number`, and the JSON output edge

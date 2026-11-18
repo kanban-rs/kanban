@@ -738,6 +738,22 @@ pub enum LabelAction {
         /// Exact name of the label (case-sensitive)
         name: String,
     },
+    /// Assign a label to multiple cards at once. The label is auto-registered
+    /// if it does not exist yet.
+    Assign {
+        /// Exact name of the label (case-sensitive)
+        name: String,
+        /// Card UUIDs or identifiers (e.g. 'KAN-1', '42')
+        cards: Vec<String>,
+    },
+    /// Remove a label from multiple cards at once. The label itself is kept
+    /// in the registry.
+    Remove {
+        /// Exact name of the label (case-sensitive)
+        name: String,
+        /// Card UUIDs or identifiers (e.g. 'KAN-1', '42')
+        cards: Vec<String>,
+    },
 }
 
 // Migrate command

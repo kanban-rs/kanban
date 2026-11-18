@@ -35,6 +35,24 @@ pub async fn handle(ctx: &mut CliContext, action: LabelAction) -> anyhow::Result
             ctx.save().await?;
             output::output_success(serde_json::json!({ "deleted": true }));
         }
+        LabelAction::Assign { name, cards } => {
+            let uuids = ctx.resolve_card_ids(&cards)?;
+            ctx.assign_label_to_cards(&name, &uuids)?;
+            ctx.save().await?;
+            output::output_success(serde_json::json!({
+                "label": name,
+                "assigned_count": uuids.len(),
+            }));
+        }
+        LabelAction::Remove { name, cards } => {
+            let uuids = ctx.resolve_card_ids(&cards)?;
+            ctx.remove_label_from_cards(&name, &uuids)?;
+            ctx.save().await?;
+            output::output_success(serde_json::json!({
+                "label": name,
+                "removed_count": uuids.len(),
+            }));
+        }
     }
     Ok(())
 }
