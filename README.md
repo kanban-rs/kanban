@@ -122,7 +122,7 @@ choco install kanban
 
 ### winget
 ```powershell
-winget install fulsomenko.kanban
+winget install kanban-rs.kanban
 ```
 
 ### Linux Clipboard Support
