@@ -282,10 +282,7 @@ fn render_row(
             Line::from(spans)
         }
         LabelRow::Create => {
-            // The New-label field is the shared text-input component: a muted
-            // placeholder while empty, the typed name otherwise (keeping the
-            // row's selection background via `style`).
-            text_field_content(app.input.as_str(), "Type label name...", style)
+            text_field_content(app.input.as_str(), "Type label name...", normal_text())
         }
     }
 }
