@@ -2755,6 +2755,29 @@ mod tests {
     }
 
     #[test]
+    fn test_column_list_navigate_up_at_first_column_with_no_sprints_lands_on_sprints_section() {
+        let mut app = App::test_default();
+        let _board_id = seed_board_with_columns(&mut app, 3);
+        app.prepare_frame();
+
+        app.dialog_input.column_list.update_item_count(3);
+        app.dialog_input.column_list.set_selected_index(Some(0));
+
+        app.handle_board_detail_navigation_key(KeyCode::Char('k'));
+
+        assert_eq!(
+            app.focus.board_focus,
+            BoardFocus::Sprints,
+            "up at the first column of a board with no sprints must focus the Sprints section, not skip it to Settings"
+        );
+        assert_eq!(
+            app.selection.sprint.get(),
+            Some(0),
+            "landing on the empty Sprints section mirrors down-navigation entry at index 0"
+        );
+    }
+
+    #[test]
     fn test_board_detail_k_from_columns_counts_the_open_boards_columns_not_the_highlighted_ones() {
         let mut app = App::test_default();
         let board_a = app.ctx.create_board("A".into(), None).unwrap();
