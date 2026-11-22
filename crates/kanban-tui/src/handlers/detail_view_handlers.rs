@@ -583,18 +583,15 @@ impl App {
                             .update_item_count(column_count);
                         let was_at_top = self.dialog_input.column_list.navigate_up();
                         if was_at_top {
-                            let sprint_rows = match board_id.map(|id| self.board_sprints_view(id)) {
-                                None => Some(0usize),
-                                Some(LoadState::Loaded(sprints)) => Some(sprints.len()),
-                                Some(_) => None,
-                            };
-                            match sprint_rows {
-                                None => self.set_error("Sprints are not loaded yet"),
-                                Some(0) => self.focus.board_focus = BoardFocus::Settings,
-                                Some(n) => {
+                            match board_id.map(|id| self.board_sprints_view(id)) {
+                                None => self.focus.board_focus = BoardFocus::Settings,
+                                Some(LoadState::Loaded(sprints)) => {
                                     self.focus.board_focus = BoardFocus::Sprints;
-                                    self.selection.sprint.set(Some(n - 1));
+                                    self.selection
+                                        .sprint
+                                        .set(Some(sprints.len().saturating_sub(1)));
                                 }
+                                Some(_) => self.set_error("Sprints are not loaded yet"),
                             }
                         }
                     }
