@@ -1775,4 +1775,178 @@ mod tests {
         assert!(validate(&config).is_ok());
     }
 
+    #[test]
+    fn test_app_config_search_cardlist_jumpto_round_trips_current_global_both() {
+        for value in ["current", "global", "both"] {
+            let dir = TempDir::new().unwrap();
+            let path = dir.path().join("config.toml");
+            let config = AppConfig {
+                search: Some(SearchConfig {
+                    cardlist: Some(CardListConfig {
+                        jumpto: Some(value.to_string()),
+                    }),
+                }),
+                ..Default::default()
+            };
+            save_to(&config, &path).unwrap();
+            let reloaded = load_from(&path);
+            assert_eq!(reloaded.search_cardlist_jumpto(), Some(value));
+            let on_disk = std::fs::read_to_string(&path).unwrap();
+            assert!(on_disk.contains("[search.cardlist]"), "file: {on_disk}");
+            assert!(on_disk.contains("jumpto"), "file: {on_disk}");
+        }
+    }
+
+    #[test]
+    fn test_app_config_search_cardlist_jumpto_absent_defaults_to_none() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "default_card_prefix = \"feat\"\n").unwrap();
+        let reloaded = load_from(&path);
+        assert!(reloaded.search.is_none());
+        assert_eq!(reloaded.search_cardlist_jumpto(), None);
+        let on_disk = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            !on_disk.contains("[search"),
+            "legacy file must not gain a search section: {on_disk}"
+        );
+    }
+
+    #[test]
+    fn test_strip_defaults_removes_search_cardlist_jumpto_when_absent_or_default() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+        let config = AppConfig {
+            default_card_prefix: Some("feat".into()),
+            search: None,
+            ..Default::default()
+        };
+        save_to(&config, &path).unwrap();
+        let loaded = load_from(&path);
+        assert!(loaded.search.is_none());
+        let on_disk = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            !on_disk.contains("[search.cardlist]"),
+            "a config with search=None must not persist a [search.cardlist] section: {on_disk}"
+        );
+    }
+
+    #[test]
+    fn test_validate_and_apply_rejects_invalid_jumpto_value() {
+        for bad in ["foo", "here", "CURRENT", "Current"] {
+            let mut dto_owned = AppConfigDto::from_config(&AppConfig::default(), false);
+            dto_owned.search = Some(SearchConfigDto {
+                cardlist: Some(CardListConfigDto {
+                    jumpto: Some(bad.to_string()),
+                }),
+            });
+            let mut entity = AppConfig::default();
+            let err = dto_owned
+                .clone()
+                .validate_and_apply(&mut entity)
+                .unwrap_err();
+            let msg = err.to_string();
+            assert!(msg.contains("jumpto"), "msg should name the field: {msg}");
+            assert!(
+                msg.contains(bad),
+                "msg should name the offending value: {msg}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_and_apply_accepts_valid_jumpto_values() {
+        for ok in ["current", "global", "both"] {
+            let mut dto = AppConfigDto::from_config(&AppConfig::default(), false);
+            dto.search = Some(SearchConfigDto {
+                cardlist: Some(CardListConfigDto {
+                    jumpto: Some(ok.to_string()),
+                }),
+            });
+            let mut entity = AppConfig::default();
+            dto.validate_and_apply(&mut entity).unwrap();
+            assert_eq!(entity.search_cardlist_jumpto(), Some(ok));
+        }
+    }
+
+    #[test]
+    fn test_validate_and_apply_normalizes_empty_jumpto_to_off() {
+        let mut dto_owned = AppConfigDto::from_config(&AppConfig::default(), false);
+        dto_owned.search = Some(SearchConfigDto {
+            cardlist: Some(CardListConfigDto {
+                jumpto: Some(String::new()),
+            }),
+        });
+        let mut entity = AppConfig::default();
+        dto_owned.validate_and_apply(&mut entity).unwrap();
+        assert!(
+            entity.search.is_none(),
+            "empty jumpto must be normalized to off (search = None), got {:?}",
+            entity.search
+        );
+    }
+
+    #[test]
+    fn test_validate_and_apply_maps_absent_cardlist_to_none_search() {
+        let dto = AppConfigDto::from_config(&AppConfig::default(), false);
+        let mut entity = AppConfig {
+            search: Some(SearchConfig {
+                cardlist: Some(CardListConfig {
+                    jumpto: Some("both".into()),
+                }),
+            }),
+            ..Default::default()
+        };
+        dto.validate_and_apply(&mut entity).unwrap();
+        assert!(
+            entity.search.is_none(),
+            "absent search in DTO must clear entity search"
+        );
+    }
+
+    #[test]
+    fn test_appconfig_toml_wire_shape_is_nested_search_cardlist_jumpto() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+        let config = AppConfig {
+            search: Some(SearchConfig {
+                cardlist: Some(CardListConfig {
+                    jumpto: Some("current".into()),
+                }),
+            }),
+            ..Default::default()
+        };
+        save_to(&config, &path).unwrap();
+        let on_disk = std::fs::read_to_string(&path).unwrap();
+        assert!(on_disk.contains("[search.cardlist]"), "file: {on_disk}");
+        assert!(on_disk.contains("jumpto = \"current\""), "file: {on_disk}");
+        let reloaded = load_from(&path);
+        assert_eq!(reloaded.search_cardlist_jumpto(), Some("current"));
+    }
+
+    #[test]
+    fn test_appconfig_deserializes_from_toml_with_search_cardlist_section() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "[search.cardlist]\njumpto = \"both\"\n").unwrap();
+        let config = load_from(&path);
+        assert_eq!(config.search_cardlist_jumpto(), Some("both"));
+    }
+
+    #[test]
+    fn test_appconfig_json_wire_shape_is_search_cardlist_jumpto() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.json");
+        let config = AppConfig {
+            search: Some(SearchConfig {
+                cardlist: Some(CardListConfig {
+                    jumpto: Some("global".into()),
+                }),
+            }),
+            ..Default::default()
+        };
+        save_to(&config, &path).unwrap();
+        let reloaded = load_from(&path);
+        assert_eq!(reloaded.search_cardlist_jumpto(), Some("global"));
+    }
 }
