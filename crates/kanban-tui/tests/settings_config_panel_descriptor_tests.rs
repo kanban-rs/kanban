@@ -47,8 +47,7 @@ use kanban_core::{CardListConfig, SearchConfig};
 use kanban_tui::app::focus::SettingsFocus;
 use kanban_tui::app::App;
 
-fn jumpto_row_id(
-) -> kanban_tui::app::settings::ConfigRowId {
+fn jumpto_row_id() -> kanban_tui::app::settings::ConfigRowId {
     kanban_tui::app::settings::ConfigRowId::SearchJumpto
 }
 
@@ -157,11 +156,13 @@ fn all_ids(app: &App) -> Vec<kanban_tui::app::settings::ConfigRowId> {
 fn test_config_panel_rows_are_the_known_set_in_order_no_data_file() {
     let app = build_app(&MODES[0]);
     let ids = all_ids(&app);
-    // "no data file": exactly the base rows, no storage rows at all.
+    // "no data file": exactly the base rows + the Search Jumpto row (which is
+    // present in every mode), in order. No storage rows.
+    let mut expected = base_row_ids();
+    expected.push(kanban_tui::app::settings::ConfigRowId::SearchJumpto);
     assert_eq!(
-        ids,
-        base_row_ids(),
-        "no-data-file mode must show the base rows only, in order"
+        ids, expected,
+        "no-data-file mode must show the base rows + Search Jumpto, in order"
     );
 }
 
@@ -172,9 +173,10 @@ fn test_config_panel_rows_are_the_known_set_in_order_data_file_no_cli_storage() 
     let mut expected = base_row_ids();
     expected.push(kanban_tui::app::settings::ConfigRowId::StorageBackend);
     expected.push(kanban_tui::app::settings::ConfigRowId::StorageLocation);
+    expected.push(kanban_tui::app::settings::ConfigRowId::SearchJumpto);
     assert_eq!(
         ids, expected,
-        "data-file / no-CLI-storage must append Storage Backend then Storage Location"
+        "data-file / no-CLI-storage must append Storage Backend, Storage Location, then Search Jupto"
     );
 }
 
@@ -185,9 +187,10 @@ fn test_config_panel_rows_are_the_known_set_in_order_cli_provided_no_override() 
     let mut expected = base_row_ids();
     expected.push(kanban_tui::app::settings::ConfigRowId::ActiveStorageBackend);
     expected.push(kanban_tui::app::settings::ConfigRowId::ActiveStorageLocation);
+    expected.push(kanban_tui::app::settings::ConfigRowId::SearchJumpto);
     assert_eq!(
         ids, expected,
-        "CLI-provided storage (not overridden) must append Active Storage Backend then Active Storage Location"
+        "CLI-provided storage (not overridden) must append Active Storage pair + Search Jupto"
     );
 }
 
@@ -201,15 +204,27 @@ fn test_config_panel_rows_are_the_known_set_in_order_override_with_storage_confi
     let mut expected_selectable = base_row_ids();
     expected_selectable.push(kanban_tui::app::settings::ConfigRowId::ActiveStorageBackend);
     expected_selectable.push(kanban_tui::app::settings::ConfigRowId::ActiveStorageLocation);
+    expected_selectable.push(kanban_tui::app::settings::ConfigRowId::SearchJumpto);
     assert_eq!(
         selectable, expected_selectable,
-        "override + storage-configured: selectable rows are the base + Active Storage pair"
+        "override + storage-configured: selectable rows are base + Active Storage pair + Search Jumpto"
     );
     // The styled (non-selectable) rows are present in the full set.
     assert!(
         ids.contains(&kanban_tui::app::settings::ConfigRowId::StorageBackend)
             && ids.contains(&kanban_tui::app::settings::ConfigRowId::StorageLocation),
         "override + storage-configured: the configured Storage rows must still render; got {ids:?}"
+    );
+    // Full order: base + styled Storage pair + Active pair + Search Jumpto
+    let mut expected_all = base_row_ids();
+    expected_all.push(kanban_tui::app::settings::ConfigRowId::StorageBackend);
+    expected_all.push(kanban_tui::app::settings::ConfigRowId::StorageLocation);
+    expected_all.push(kanban_tui::app::settings::ConfigRowId::ActiveStorageBackend);
+    expected_all.push(kanban_tui::app::settings::ConfigRowId::ActiveStorageLocation);
+    expected_all.push(kanban_tui::app::settings::ConfigRowId::SearchJumpto);
+    assert_eq!(
+        ids, expected_all,
+        "override + storage-configured full row order"
     );
 }
 
@@ -220,9 +235,10 @@ fn test_config_panel_rows_are_the_known_set_in_order_override_without_storage_co
     let mut expected = base_row_ids();
     expected.push(kanban_tui::app::settings::ConfigRowId::ActiveStorageBackend);
     expected.push(kanban_tui::app::settings::ConfigRowId::ActiveStorageLocation);
+    expected.push(kanban_tui::app::settings::ConfigRowId::SearchJumpto);
     assert_eq!(
         ids, expected,
-        "override + no storage configured: base + Active Storage pair, no styled rows"
+        "override + no storage configured: base + Active Storage pair + Search Jumpto, no styled rows"
     );
 }
 
@@ -256,17 +272,24 @@ fn test_config_panel_selectable_count_equals_number_of_selectable_rows_in_every_
 fn test_override_with_storage_configured_does_not_expose_its_styled_rows_to_navigation() {
     // This is the latent bug the descriptor model removes: the current
     // `settings_item_count` returns 10 for this mode though only 8 rows are
-    // selectable (the two `Storage` rows are styled, not selectable).
+    // selectable (the two `Storage` rows are styled, not selectable). With the
+    // new Search Jumpto row added, the selectable set is 9 = base 6 + Active
+    // pair 2 + SearchJumpto 1.
     let app = build_app(&MODES[3]);
     let selectable = selectable_ids(&app);
     assert_eq!(
         selectable.len(),
-        8,
-        "override + storage-configured must have exactly 8 selectable rows, got {selectable:?}"
+        9,
+        "override + storage-configured: selectable = base(6) + Active pair(2) + SearchJumpto(1) = 9, got {selectable:?}"
     );
     assert!(
-        !selectable.contains(&kanban_tui::app::settings::ConfigRowId::StorageBackend),
-        "the styled 'Storage Backend' row must not be in the selectable set"
+        !selectable.contains(&kanban_tui::app::settings::ConfigRowId::StorageBackend)
+            && !selectable.contains(&kanban_tui::app::settings::ConfigRowId::StorageLocation),
+        "the styled 'Storage' rows must not be in the selectable set"
+    );
+    assert!(
+        selectable.contains(&kanban_tui::app::settings::ConfigRowId::SearchJumpto),
+        "Search Jumpto must be selectable: {selectable:?}"
     );
 }
 
@@ -334,7 +357,10 @@ fn test_search_jumpto_row_renders_the_configured_value() {
 fn test_search_jumpto_row_renders_off_when_absent() {
     for mode in MODES {
         let app = build_app(mode);
-        assert!(app.app_config.search.is_none(), "baseline must have no search set");
+        assert!(
+            app.app_config.search.is_none(),
+            "baseline must have no search set"
+        );
         let rows = app.config_panel_rows(SettingsFocus::Configuration);
         let jumpto = rows.iter().find(|r| r.id == jumpto_row_id()).unwrap();
         assert_eq!(
@@ -409,28 +435,30 @@ fn test_navigation_can_reach_the_search_jumpto_row_in_every_mode() {
         // row's selectable index is hit somewhere along the way. This is the
         // "the new row is actually reachable" guarantee — a row that renders
         // but never highlights is a silent defect the literals made easy.
-        let target = app
-            .config_panel_rows(SettingsFocus::Configuration)
-            .into_iter()
-            .enumerate()
-            .find(|(_, r)| r.id == jumpto_row_id())
-            .map(|(i, _)| i)
-            .expect("Search Jumpto must be in the row list");
-        let selectable_count = app.config_panel_selectable_count(SettingsFocus::Configuration);
-        let mut hit = false;
-        for step in 0..selectable_count {
-            app.selection.settings_config.set(Some(0));
-            for _ in 0..step {
-                app.handle_settings_key_nav(KeyCode::Char('j'));
-            }
-            if app.selection.settings_config.get() == Some(target) {
-                hit = true;
-                break;
-            }
+        let count = app.config_panel_selectable_count(SettingsFocus::Configuration);
+        app.selection.settings_config.set(Some(0));
+        for _ in 0..(count - 1) {
+            app.handle_settings_key_nav(KeyCode::Char('j'));
         }
-        assert!(
-            hit,
-            "{}: navigating the selectable set must land on the Search Jumpto row (index {target})",
+        let last = app
+            .selection
+            .settings_config
+            .get()
+            .expect("a row is selected");
+        let rows = app.config_panel_rows(SettingsFocus::Configuration);
+        let selectable = rows.iter().filter(|r| r.selectable).collect::<Vec<_>>();
+        assert_eq!(
+            selectable[last].id,
+            jumpto_row_id(),
+            "{}: j (count-1) times from the first row must land on the Search Jumpto row",
+            mode.name
+        );
+        // And one more `j` wraps to the ConfigFile panel.
+        app.handle_settings_key_nav(KeyCode::Char('j'));
+        assert_eq!(
+            app.focus.settings_focus,
+            SettingsFocus::ConfigFile,
+            "{}: j from the last selectable row must enter the ConfigFile panel",
             mode.name
         );
     }
