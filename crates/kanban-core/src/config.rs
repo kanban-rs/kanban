@@ -561,4 +561,85 @@ mod tests {
         assert_eq!(deserialized.server_addr, Some("0.0.0.0:5175".into()));
     }
 
+    #[test]
+    fn test_validate_values_rejects_invalid_jumpto_naming_the_field_and_value() {
+        for bad in ["foo", "here", "global-ish", ""] {
+            let config = AppConfig {
+                search: Some(SearchConfig {
+                    cardlist: Some(CardListConfig {
+                        jumpto: Some(bad.to_string()),
+                    }),
+                }),
+                ..Default::default()
+            };
+            let err = config.validate_values().unwrap_err();
+            let msg = err.to_string();
+            assert!(msg.contains("search.cardlist.jumpto"), "msg: {msg}");
+            assert!(
+                msg.contains(bad),
+                "msg should name the offending value: {msg}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_values_accepts_valid_jumpto_values() {
+        for ok in ["current", "global", "both"] {
+            let config = AppConfig {
+                search: Some(SearchConfig {
+                    cardlist: Some(CardListConfig {
+                        jumpto: Some(ok.to_string()),
+                    }),
+                }),
+                ..Default::default()
+            };
+            config.validate_values().unwrap();
+        }
+    }
+
+    #[test]
+    fn test_search_cardlist_jumpto_accessor_returns_none_when_absent() {
+        let config = AppConfig::default();
+        assert_eq!(config.search_cardlist_jumpto(), None);
+    }
+
+    #[test]
+    fn test_search_cardlist_jumpto_accessor_round_trips_each_value() {
+        for value in ["current", "global", "both"] {
+            let config = AppConfig {
+                search: Some(SearchConfig {
+                    cardlist: Some(CardListConfig {
+                        jumpto: Some(value.to_string()),
+                    }),
+                }),
+                ..Default::default()
+            };
+            assert_eq!(config.search_cardlist_jumpto(), Some(value));
+        }
+    }
+
+    #[test]
+    fn test_appconfig_omits_search_when_none() {
+        let config = AppConfig::default();
+        let serialized = serde_json::to_string(&config).unwrap();
+        assert!(!serialized.contains("search"));
+    }
+
+    #[test]
+    fn test_appconfig_serialized_search_cardlist_jumpto_round_trips() {
+        let config = AppConfig {
+            search: Some(SearchConfig {
+                cardlist: Some(CardListConfig {
+                    jumpto: Some("current".into()),
+                }),
+            }),
+            ..Default::default()
+        };
+        let serialized = serde_json::to_string(&config).unwrap();
+        assert!(serialized.contains("search"));
+        assert!(serialized.contains("cardlist"));
+        assert!(serialized.contains("jumpto"));
+        let reloaded: AppConfig = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(reloaded.search_cardlist_jumpto(), Some("current"));
+    }
 }
