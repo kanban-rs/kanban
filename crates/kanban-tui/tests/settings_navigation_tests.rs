@@ -203,111 +203,141 @@ fn test_settings_keybinding_provider_includes_nav_bindings() {
     assert!(keys.contains(&"q/Esc"));
 }
 
-// --- cli_file_override navigation skip tests ---
+// --- cli_file_override navigation tests (descriptor-based, no skipping) ---
+//
+// Under the descriptor model the Configuration panel's navigation is a plain
+// sequential walk over its *selectable* rows, in every mode. The two `Storage`
+// rows the override + storage-configured sub-mode renders are non-selectable,
+// so they simply do not appear in the walk -- there is no "skip" to assert
+// because the walk only ever visits selectable rows. The new Search Jupto row
+// is the last selectable row in every mode, so it is the one that wraps to the
+// `ConfigFile` panel. The old special-case `set(8)` hack (a cell-index jump over
+// the two non-selectable rows) is gone: `next(count)` already lands on the
+// right selectable row by index.
 
 #[test]
-fn test_settings_j_skips_greyed_storage_fields_reaches_active_lines() {
+fn test_settings_j_traverses_the_selectable_rows_sequentially_in_override_mode() {
     use crossterm::event::KeyCode;
 
     let mut app = helpers::setup_settings_app();
     app.cli_file_override = true;
     app.has_data_file = true;
+    app.original_storage_backend = Some("json".into());
+    app.original_storage_location = Some("./b".into());
     app.focus.settings_focus = SettingsFocus::Configuration;
-    app.selection.settings_config.set(Some(4));
 
+    // Selectable set in override mode: base 6 (0-5) + Active Storage pair (6-7)
+    // + Search Jupto (8). The two non-selectable styled `Storage` rows are absent
+    // from this set, so the walk is a plain sequence: 5 -> 6 -> 7 -> 8 -> ConfigFile.
+
+    app.selection.settings_config.set(Some(5)); // Background Highlight
     app.handle_settings_key_nav(KeyCode::Char('j'));
-
-    assert_eq!(
-        app.focus.settings_focus,
-        SettingsFocus::Configuration,
-        "j from index 4 should stay in Configuration (landing on Background Highlight)"
-    );
     assert_eq!(
         app.selection.settings_config.get(),
-        Some(5),
-        "should land on index 5 (Background Highlight)"
+        Some(6),
+        "j from Background Highlight (selectable 5) lands on Active Storage Backend (selectable 6)"
     );
 
     app.handle_settings_key_nav(KeyCode::Char('j'));
-
     assert_eq!(
-        app.focus.settings_focus,
-        SettingsFocus::Configuration,
-        "j from index 5 should stay in Configuration (landing on Active Storage Backend)"
+        app.selection.settings_config.get(),
+        Some(7),
+        "j from Active Storage Backend lands on Active Storage Location"
     );
+
+    app.handle_settings_key_nav(KeyCode::Char('j'));
     assert_eq!(
         app.selection.settings_config.get(),
         Some(8),
-        "should jump to index 8 (Active Storage Backend), skipping greyed indices 6 and 7"
+        "j from Active Storage Location lands on Search Jupto (the new last row)"
+    );
+
+    app.handle_settings_key_nav(KeyCode::Char('j'));
+    assert_eq!(
+        app.focus.settings_focus,
+        SettingsFocus::ConfigFile,
+        "j from Search Jupto (the last selectable row) wraps to the ConfigFile panel"
+    );
+    assert_eq!(
+        app.selection.settings_config_file.get(),
+        Some(0),
+        "entering ConfigFile lands on its first row"
     );
 }
 
 #[test]
-fn test_settings_j_from_active_lines_goes_to_config_file() {
+fn test_settings_k_traverses_the_selectable_rows_sequentially_in_reverse() {
     use crossterm::event::KeyCode;
 
     let mut app = helpers::setup_settings_app();
     app.cli_file_override = true;
     app.has_data_file = true;
+    app.original_storage_backend = Some("json".into());
+    app.original_storage_location = Some("./b".into());
     app.focus.settings_focus = SettingsFocus::Configuration;
-    app.selection.settings_config.set(Some(9));
 
-    app.handle_settings_key_nav(KeyCode::Char('j'));
-
-    assert_eq!(app.focus.settings_focus, SettingsFocus::ConfigFile);
-}
-
-#[test]
-fn test_settings_j_from_active_storage_backend_lands_on_active_storage_location() {
-    use crossterm::event::KeyCode;
-
-    let mut app = helpers::setup_settings_app();
-    app.cli_file_override = true;
-    app.has_data_file = true;
-    app.focus.settings_focus = SettingsFocus::Configuration;
-    app.selection.settings_config.set(Some(8));
-
-    app.handle_settings_key_nav(KeyCode::Char('j'));
-
-    assert_eq!(app.focus.settings_focus, SettingsFocus::Configuration);
-    assert_eq!(app.selection.settings_config.get(), Some(9));
-}
-
-#[test]
-fn test_settings_k_from_config_file_lands_on_active_storage_location() {
-    use crossterm::event::KeyCode;
-
-    let mut app = helpers::setup_settings_app();
-    app.cli_file_override = true;
-    app.has_data_file = true;
-    app.focus.settings_focus = SettingsFocus::ConfigFile;
-    app.selection.settings_config_file.set(Some(0));
-
+    app.selection.settings_config.set(Some(8)); // Search Jupto
     app.handle_settings_key_nav(KeyCode::Char('k'));
-
-    assert_eq!(app.focus.settings_focus, SettingsFocus::Configuration);
     assert_eq!(
         app.selection.settings_config.get(),
-        Some(9),
-        "should land on index 9 (Active Storage Location)"
+        Some(7),
+        "k from Search Jupto lands on Active Storage Location"
     );
-}
-
-#[test]
-fn test_settings_k_from_active_backend_skips_to_background_highlight() {
-    use crossterm::event::KeyCode;
-
-    let mut app = helpers::setup_settings_app();
-    app.cli_file_override = true;
-    app.has_data_file = true;
-    app.focus.settings_focus = SettingsFocus::Configuration;
-    app.selection.settings_config.set(Some(8));
 
     app.handle_settings_key_nav(KeyCode::Char('k'));
+    assert_eq!(
+        app.selection.settings_config.get(),
+        Some(6),
+        "k from Active Storage Location lands on Active Storage Backend"
+    );
 
+    app.handle_settings_key_nav(KeyCode::Char('k'));
     assert_eq!(
         app.selection.settings_config.get(),
         Some(5),
-        "k from Active Storage Backend should skip greyed indices and land on Background Highlight (5)"
+        "k from Active Storage Backend lands on Background Highlight"
     );
+}
+
+#[test]
+fn test_settings_config_file_lands_on_last_selectable_row() {
+    use crossterm::event::KeyCode;
+
+    // Coming from the ConfigFile panel into Configuration must land on the last
+    // selectable row (Search Jupto), regardless of mode. We exercise the three
+    // distinct sub-modes by setting the flags directly and re-using the same
+    // three assertions each time.
+    let run = |app: &mut kanban_tui::App| {
+        app.focus.settings_focus = SettingsFocus::ConfigFile;
+        app.selection.settings_config_file.set(Some(0));
+        app.handle_settings_key_nav(KeyCode::Char('k'));
+        let last = app.config_panel_selectable_count(SettingsFocus::Configuration) - 1;
+        assert_eq!(
+            app.focus.settings_focus,
+            SettingsFocus::Configuration,
+            "k from ConfigFile must enter the Configuration panel"
+        );
+        assert_eq!(
+            app.selection.settings_config.get(),
+            Some(last),
+            "entering Configuration must land on the last selectable row (Search Jumpto)"
+        );
+    };
+
+    // no_data
+    let mut app = helpers::setup_settings_app();
+    app.has_data_file = false;
+    run(&mut app);
+    // data_no_override
+    let mut app = helpers::setup_settings_app();
+    app.has_data_file = true;
+    app.cli_file_override = false;
+    run(&mut app);
+    // data_override + storage configured
+    let mut app = helpers::setup_settings_app();
+    app.has_data_file = true;
+    app.cli_file_override = true;
+    app.original_storage_backend = Some("json".into());
+    app.original_storage_location = Some("./b".into());
+    run(&mut app);
 }

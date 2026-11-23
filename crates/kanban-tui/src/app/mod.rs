@@ -13,6 +13,9 @@ pub use animation::{AnimationState, CardAnimation};
 pub mod selection;
 pub use selection::SelectionHub;
 
+pub mod settings;
+pub use settings::{ConfigRow, ConfigRowId};
+
 pub use kanban_view::filter_state::FilterState;
 
 pub mod multi_select;

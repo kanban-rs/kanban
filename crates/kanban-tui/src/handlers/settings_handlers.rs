@@ -16,17 +16,14 @@ pub(crate) const BACKGROUND_HIGHLIGHT_CONFIG_INDEX: usize = 5;
 impl App {
     pub fn settings_item_count(&self, panel: SettingsFocus) -> usize {
         match panel {
-            SettingsFocus::Configuration => {
-                if self.has_data_file {
-                    if self.cli_file_override {
-                        10
-                    } else {
-                        8
-                    }
-                } else {
-                    6
-                }
-            }
+            // The Configuration panel's nav bound is the number of *selectable*
+            // rows, derived from the identity-addressed descriptor list (see
+            // crate::app::settings). Deriving it is what lets a new row -- like the
+            // KAN-1806 search.cardlist.jumpto row -- be added without re-touching
+            // this constant, and it fixes the historical over-count where the
+            // override + storage-configured sub-mode returned 10 for 8 selectable
+            // rows. `ConfigFile` and `Storage` keep their independent counts.
+            SettingsFocus::Configuration => self.config_panel_selectable_count(panel),
             SettingsFocus::ConfigFile => 3,
             SettingsFocus::Storage => 4,
         }
@@ -479,18 +476,7 @@ impl App {
             SettingsFocus::Configuration => {
                 let count = self.settings_item_count(SettingsFocus::Configuration);
                 let current = self.selection.settings_config.get().unwrap_or(0);
-                if self.cli_file_override && self.has_data_file {
-                    match current {
-                        c if c >= count - 1 => {
-                            self.focus.settings_focus = SettingsFocus::ConfigFile;
-                            self.selection.settings_config_file.set(Some(0));
-                        }
-                        BACKGROUND_HIGHLIGHT_CONFIG_INDEX => {
-                            self.selection.settings_config.set(Some(8))
-                        }
-                        _ => self.selection.settings_config.next(count),
-                    }
-                } else if current >= count - 1 {
+                if current >= count - 1 {
                     self.focus.settings_focus = SettingsFocus::ConfigFile;
                     self.selection.settings_config_file.set(Some(0));
                 } else {
@@ -527,10 +513,6 @@ impl App {
                     let count = self.settings_item_count(SettingsFocus::ConfigFile);
                     self.focus.settings_focus = SettingsFocus::ConfigFile;
                     self.selection.settings_config_file.set(Some(count - 1));
-                } else if self.cli_file_override && self.has_data_file && current == 8 {
-                    self.selection
-                        .settings_config
-                        .set(Some(BACKGROUND_HIGHLIGHT_CONFIG_INDEX));
                 } else {
                     self.selection.settings_config.prev();
                 }

@@ -57,7 +57,7 @@ pub fn render_settings_view(app: &App, frame: &mut Frame, area: Rect) {
     render_settings_storage(app, frame, columns[1]);
 }
 
-fn render_settings_configuration(app: &App, frame: &mut Frame, area: Rect, config_location: &str) {
+fn render_settings_configuration(app: &App, frame: &mut Frame, area: Rect, _config_location: &str) {
     use crate::app::SettingsFocus;
     use crate::components::detail_view::{
         metadata_line_selectable, metadata_line_styled, FieldSectionConfig,
@@ -69,149 +69,102 @@ fn render_settings_configuration(app: &App, frame: &mut Frame, area: Rect, confi
         .focused(config_focused);
     let config_block = config_section.block();
     let config_block_inner = config_block.inner(area);
-    let is_config_selected =
-        |i: usize| config_focused && app.selection.settings_config.is_selected(i);
     let highlight_bg = app.highlight_bg();
     let is_editing_highlight = app.mode == AppMode::Dialog(DialogMode::EditBackgroundHighlight);
-    let highlight_row_selected =
-        is_config_selected(crate::handlers::settings_handlers::BACKGROUND_HIGHLIGHT_CONFIG_INDEX);
-    let background_highlight_row = if is_editing_highlight {
-        let typed = app.input.as_str();
-        let parsed = if typed.is_empty() {
-            None
-        } else {
-            typed.parse::<HexColor>().ok()
-        };
-        let is_valid_or_empty = typed.is_empty() || parsed.is_some();
-        let value_style = if is_valid_or_empty {
-            normal_text().bg(highlight_bg)
-        } else {
-            error_text().bg(highlight_bg)
-        };
-        let preview_bg = match parsed {
-            Some(color) => to_color(color),
-            None if typed.is_empty() => default_highlight_background(),
-            None => highlight_bg,
-        };
-        let value = if typed.is_empty() {
-            DEFAULT_HIGHLIGHT_HEX
-        } else {
-            typed
-        };
-        background_highlight_line(
-            format!("{value:<7}"),
-            highlight_row_selected,
-            highlight_bg,
-            preview_bg,
-            value_style,
-        )
-    } else {
-        let value = app
-            .app_config
-            .background_highlight_color()
-            .map(|c| c.to_string())
-            .unwrap_or_else(|| format!("default ({DEFAULT_HIGHLIGHT_HEX})"));
-        let value_style = if highlight_row_selected {
-            normal_text().bg(highlight_bg)
-        } else {
-            normal_text()
-        };
-        background_highlight_line(
-            value,
-            highlight_row_selected,
-            highlight_bg,
-            highlight_bg,
-            value_style,
-        )
-    };
-    let mut config_lines = vec![
-        metadata_line_selectable(
-            "Configuration Format",
-            app.app_config.effective_configuration_format(),
-            is_config_selected(0),
-            highlight_bg,
-        ),
-        metadata_line_selectable(
-            "Configuration Location",
-            config_location,
-            is_config_selected(1),
-            highlight_bg,
-        ),
-        metadata_line_selectable(
-            "Default Card Prefix",
-            app.app_config.effective_default_card_prefix(),
-            is_config_selected(2),
-            highlight_bg,
-        ),
-        metadata_line_selectable(
-            "Default Sprint Prefix",
-            app.app_config.effective_default_sprint_prefix(),
-            is_config_selected(3),
-            highlight_bg,
-        ),
-        metadata_line_selectable(
-            "Editing Format",
-            app.app_config.effective_editing_format(),
-            is_config_selected(4),
-            highlight_bg,
-        ),
-        background_highlight_row,
-    ];
-    if app.has_data_file {
-        let active_storage_location =
-            kanban_service::config::resolve_storage_location(&app.app_config);
-        if app.cli_file_override {
-            let storage_configured =
-                app.original_storage_backend.is_some() || app.original_storage_location.is_some();
-            if storage_configured {
-                config_lines.push(metadata_line_styled(
-                    "Storage Backend",
-                    &app.config_storage_backend,
-                    Style::default().fg(Color::DarkGray),
-                ));
-                config_lines.push(metadata_line_styled(
-                    "Storage Location",
-                    &app.config_storage_location,
-                    Style::default().fg(Color::DarkGray),
-                ));
-            }
+    // The Configuration panel's composition is the single source of truth in
+    // crate::app::settings::ConfigRow -- the render just maps each descriptor to
+    // a Line. A new row (e.g. the KAN-1806 search.cardlist.jumpto preference)
+    // is added there and appears here, with the correct per-mode visibility and
+    // selectability, and the selection highlight is derived from the row's id
+    // rather than a hardcoded index. The two non-selectable styled rows that the
+    // override + storage-configured sub-mode renders are `selectable=false`
+    // descriptors; they appear here as plain styled lines and the nav bound
+    // (settings_item_count) simply excludes them.
+    let rows = app.config_panel_rows(crate::app::SettingsFocus::Configuration);
+    let mut config_lines: Vec<Line<'_>> = Vec::with_capacity(rows.len());
+    let mut selectable_count = 0;
+    for row in rows.iter() {
+        // `selectable_count` is the *selectable* index of the current row -- the
+        // position among selectable-only rows. That's the index the nav model
+        // (`settings_config.is_selected`) and the render use, because the
+        // non-selectable styled rows are skipped in the count. We capture it
+        // *before* incrementing so the current row's own position is used for
+        // its selected-state, not the next row's.
+        let list_pos = selectable_count;
+        if row.selectable {
+            selectable_count += 1;
+        }
+        if row.background_highlight_swatch {
+            // The Background Highlight row is the one row whose layout is not a
+            // plain "label: value" line -- it carries a preview swatch and, while
+            // the user is editing it, an inline validity check. Keep that logic
+            // here (it depends on the dialog input) but key its selected-state
+            // on the row's *id*, not on a hardcoded index.
+            let selected = config_focused && app.selection.settings_config.is_selected(list_pos);
+            let line = if is_editing_highlight {
+                let typed = app.input.as_str();
+                let parsed = if typed.is_empty() {
+                    None
+                } else {
+                    typed.parse::<HexColor>().ok()
+                };
+                let is_valid_or_empty = typed.is_empty() || parsed.is_some();
+                let value_style = if is_valid_or_empty {
+                    normal_text().bg(highlight_bg)
+                } else {
+                    error_text().bg(highlight_bg)
+                };
+                let preview_bg = match parsed {
+                    Some(color) => to_color(color),
+                    None if typed.is_empty() => default_highlight_background(),
+                    None => highlight_bg,
+                };
+                let value = if typed.is_empty() {
+                    DEFAULT_HIGHLIGHT_HEX
+                } else {
+                    typed
+                };
+                background_highlight_line(
+                    format!("{value:<7}"),
+                    selected,
+                    highlight_bg,
+                    preview_bg,
+                    value_style,
+                )
+            } else {
+                let value = app
+                    .app_config
+                    .background_highlight_color()
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| format!("default ({DEFAULT_HIGHLIGHT_HEX})"));
+                let value_style = if selected {
+                    normal_text().bg(highlight_bg)
+                } else {
+                    normal_text()
+                };
+                background_highlight_line(value, selected, highlight_bg, highlight_bg, value_style)
+            };
+            config_lines.push(line);
+            continue;
+        }
+        if row.selectable {
             config_lines.push(metadata_line_selectable(
-                "Active Storage Backend",
-                app.app_config.effective_storage_backend(),
-                is_config_selected(8),
+                &row.label,
+                &row.value,
+                config_focused && app.selection.settings_config.is_selected(list_pos),
                 highlight_bg,
             ));
-            config_lines.push(metadata_line_selectable(
-                "Active Storage Location",
-                &active_storage_location,
-                is_config_selected(9),
-                highlight_bg,
-            ));
-        } else if app.cli_file_provided {
-            config_lines.push(metadata_line_selectable(
-                "Active Storage Backend",
-                app.app_config.effective_storage_backend(),
-                is_config_selected(6),
-                highlight_bg,
-            ));
-            config_lines.push(metadata_line_selectable(
-                "Active Storage Location",
-                &active_storage_location,
-                is_config_selected(7),
-                highlight_bg,
+        } else if let Some(fg) = row.non_selectable_value_color {
+            config_lines.push(metadata_line_styled(
+                &row.label,
+                &row.value,
+                Style::default().fg(fg),
             ));
         } else {
-            config_lines.push(metadata_line_selectable(
-                "Storage Backend",
-                app.app_config.effective_storage_backend(),
-                is_config_selected(6),
-                highlight_bg,
-            ));
-            config_lines.push(metadata_line_selectable(
-                "Storage Location",
-                &active_storage_location,
-                is_config_selected(7),
-                highlight_bg,
+            config_lines.push(metadata_line_styled(
+                &row.label,
+                &row.value,
+                Style::default(),
             ));
         }
     }

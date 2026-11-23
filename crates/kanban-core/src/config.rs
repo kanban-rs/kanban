@@ -54,6 +54,25 @@ pub struct AppConfig {
     pub server_addr: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background_highlight: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search: Option<SearchConfig>,
+}
+
+/// Nested search configuration (wire shape `[search] ...`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SearchConfig {
+    /// Card-list specific search settings (wire shape `[search.cardlist]`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cardlist: Option<CardListConfig>,
+}
+
+/// Card-list specific search settings (wire shape `[search.cardlist]`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CardListConfig {
+    /// Where the search-cardlist `jumpto` feature jumps to.
+    /// `"current"` | `"global"` | `"both"`; absent means off (i.e. `None`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jumpto: Option<String>,
 }
 
 impl AppConfig {
@@ -101,6 +120,15 @@ impl AppConfig {
             .and_then(|raw| raw.parse().ok())
     }
 
+    /// The `search.cardlist.julpto` value, or `None` when absent (feature off).
+    /// Valid values: `"current"`, `"global"`, `"both"`.
+    pub fn search_cardlist_jumpto(&self) -> Option<&str> {
+        self.search
+            .as_ref()
+            .and_then(|s| s.cardlist.as_ref())
+            .and_then(|c| c.jumpto.as_deref())
+    }
+
     pub fn validate_values(&self) -> CoreResult<()> {
         if let Some(ref v) = self.storage_backend {
             if !matches!(v.as_str(), "json" | "sqlite") {
@@ -146,6 +174,19 @@ impl AppConfig {
             if v.parse::<std::net::SocketAddr>().is_err() {
                 return Err(crate::CoreError::Validation(format!(
                     "Invalid server_addr '{}': must be host:port (e.g. 0.0.0.0:5175)",
+                    v
+                )));
+            }
+        }
+        if let Some(ref v) = self
+            .search
+            .as_ref()
+            .and_then(|s| s.cardlist.as_ref())
+            .and_then(|c| c.jumpto.as_ref())
+        {
+            if !matches!(v.as_str(), "current" | "global" | "both") {
+                return Err(crate::CoreError::Validation(format!(
+                    "Invalid search.cardlist.jumpto '{}': must be 'current', 'global', or 'both'",
                     v
                 )));
             }
@@ -518,5 +559,87 @@ mod tests {
         assert!(serialized.contains("0.0.0.0:5175"));
         let deserialized: AppConfig = serde_json::from_str(&serialized).unwrap();
         assert_eq!(deserialized.server_addr, Some("0.0.0.0:5175".into()));
+    }
+
+    #[test]
+    fn test_validate_values_rejects_invalid_jumpto_naming_the_field_and_value() {
+        for bad in ["foo", "here", "global-ish", ""] {
+            let config = AppConfig {
+                search: Some(SearchConfig {
+                    cardlist: Some(CardListConfig {
+                        jumpto: Some(bad.to_string()),
+                    }),
+                }),
+                ..Default::default()
+            };
+            let err = config.validate_values().unwrap_err();
+            let msg = err.to_string();
+            assert!(msg.contains("search.cardlist.jumpto"), "msg: {msg}");
+            assert!(
+                msg.contains(bad),
+                "msg should name the offending value: {msg}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_values_accepts_valid_jumpto_values() {
+        for ok in ["current", "global", "both"] {
+            let config = AppConfig {
+                search: Some(SearchConfig {
+                    cardlist: Some(CardListConfig {
+                        jumpto: Some(ok.to_string()),
+                    }),
+                }),
+                ..Default::default()
+            };
+            config.validate_values().unwrap();
+        }
+    }
+
+    #[test]
+    fn test_search_cardlist_jumpto_accessor_returns_none_when_absent() {
+        let config = AppConfig::default();
+        assert_eq!(config.search_cardlist_jumpto(), None);
+    }
+
+    #[test]
+    fn test_search_cardlist_jumpto_accessor_round_trips_each_value() {
+        for value in ["current", "global", "both"] {
+            let config = AppConfig {
+                search: Some(SearchConfig {
+                    cardlist: Some(CardListConfig {
+                        jumpto: Some(value.to_string()),
+                    }),
+                }),
+                ..Default::default()
+            };
+            assert_eq!(config.search_cardlist_jumpto(), Some(value));
+        }
+    }
+
+    #[test]
+    fn test_appconfig_omits_search_when_none() {
+        let config = AppConfig::default();
+        let serialized = serde_json::to_string(&config).unwrap();
+        assert!(!serialized.contains("search"));
+    }
+
+    #[test]
+    fn test_appconfig_serialized_search_cardlist_jumpto_round_trips() {
+        let config = AppConfig {
+            search: Some(SearchConfig {
+                cardlist: Some(CardListConfig {
+                    jumpto: Some("current".into()),
+                }),
+            }),
+            ..Default::default()
+        };
+        let serialized = serde_json::to_string(&config).unwrap();
+        assert!(serialized.contains("search"));
+        assert!(serialized.contains("cardlist"));
+        assert!(serialized.contains("jumpto"));
+        let reloaded: AppConfig = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(reloaded.search_cardlist_jumpto(), Some("current"));
     }
 }

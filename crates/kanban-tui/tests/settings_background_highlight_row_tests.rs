@@ -162,18 +162,41 @@ fn test_other_settings_rows_keep_their_styles() {
 }
 
 #[test]
-fn test_settings_item_count_includes_the_background_highlight_row() {
+fn test_settings_item_count_reflects_the_selectable_rows_per_mode() {
+    let panel = SettingsFocus::Configuration;
+
+    // no-data-file: base 6 rows + the Search Jumpto row = 7 selectable.
     let mut app = helpers::setup_settings_app();
-
     app.has_data_file = false;
-    assert_eq!(app.settings_item_count(SettingsFocus::Configuration), 6);
+    assert_eq!(
+        app.settings_item_count(panel),
+        7,
+        "no data file: 6 base + Search Jumpto = 7 selectable"
+    );
 
+    // data file, no CLI storage: base 6 + Storage pair 2 + Search Jumpto 1 = 9.
+    let mut app = helpers::setup_settings_app();
     app.has_data_file = true;
     app.cli_file_override = false;
-    assert_eq!(app.settings_item_count(SettingsFocus::Configuration), 8);
+    assert_eq!(
+        app.settings_item_count(panel),
+        9,
+        "data/no-override: 6 base + Storage pair + Search Jupto = 9 selectable"
+    );
 
+    // data file, CLI override: base 6 + Active pair 2 + Search Jumpto 1 = 9.
+    // The 2 styled `Storage` rows in this mode are non-selectable, so the count
+    // is 9, NOT 10 (which old `settings_item_count` returned).
+    let mut app = helpers::setup_settings_app();
+    app.has_data_file = true;
     app.cli_file_override = true;
-    assert_eq!(app.settings_item_count(SettingsFocus::Configuration), 10);
+    app.original_storage_backend = Some("json".into());
+    app.original_storage_location = Some("./b".into());
+    assert_eq!(
+        app.settings_item_count(panel),
+        9,
+        "data/override: 9 selectable (base 6 + Active pair 2 + Search Jumpto 1)"
+    );
 }
 
 #[test]
