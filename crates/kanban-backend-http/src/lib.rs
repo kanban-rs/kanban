@@ -152,12 +152,9 @@ impl HttpBackend {
             .expect("the runtime is taken only while dropping");
         match tokio::runtime::Handle::try_current() {
             Ok(handle) => {
-                debug_assert!(
-                    handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread,
-                    "HttpBackend requires a multi-threaded Tokio runtime (e.g. #[tokio::main]). \
-                     The current_thread runtime is not supported because synchronous DataStore \
-                     methods need to block on async HTTP I/O."
-                );
+                if handle.runtime_flavor() != tokio::runtime::RuntimeFlavor::MultiThread {
+                    panic!("HttpBackend requires a multi-threaded Tokio runtime (e.g. #[tokio::main]). The current_thread runtime is not supported because synchronous DataStore methods need to block on async HTTP I/O.");
+                }
                 tokio::task::block_in_place(|| runtime.block_on(fut))
             }
             Err(_) => runtime.block_on(fut),
