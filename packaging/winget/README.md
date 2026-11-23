@@ -59,6 +59,12 @@ The files under `manifests/k/kanban-rs/kanban/0.0.0/` exist so that:
 published as-is. Do not bump this version by hand; the action
 generates the real per-version manifest directly in the upstream PR.
 
+`ManifestVersion` and the schema headers track whatever winget-pkgs
+currently accepts (as of this sync, `1.28.0` — winget-pkgs validation
+rejects deprecated manifest versions). If an automated or manual
+submission is bounced for a deprecated manifest version, re-sync these
+headers to the latest version first.
+
 Each file starts with a `# yaml-language-server: $schema=...` header.
 The winget-pkgs validation pipeline rejects manifests without it
 (`SchemaHeaderNotFound`), so keep the header when copying these as a
