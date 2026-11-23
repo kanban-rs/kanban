@@ -7,6 +7,7 @@
 [![nixpkgs unstable](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fraw.githubusercontent.com%2FNixOS%2Fnixpkgs%2Fnixos-unstable%2Fpkgs%2Fby-name%2Fka%2Fkanban%2Fpackage.nix&search=version%20%3D%20%22%28.%2A%29%22&replace=%241&label=nixpkgs%20unstable)](https://search.nixos.org/packages?show=kanban&channel=unstable)
 [![Homebrew](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fraw.githubusercontent.com%2Ffulsomenko%2Fhomebrew-tap%2Fmaster%2FFormula%2Fkanban.rb&search=refs%2Ftags%2Fv%28.%2A%29%5C.tar%5C.gz&replace=%241&label=homebrew)](https://github.com/fulsomenko/homebrew-tap)
 [![Chocolatey](https://img.shields.io/chocolatey/v/kanban.svg)](https://community.chocolatey.org/packages/kanban)
+[![winget](https://img.shields.io/winget/v/kanban-rs.kanban?label=winget)](https://github.com/microsoft/winget-pkgs/tree/master/manifests/k/kanban-rs/kanban)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE.md)
 
 **Keyboard-first project management**
@@ -122,7 +123,7 @@ choco install kanban
 
 ### winget
 ```powershell
-winget install fulsomenko.kanban
+winget install kanban-rs.kanban
 ```
 
 ### Linux Clipboard Support

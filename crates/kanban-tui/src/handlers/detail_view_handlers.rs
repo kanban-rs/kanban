@@ -583,18 +583,15 @@ impl App {
                             .update_item_count(column_count);
                         let was_at_top = self.dialog_input.column_list.navigate_up();
                         if was_at_top {
-                            let sprint_rows = match board_id.map(|id| self.board_sprints_view(id)) {
-                                None => Some(0usize),
-                                Some(LoadState::Loaded(sprints)) => Some(sprints.len()),
-                                Some(_) => None,
-                            };
-                            match sprint_rows {
-                                None => self.set_error("Sprints are not loaded yet"),
-                                Some(0) => self.focus.board_focus = BoardFocus::Settings,
-                                Some(n) => {
+                            match board_id.map(|id| self.board_sprints_view(id)) {
+                                None => self.focus.board_focus = BoardFocus::Settings,
+                                Some(LoadState::Loaded(sprints)) => {
                                     self.focus.board_focus = BoardFocus::Sprints;
-                                    self.selection.sprint.set(Some(n - 1));
+                                    self.selection
+                                        .sprint
+                                        .set(Some(sprints.len().saturating_sub(1)));
                                 }
+                                Some(_) => self.set_error("Sprints are not loaded yet"),
                             }
                         }
                     }
@@ -2751,6 +2748,29 @@ mod tests {
             app.selection.sprint.get(),
             Some(1),
             "focus-exit must land on the last sprint (count - 1)"
+        );
+    }
+
+    #[test]
+    fn test_column_list_navigate_up_at_first_column_with_no_sprints_lands_on_sprints_section() {
+        let mut app = App::test_default();
+        let _board_id = seed_board_with_columns(&mut app, 3);
+        app.prepare_frame();
+
+        app.dialog_input.column_list.update_item_count(3);
+        app.dialog_input.column_list.set_selected_index(Some(0));
+
+        app.handle_board_detail_navigation_key(KeyCode::Char('k'));
+
+        assert_eq!(
+            app.focus.board_focus,
+            BoardFocus::Sprints,
+            "up at the first column of a board with no sprints must focus the Sprints section, not skip it to Settings"
+        );
+        assert_eq!(
+            app.selection.sprint.get(),
+            Some(0),
+            "landing on the empty Sprints section mirrors down-navigation entry at index 0"
         );
     }
 
