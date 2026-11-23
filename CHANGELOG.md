@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.1] - 2026-11-23 ([#975](https://github.com/kanban-rs/kanban/pull/975))
+
+### Other Changes (2026-11-23)
+
+ci: the winget submission now opens its PR from the `kanban-rs/winget-pkgs` org fork instead of the personal `fulsomenko/winget-pkgs` fork, and the packaging README documents that `WINGET_TOKEN` must be a classic PAT with `public_repo` and `workflow` scopes. The package identifier changes from `fulsomenko.kanban` to `kanban-rs.kanban`; the first `kanban-rs.kanban` version is submitted manually (see the README) and `fulsomenko.kanban` is retired upstream once it lands.
+
+### KAN-1799 Manage Labels Drop The Selection Highlight From The New Label Input Row (2026-11-23)
+
+The New-label input in the Manage Labels dialog no longer renders the selection background, so typing a new label stays visually distinguishable from the selected row.
+
+### KAN-1800 Don T Skip The Sprints Section When A Board Has No Sprints (2026-11-23)
+
+In board detail, pressing Up from the first row of the Columns section on a board with no sprints now focuses the Sprints section instead of skipping past it to Settings, so the empty Sprints section and its "n" hint are reachable by section navigation.
+
+### KAN-1810 Make The Block On Runtime Flavor Guard Work In Release Builds (2026-11-23)
+
+HttpBackend now raises its intended "HttpBackend requires a multi-threaded Tokio runtime" message when used under a current_thread runtime in all build profiles, instead of the generic tokio panic message release builds previously produced
+
+### KAN-1811 Sync The Winget Reference Manifests To The Accepted Manifestversion 1 28 0 (2026-11-23)
+
+chore: sync the winget reference manifests to ManifestVersion 1.28.0 (the version winget-pkgs accepts and kanban-rs.kanban 0.12.2 ships) and document in packaging/winget/README.md that the version header tracks the latest accepted manifest version
+
+
 ## [0.13.0] - 2026-11-18 ([#968](https://github.com/kanban-rs/kanban/pull/968))
 
 ### KAN-1791 Card Labels (2026-11-18)
