@@ -371,6 +371,41 @@ a:hover {
   font-size: 0.9em;
 }
 
+.card-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  flex-grow: 1;
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+  color: var(--color-text-muted);
+  line-height: var(--line-height-normal);
+}
+
+.card-list li {
+  position: relative;
+  padding-left: var(--spacing-2xl);
+}
+
+.card-list li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 0.85em;
+  border-radius: var(--border-radius);
+  background: var(--color-accent);
+}
+
+.card-list strong {
+  color: var(--color-text);
+}
+
 /* ============================================================================
    Installation Section
    ============================================================================ */
