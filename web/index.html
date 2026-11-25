@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Keyboard-first kanban for the terminal. hjkl navigation, git integration, 40-tool MCP server, local-first JSON and SQLite storage. Written in Rust.">
+  <meta name="description" content="Keyboard kanban for the terminal. hjkl navigation, git integration, MCP server, local-first JSON and SQLite storage. Written in Rust.">
   <meta name="keywords" content="kanban, project management, terminal, rust, vim, developer tools, mcp, llm, git">
   <title>kanban</title>
   <link rel="stylesheet" href="styles.css">
@@ -13,8 +13,16 @@
     <!-- Hero Section -->
     <section class="hero">
       <p class="hero-brand">kanban</p>
-      <h1 class="hero-title">Keyboard-first kanban<br>for the terminal.</h1>
-      <p class="hero-tagline">Intuitive TUI. Powerful CLI. 40-tool MCP server.<br>Your data lives in a file on your disk — private, offline, always yours.</p>
+      <h1 class="hero-title">Keyboard kanban<br>for the terminal</h1>
+      <div class="hero-tagline">
+        <p class="hero-tagline-lead">Your data lives in a file on your disk — private, offline, always yours.</p>
+        <ul class="hero-interfaces">
+          <li>Ergonomic TUI</li>
+          <li>Composable CLI</li>
+          <li>Agent-ready MCP</li>
+          <li>REST API</li>
+        </ul>
+      </div>
       <div class="hero-cta">
         <pre><code class="code-block nohighlight"><span class="prompt">$</span> cargo install kanban-cli</code></pre>
       </div>
@@ -32,11 +40,10 @@
     <!-- Why Section -->
     <section class="why">
       <ul class="why-list">
-        <li><strong>Zero latency</strong> — pure keyboard flow, hjkl navigation, no mouse required</li>
+        <li><strong>Zero latency</strong> — hjkl navigation, no mouse required</li>
         <li><strong>Your data, your disk</strong> — JSON or SQLite file, private, offline, always accessible</li>
         <li><strong>Git-native</strong> — generate branch names and <code>git checkout</code> commands from any card</li>
-        <li><strong>LLM-native</strong> — 40-tool MCP server works with Claude Code, Cursor, and any MCP client</li>
-        <li><strong>Offline-first</strong> — atomic writes, live conflict detection, works anywhere</li>
+        <li><strong>LLM-native</strong> — MCP server works with Claude Code, Cursor, and any MCP client</li>
       </ul>
     </section>
 
@@ -45,17 +52,25 @@
       <h2>Features</h2>
       <div class="features-grid">
         <div class="card">
-          <h3 class="card-title">Keyboard-driven</h3>
+          <h3 class="card-title">Storage</h3>
           <p class="card-description">
-            hjkl navigation, vim-style <code>/</code> search, jump motions with <code>gg</code>/<code>G</code>, half-page scroll with <code>{</code>/<code>}</code>, context-aware shortcuts, and 100-level undo/redo.
+            Atomic writes, live file watching, conflict detection when multiple instances write concurrently. No cloud, no account.
           </p>
+          <h4 class="card-subheading">Formats</h4>
+          <ul class="card-list">
+            <li><strong>JSON</strong></li>
+            <li><strong>SQLite</strong></li>
+          </ul>
         </div>
 
         <div class="card">
-          <h3 class="card-title">Three interfaces</h3>
-          <p class="card-description">
-            <strong>TUI</strong> for interactive work. <strong>CLI</strong> for scripting — all operations, JSON output, pagination. <strong>MCP server</strong> with 40 tools for LLM integration with Claude Code and Cursor.
-          </p>
+          <h3 class="card-title">Four interfaces</h3>
+          <ul class="card-list">
+            <li><strong>TUI</strong> — ergonomic, hjkl and vim motion</li>
+            <li><strong>CLI</strong> — composable: every operation, JSON out, real exit codes</li>
+            <li><strong>MCP</strong> — agent-ready for Claude Code, Cursor, and any MCP client</li>
+            <li><strong>REST API</strong> — remote access and programmatic integrations</li>
+          </ul>
         </div>
 
         <div class="card">
@@ -80,9 +95,9 @@
         </div>
 
         <div class="card">
-          <h3 class="card-title">Local-first storage</h3>
+          <h3 class="card-title">Keyboard-driven</h3>
           <p class="card-description">
-            JSON (default) or SQLite — switch by file extension. Atomic writes, live file watching, conflict detection when multiple instances write concurrently. No cloud, no account.
+            hjkl navigation, vim-style <code>/</code> search, jump motions with <code>gg</code>/<code>G</code>, half-page scroll with <code>{</code>/<code>}</code>, context-aware shortcuts, and 100-level undo/redo.
           </p>
         </div>
       </div>
@@ -90,10 +105,9 @@
 
     <!-- Installation Section -->
     <section class="installation">
-      <h2>Getting Started</h2>
+      <h2>Installation</h2>
       <div class="install-methods">
         <div class="install-method">
-          <h3>Installation</h3>
           <pre><code class="code-block nohighlight"><span class="comment"># Cargo</span>
 <span class="prompt">$</span> cargo install kanban-cli
 
@@ -132,6 +146,7 @@
             <li><span class="status-badge completed">[x]</span> Undo/redo support</li>
             <li><span class="status-badge completed">[x]</span> MCP server for LLM integration</li>
             <li><span class="status-badge completed">[x]</span> Multiple storage backends (JSON, SQLite)</li>
+            <li><span class="status-badge completed">[x]</span> HTTP API for remote board access</li>
           </ul>
         </div>
 
@@ -139,7 +154,6 @@
           <h3 class="roadmap-title">Planned</h3>
           <ul class="roadmap-list">
             <li><span class="status-badge planned">[ ]</span> Attachments, adding files to cards</li>
-            <li><span class="status-badge planned">[ ]</span> HTTP API for remote board access</li>
             <li><span class="status-badge planned">[ ]</span> Collaborative features (multi-user, sync)</li>
             <li><span class="status-badge planned">[ ]</span> Web UI to complement TUI and CLI</li>
             <li><span class="status-badge planned">[ ]</span> Configurable keybindings</li>
