@@ -492,6 +492,68 @@ impl App {
                 // lands in one undo unit with the optional auto-complete.
                 let default_card_prefix =
                     self.app_config.effective_default_card_prefix().to_string();
+
+                // KAN-1814: creating a card into an EXISTING column on a REMOTE
+                // (HTTP-shaped) backend. The single-transaction path below is
+                // local-only — `KanbanContext::execute`/`require_local_only`
+                // returns `Unsupported` the moment `remote_writes()` is `Some`
+                // — so route that case through the diverting service method
+                // `create_card_from_spec`, which issues `RemoteWrites::create_card`
+                // over the wire. Auto-complete (folded into one atomic batch by
+                // the local path) becomes a follow-up `update_card_impl` ->
+                // `RemoteWrites::update_card` against the id the create
+                // returned. The server-side create mints its own
+                // `card_number`/`position`, so the TUI passes neither — and
+                // neither may a non-default priority/due-date/points/labels
+                // (the create-card dialog does not expose them on a remote
+                // path yet), or the server would silently keep its defaults.
+                // The create-a-new-default-column case
+                // (`new_column_cmd = Some`) and local backends keep the path
+                // below (see KAN-1815). When the column ALREADY holds cards the
+                // remote create is skipped in favour of the local path's
+                // position (appended past the known cards), which the local
+                // path below still rejects over remote — KAN-1815.
+                if self.ctx.backend().remote_writes().is_some()
+                    && new_column_cmd.is_none()
+                    && position == 0
+                {
+                    let spec = kanban_domain::NewCard {
+                        column_id,
+                        title,
+                        description: None,
+                        priority: kanban_domain::CardPriority::Medium,
+                        due_date: None,
+                        points: None,
+                        sprint_id,
+                        labels: Vec::new(),
+                    };
+                    let (card, inv) = match self.ctx.create_card_from_spec(Some(card_id), spec) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            tracing::error!("Failed to create card: {}", e);
+                            self.set_error(format!("Failed to create card: {}", e));
+                            return;
+                        }
+                    };
+                    if mark_as_complete {
+                        if let Err(e) = self.ctx.update_card_impl(
+                            card.id,
+                            kanban_domain::CardUpdate {
+                                status: Some(CardStatus::Done),
+                                ..Default::default()
+                            },
+                        ) {
+                            tracing::error!("Failed to complete created card: {}", e);
+                            self.set_error(format!("Failed to complete card: {}", e));
+                            return;
+                        }
+                    }
+                    self.resolve_after_command(inv);
+                    self.prepare_frame();
+                    self.select_card_by_id(card_id);
+                    return;
+                }
+
                 let result = self.execute_with_extra(
                     kanban_domain::EntityIds::default().with_prefixes(),
                     |store| {
@@ -1131,6 +1193,265 @@ mod create_card_factory_tests {
         assert_eq!(card.card_number, 1);
         // Factory uses one clock for both timestamps at create.
         assert_eq!(card.created_at, card.updated_at);
+    }
+
+    // --- KAN-1814: create-card over a REMOTE (HTTP-shaped) backend ---------
+
+    use kanban_domain::{
+        Board, BoardUpdate, Card, CardStatus, CardUpdate, Column, ColumnUpdate, Invalidation,
+        KanbanResult, NewBoard, NewCard, NewColumn,
+    };
+    use kanban_service::backend::RemoteWrites;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    /// A `RemoteWrites` impl that records `create_card` calls and returns a valid
+    /// card. Proves the TUI create-card handler diverts to the remote backend
+    /// (KAN-1814) instead of hitting the local-only executor.
+    struct RecordingCreate {
+        create_card_calls: AtomicUsize,
+        update_calls: std::sync::Mutex<Vec<(uuid::Uuid, CardStatus)>>,
+        sprint_calls: std::sync::Mutex<Vec<uuid::Uuid>>,
+    }
+
+    impl RemoteWrites for RecordingCreate {
+        fn create_card(
+            &self,
+            id: Option<uuid::Uuid>,
+            spec: &NewCard,
+        ) -> KanbanResult<(Card, Invalidation)> {
+            self.create_card_calls.fetch_add(1, Ordering::SeqCst);
+            if let Some(sprint) = spec.sprint_id {
+                self.sprint_calls.lock().unwrap().push(sprint);
+            }
+            let mut card = Card::new(uuid::Uuid::new_v4(), spec.column_id, spec.title.clone(), 0);
+            if let Some(cid) = id {
+                card.id = cid;
+            }
+            Ok((card, Invalidation::All))
+        }
+        fn update_card(
+            &self,
+            id: uuid::Uuid,
+            updates: &CardUpdate,
+        ) -> KanbanResult<(Card, Invalidation)> {
+            if let Some(status) = updates.status {
+                self.update_calls.lock().unwrap().push((id, status));
+            }
+            let mut card = Card::new(
+                uuid::Uuid::new_v4(),
+                uuid::Uuid::new_v4(),
+                "done".to_string(),
+                0,
+            );
+            card.id = id;
+            Ok((card, Invalidation::All))
+        }
+        // The create-card handler only ever calls `create_card` (and `update_card`
+        // on auto-complete); the rest are unreachable for this test.
+        fn create_board(
+            &self,
+            _id: Option<uuid::Uuid>,
+            _spec: &NewBoard,
+        ) -> KanbanResult<(Board, Invalidation)> {
+            unimplemented!("not exercised by this test")
+        }
+        fn update_board(
+            &self,
+            _id: uuid::Uuid,
+            _updates: &BoardUpdate,
+        ) -> KanbanResult<(Board, Invalidation)> {
+            unimplemented!("not exercised by this test")
+        }
+        fn delete_board(&self, _id: uuid::Uuid) -> KanbanResult<Invalidation> {
+            unimplemented!("not exercised by this test")
+        }
+        fn create_column(
+            &self,
+            _board_id: uuid::Uuid,
+            _spec: &NewColumn,
+        ) -> KanbanResult<(Column, Invalidation)> {
+            unimplemented!("not exercised by this test")
+        }
+        fn update_column(
+            &self,
+            _id: uuid::Uuid,
+            _updates: &ColumnUpdate,
+        ) -> KanbanResult<(Column, Invalidation)> {
+            unimplemented!("not exercised by this test")
+        }
+        fn delete_column(&self, _id: uuid::Uuid) -> KanbanResult<Invalidation> {
+            unimplemented!("not exercised by this test")
+        }
+        fn delete_card(&self, _id: uuid::Uuid) -> KanbanResult<Invalidation> {
+            unimplemented!("not exercised by this test")
+        }
+    }
+
+    /// KAN-1814: creating a card into an existing column on a remote
+    /// (HTTP-shaped) backend must divert to `RemoteWrites::create_card`. The
+    /// local-only `execute_with_extra` path in the pre-fix handler errors with
+    /// `Unsupported` over remote, so this is red before and green after the TUI
+    /// routes the existing-column case through `create_card_from_spec`.
+    #[test]
+    fn test_tui_create_card_over_http_diverts_to_remote_writes() {
+        let recording = Arc::new(RecordingCreate {
+            create_card_calls: AtomicUsize::new(0),
+            update_calls: std::sync::Mutex::new(Vec::new()),
+            sprint_calls: std::sync::Mutex::new(Vec::new()),
+        });
+        let remote_rw: Arc<dyn RemoteWrites> = recording.clone();
+        let mut app =
+            App::test_with_backend(kanban_service::test_helpers::remote_backend(remote_rw));
+
+        // `remote_backend` wraps an in-memory local store; seed the board +
+        // column there (not via the diverting create_* methods) so the TUI can
+        // select a concrete existing column.
+        let board = Board::new("Board", Some("KAN"));
+        let board_id = board.id;
+        let column = Column::new(board_id, "TODO", 0);
+        app.ctx.data_store().upsert_board(board).unwrap();
+        app.ctx.data_store().upsert_column(column).unwrap();
+        app.selection.active_board_id = Some(board_id);
+        refresh(&mut app);
+
+        app.input.set("Ship it".to_string());
+        app.create_card();
+        app.input.clear();
+
+        assert!(
+            recording.create_card_calls.load(Ordering::SeqCst) >= 1,
+            "create over a remote backend must divert to RemoteWrites::create_card"
+        );
+        // A remote create must not have been written through the LOCAL executor.
+        assert_eq!(
+            app.ctx.data_store().list_all_cards().unwrap().len(),
+            0,
+            "the local store must stay empty when a create diverts to the remote backend"
+        );
+    }
+
+    /// KAN-1814 / auto-complete: creating a card into a COMPLETION column (a column
+    /// whose `default_status` is `Done`) on a remote backend must follow the local
+    /// contract — the create plus a completion update — over the wire: first
+    /// `RemoteWrites::create_card`, then a follow-up `RemoteWrites::update_card`
+    /// with `status = Done` against the id the create returned.
+    #[test]
+    fn test_tui_create_card_completion_column_over_http_updates_status_done() {
+        let recording = Arc::new(RecordingCreate {
+            create_card_calls: AtomicUsize::new(0),
+            update_calls: std::sync::Mutex::new(Vec::new()),
+            sprint_calls: std::sync::Mutex::new(Vec::new()),
+        });
+        let remote_rw: Arc<dyn RemoteWrites> = recording.clone();
+        let mut app =
+            App::test_with_backend(kanban_service::test_helpers::remote_backend(remote_rw));
+
+        let board = Board::new("Board", Some("KAN"));
+        let board_id = board.id;
+        let mut column = Column::new(board_id, "Complete", 0);
+        // A `Done` default status makes this the board's completion column, which
+        // is exactly what flips `should_auto_complete_new_card` on.
+        column.default_status = Some(CardStatus::Done);
+        app.ctx.data_store().upsert_board(board).unwrap();
+        app.ctx.data_store().upsert_column(column).unwrap();
+        app.selection.active_board_id = Some(board_id);
+        refresh(&mut app);
+
+        app.input.set("Ship it".to_string());
+        app.create_card();
+        app.input.clear();
+
+        assert_eq!(
+            recording.create_card_calls.load(Ordering::SeqCst),
+            1,
+            "create over a remote backend diverts to RemoteWrites::create_card"
+        );
+        let updates = recording.update_calls.lock().unwrap();
+        assert_eq!(
+            updates.len(),
+            1,
+            "auto-complete over a remote backend issues one follow-up update_card"
+        );
+        assert_eq!(
+            updates[0].1,
+            CardStatus::Done,
+            "the follow-up update sets status Done"
+        );
+        drop(updates);
+        // The local store must still hold nothing: both calls went over the wire.
+        assert_eq!(app.ctx.data_store().list_all_cards().unwrap().len(), 0);
+    }
+
+    /// KAN-1814 / sprint picker: a sprint selected in the create-card picker
+    /// must travel with the remote create as `NewCard::sprint_id`, not be
+    /// dropped in the divert (which would silently change the card the server
+    /// persists).
+    #[test]
+    fn test_tui_create_card_with_sprint_over_http_carries_sprint_id() {
+        let recording = Arc::new(RecordingCreate {
+            create_card_calls: AtomicUsize::new(0),
+            update_calls: std::sync::Mutex::new(Vec::new()),
+            sprint_calls: std::sync::Mutex::new(Vec::new()),
+        });
+        let remote_rw: Arc<dyn RemoteWrites> = recording.clone();
+        let mut app =
+            App::test_with_backend(kanban_service::test_helpers::remote_backend(remote_rw));
+
+        let board = Board::new("Board", Some("KAN"));
+        let board_id = board.id;
+        let column = Column::new(board_id, "TODO", 0);
+        let sprint = kanban_domain::Sprint {
+            id: uuid::Uuid::new_v4(),
+            board_id,
+            sprint_number: 1,
+            name_index: None,
+            prefix: Some("SPR".to_string()),
+            card_prefix: None,
+            status: kanban_domain::SprintStatus::Active,
+            start_date: Some(chrono::Utc::now() - chrono::Duration::days(1)),
+            end_date: Some(chrono::Utc::now() + chrono::Duration::days(7)),
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+        let sprint_id = sprint.id;
+        app.ctx.data_store().upsert_board(board).unwrap();
+        app.ctx.data_store().upsert_column(column).unwrap();
+        app.ctx.data_store().upsert_sprint(sprint).unwrap();
+        app.selection.active_board_id = Some(board_id);
+        refresh(&mut app);
+
+        // Prime the create-card picker for this board and park on the sprint.
+        let stored_sprint = app.ctx.data_store().list_all_sprints().unwrap();
+        assert_eq!(
+            stored_sprint.len(),
+            1,
+            "exactly one sprint seeded for the picker"
+        );
+        let board_read = app.ctx.data_store().get_board(board_id).unwrap().unwrap();
+        app.dialog_input.create_card_sprint_picker.reset_for_board(
+            &stored_sprint,
+            &board_read,
+            chrono::Utc::now(),
+        );
+        assert_eq!(
+            app.dialog_input
+                .create_card_sprint_picker
+                .selected_sprint_id_for(board_id),
+            Some(sprint_id),
+            "picker is bound to the board and preselects its sole sprint"
+        );
+
+        app.input.set("Ship it".to_string());
+        app.create_card();
+        app.input.clear();
+
+        let sprints = recording.sprint_calls.lock().unwrap();
+        assert_eq!(
+            sprints.as_slice(),
+            [sprint_id],
+            "the remote create carries the picked sprint id"
+        );
     }
 
     /// Two successive TUI creates funnel through the factory + board counter, so
