@@ -20,10 +20,10 @@
 
 ## Why Kanban?
 
-- **Zero latency** — pure keyboard flow — hjkl, never reach for the mouse
+- **Zero latency** — keyboard flow — hjkl, never reach for the mouse
 - **Your data is a file on your disk** — private, offline, always yours
-- **Git-native** — generate branch names and `git checkout` commands from any card
-- **LLM-native** — full MCP server (47 tools) works with Claude Code, Cursor, and any MCP client
+- **Git-native** — generate branch names and `git checkout` commands
+- **LLM-native** — full MCP server works with Claude Code, Cursor, and any MCP client
 - **Offline-priority** — works always, anywhere
 
 ---
@@ -33,7 +33,7 @@
 ### TUI
 
 ```bash
-kanban                  # launch in-memory; pick or skip a file from the startup dialog
+kanban                  # launch in-memory
 kanban boards.json      # open or create a JSON board file
 kanban boards.sqlite    # open or create a SQLite board file
 ```
