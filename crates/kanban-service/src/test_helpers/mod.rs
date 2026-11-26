@@ -1,8 +1,10 @@
 pub mod contract;
 pub mod fault;
 pub mod helpers;
+pub mod remote;
 
 pub use fault::{faultable, FaultHandles, FaultInjectingBackend, ReadOp, FAULTABLE_READS};
+pub use remote::remote_backend;
 
 pub type BackendFactory =
     Box<dyn Fn(&std::path::Path) -> std::sync::Arc<dyn crate::KanbanBackend> + Send + Sync>;
