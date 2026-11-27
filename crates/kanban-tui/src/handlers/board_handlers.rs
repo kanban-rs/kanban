@@ -3,7 +3,9 @@ use crossterm::event::KeyCode;
 use kanban_domain::commands::{
     BoardCommand, ColumnCommand, Command, CreateBoard, CreateColumn, UpdateBoard,
 };
-use kanban_domain::{BoardUpdate, KanbanOperations, LoadState, TaskListView};
+use kanban_domain::{
+    BoardUpdate, KanbanOperations, KanbanResult, LoadState, MutationOperations, TaskListView,
+};
 
 /// Entity counts owned by a board, shown in the delete-confirmation dialog.
 /// Snapshotted once when the dialog opens so the modal never re-scans the
@@ -513,6 +515,31 @@ impl App {
     pub fn create_board(&mut self) {
         let board_name = self.input.as_str().to_string();
 
+        if self.ctx.backend().remote_writes().is_some() {
+            // Remote backend: the single local batch used below is a local-only
+            // command-log primitive, so divert to the existing, remote-safe
+            // per-entity creation path (one `create_board`, then one
+            // `create_column` per default template column, each already remote-
+            // capable). Undo across these is N+1 separate steps (vs. the single
+            // local batch entry) — an accepted, documented tradeoff for the
+            // remote path, since a cross-entity remote "create board + its
+            // columns" atomicity guarantee does not exist in the wire protocol
+            // yet.
+            match self.create_board_over_remote(&board_name) {
+                Ok(board_id) => {
+                    tracing::info!("Created board: {} (id: {})", board_name, board_id);
+                    self.board_list.select_board(board_id);
+                    self.switch_view_strategy(TaskListView::default());
+                }
+                Err(e) => {
+                    tracing::error!("Failed to create board: {}", e);
+                    self.set_error(format!("Failed to create board: {}", e));
+                    return;
+                }
+            }
+            return;
+        }
+
         let board_id = uuid::Uuid::new_v4();
         let position = self.model.live_boards_state().loaded().map_or(0, Vec::len) as i32;
 
@@ -557,6 +584,40 @@ impl App {
         self.prepare_frame();
         self.board_list.select_board(board_id);
         self.switch_view_strategy(TaskListView::default());
+    }
+
+    /// Create a board (plus its default template columns) over a remote
+    /// backend, one step at a time — `create_board`, then one
+    /// `create_column` per default template column — each already remote-
+    /// safe on its own (unlike the single local batch below, which is a
+    /// local-only command-log primitive).
+    fn create_board_over_remote(&mut self, name: &str) -> KanbanResult<uuid::Uuid> {
+        use kanban_domain::{NewBoard, NewColumn};
+        let board_id = uuid::Uuid::new_v4();
+        let spec = NewBoard {
+            name: name.to_string(),
+            description: None,
+            sprint_prefix: None,
+            card_prefix: None,
+            task_sort_field: None,
+            task_sort_order: None,
+            sprint_duration_days: None,
+            task_list_view: None,
+        };
+        let (board, _inv) = self.ctx.create_board_from_spec(Some(board_id), spec)?;
+        for (column_name, default_status) in kanban_domain::DEFAULT_TEMPLATE_COLUMNS {
+            let column_id = uuid::Uuid::new_v4();
+            let column_spec = NewColumn {
+                board_id: board.id,
+                name: column_name.to_string(),
+                wip_limit: None,
+                default_status,
+            };
+            let (_column, _column_inv) = self
+                .ctx
+                .create_column_from_spec(Some(column_id), column_spec)?;
+        }
+        Ok(board.id)
     }
 
     pub fn rename_board(&mut self) {

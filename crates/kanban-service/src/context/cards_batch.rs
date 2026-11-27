@@ -165,8 +165,17 @@ impl KanbanContext {
         )
     }
 
+    /// Archive a set of cards. Local: the archive plus a `CompactColumnPositions`
+    /// repack of every affected column as a single batch — one undo entry,
+    /// matching the behavior applications (e.g. the TUI) previously had to
+    /// hand-roll by composing the archive command with per-column compact
+    /// commands themselves. The compact step is local-store bookkeeping only:
+    /// it has no semantic effect beyond making the remaining cards' `position`
+    /// values contiguous, and there is deliberately no `RemoteWrites` equivalent
+    /// for it (a remote backend computes its own next position robustly to gaps,
+    /// so it never needs the repack to function). Remote: one `archive_cards`
+    /// batch-wire call.
     pub fn archive_cards_impl(&mut self, ids: Vec<Uuid>) -> KanbanResult<(usize, Invalidation)> {
-        use kanban_domain::commands::ArchiveCards;
         if let Some(rw) = self.backend.remote_batch_writes() {
             let (outcome, invalidation) = rw.archive_cards(&ids)?;
             return Ok((super::remote_batch_count(outcome)?, invalidation));
@@ -174,12 +183,83 @@ impl KanbanContext {
         if self.backend.remote_writes().is_some() {
             return Err(KanbanError::unsupported("archive_cards"));
         }
+        use kanban_domain::commands::{ArchiveCards, CompactColumnPositions};
         let before = self.backend.list_archived_cards()?.len();
-        let invalidation =
-            self.execute(vec![Command::Card(CardCommand::Archive(ArchiveCards {
-                ids,
-            }))])?;
+        let command = Command::Card(CardCommand::Archive(ArchiveCards { ids: ids.clone() }));
+        // Only compact columns that actually LOSE a live card from this
+        // operation. `get_card` is deliberately unfiltered (archived cards stay
+        // in the `cards` table behind a marker and are reachable by id), so we
+        // can't tell live from archived on the returned `Card` itself — the
+        // live/archived distinction is a list-level marker, not a field on
+        // `Card`. Check membership in the current archived-marker set instead:
+        // an id that's already there is a no-op for this call's purposes and
+        // must not trigger a compaction of its column (spurious repacking of
+        // unrelated live cards in that column).
+        let already_archived_ids: std::collections::HashSet<_> = self
+            .backend
+            .list_archived_cards()?
+            .into_iter()
+            .map(|a| a.entity_id)
+            .collect();
+        let affected_column_ids: Vec<Uuid> = ids
+            .iter()
+            .filter(|id| !already_archived_ids.contains(*id))
+            .filter_map(|id| self.backend.get_card(*id).ok().flatten())
+            .map(|card| card.column_id)
+            .collect();
+        let affected_column_ids: std::collections::BTreeSet<_> =
+            affected_column_ids.into_iter().collect();
+        let mut batch = vec![command];
+        for column_id in affected_column_ids {
+            batch.push(Command::Card(CardCommand::CompactPositions(
+                CompactColumnPositions { column_id },
+            )));
+        }
+        let invalidation = self.execute(batch)?;
         let count = self.backend.list_archived_cards()?.len() - before;
+        Ok((count, invalidation))
+    }
+
+    /// Permanently delete a set of cards. Local: one undo entry.
+    /// Remote: a sequence of per-card `delete_card` wire calls — there is no
+    /// batched wire form for this (the `RemoteWrites` trait exposes only the
+    /// single-card `delete_card`, deliberately), so partial failure is possible;
+    /// same caveat as every other multi-step remote write in this crate.
+    pub fn delete_cards_impl(&mut self, ids: Vec<Uuid>) -> KanbanResult<(usize, Invalidation)> {
+        use kanban_domain::card_lifecycle::dedup_preserving_order;
+        if let Some(rw) = self.backend.remote_writes() {
+            let mut invalidation: Option<kanban_domain::EntityIds> = Some(Default::default());
+            let mut deleted = 0usize;
+            for id in &ids {
+                match rw.delete_card(*id) {
+                    Ok(Invalidation::All) => invalidation = None,
+                    Ok(Invalidation::Entities(ids_)) => {
+                        if let Some(acc) = &mut invalidation {
+                            acc.merge(ids_);
+                        }
+                    }
+                    Err(e) => return Err(e),
+                };
+                deleted += 1;
+            }
+            return Ok((
+                deleted,
+                invalidation
+                    .map(Invalidation::Entities)
+                    .unwrap_or(Invalidation::All),
+            ));
+        }
+        let ids = dedup_preserving_order(&ids);
+        let count = ids.len();
+        let batch: Vec<Command> = ids
+            .into_iter()
+            .map(|id| {
+                Command::Card(CardCommand::Delete(kanban_domain::commands::DeleteCard {
+                    card_id: id,
+                }))
+            })
+            .collect();
+        let invalidation = self.execute(batch)?;
         Ok((count, invalidation))
     }
 

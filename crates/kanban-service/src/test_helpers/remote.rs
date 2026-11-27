@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{KanbanBackend, RemoteWrites};
+use crate::{KanbanBackend, RemoteBatchWrites, RemoteWrites};
 
 /// Build an in-memory-backed [`KanbanBackend`] whose writes divert to `rw`.
 ///
@@ -14,4 +14,17 @@ use crate::{KanbanBackend, RemoteWrites};
 /// `KanbanContext::open`/`open_deferred`, which both take `Arc<dyn KanbanBackend>`.
 pub fn remote_backend(rw: Arc<dyn RemoteWrites>) -> Arc<dyn KanbanBackend> {
     Arc::new(crate::backend_test_support::MockBackend::with_remote_writes(rw))
+}
+
+/// Like [`remote_backend`], but for operations that route through the
+/// dedicated batch-write surface (`KanbanBackend::remote_batch_writes()`, e.g.
+/// `archive_cards`/`move_cards`/`update_cards`/`assign_cards_to_sprint`) rather
+/// than the single-entity `RemoteWrites` surface: same in-memory-backed shape,
+/// but wired to the *batch* dispatch slot `with_remote_writes` alone doesn't
+/// reach.
+pub fn remote_batch_backend(
+    rw: Arc<dyn RemoteWrites>,
+    batch: Arc<dyn RemoteBatchWrites>,
+) -> Arc<dyn KanbanBackend> {
+    Arc::new(crate::backend_test_support::MockBackend::with_remote_batch_writes(rw, batch))
 }

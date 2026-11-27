@@ -176,6 +176,73 @@ impl KanbanContext {
         };
         self.update_column_impl(id, updates)
     }
+
+    /// Swap two columns' `position` values (each column takes on the other's
+    /// caller-supplied current position, `first_position`/`second_position`).
+    /// Local: both updates run as one batch — one undo entry — the same
+    /// composition the TUI used to hand-roll with
+    /// `execute_commands_batch(vec![cmd1, cmd2])`. Remote: two `update_column`
+    /// wire calls, in argument order; not atomic, the usual multi-step remote
+    /// caveat applies.
+    pub fn swap_column_positions_impl(
+        &mut self,
+        first: Uuid,
+        second: Uuid,
+        first_position: i32,
+        second_position: i32,
+    ) -> KanbanResult<(Column, Column, Invalidation)> {
+        if let Some(rw) = self.backend.remote_writes() {
+            let first_updates = ColumnUpdate {
+                position: Some(second_position),
+                ..Default::default()
+            };
+            let second_updates = ColumnUpdate {
+                position: Some(first_position),
+                ..Default::default()
+            };
+            let (first_after, inv1) = rw.update_column(first, &first_updates)?;
+            let (second_after, inv2) = rw.update_column(second, &second_updates)?;
+            let invalidation = merge_invalidation(inv1, inv2);
+            return Ok((first_after, second_after, invalidation));
+        }
+        let cmd1 = Command::Column(ColumnCommand::Update(
+            kanban_domain::commands::UpdateColumn {
+                column_id: first,
+                updates: ColumnUpdate {
+                    position: Some(second_position),
+                    ..Default::default()
+                },
+            },
+        ));
+        let cmd2 = Command::Column(ColumnCommand::Update(
+            kanban_domain::commands::UpdateColumn {
+                column_id: second,
+                updates: ColumnUpdate {
+                    position: Some(first_position),
+                    ..Default::default()
+                },
+            },
+        ));
+        let invalidation = self.execute(vec![cmd1, cmd2])?;
+        let first_after = self
+            .get_column_impl(first)?
+            .ok_or_else(|| KanbanError::not_found("Column", first))?;
+        let second_after = self
+            .get_column_impl(second)?
+            .ok_or_else(|| KanbanError::not_found("Column", second))?;
+        Ok((first_after, second_after, invalidation))
+    }
+}
+
+fn merge_invalidation(a: Invalidation, b: Invalidation) -> Invalidation {
+    match (a, b) {
+        (Invalidation::Entities(x), Invalidation::Entities(y)) => {
+            let mut merged = x;
+            merged.merge(y);
+            Invalidation::Entities(merged)
+        }
+        _ => Invalidation::All,
+    }
 }
 
 /// Map a `NewColumn` create-spec onto a full-replace `ColumnUpdate` (the PUT
