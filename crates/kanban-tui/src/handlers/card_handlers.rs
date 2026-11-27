@@ -493,20 +493,21 @@ impl App {
                 let default_card_prefix =
                     self.app_config.effective_default_card_prefix().to_string();
 
-                // KAN-1814: creating a card into an EXISTING (empty) column on a
-                // REMOTE (HTTP-shaped) backend. The single-transaction path below
-                // is local-only — `KanbanContext::execute`/`require_local_only`
+                // KAN-1814: creating a card into an EXISTING column on a REMOTE
+                // (HTTP-shaped) backend. The single-transaction path below is
+                // local-only — `KanbanContext::execute`/`require_local_only`
                 // returns `Unsupported` the moment `remote_writes()` is `Some`
                 // — so route that case through the diverting service method
-                // instead. The create-a-new-default-column case
-                // (`new_column_cmd = Some`) and local backends keep the path below
-                // (see KAN-1815); so does a column that already holds cards
-                // (`position != 0`) — the remote path currently covers the fresh,
-                // empty-column case only.
-                if self.ctx.backend().remote_writes().is_some()
-                    && new_column_cmd.is_none()
-                    && position == 0
-                {
+                // instead. The local path's `position` (the column's local card
+                // count) is deliberately not sent over the wire: `NewCard` has no
+                // position field, and the server recomputes it itself, appending
+                // past everything already in the column — so whether or not the
+                // column already holds cards makes no difference to this path.
+                // Only the create-a-new-default-column case
+                // (`new_column_cmd = Some`) keeps the path below — it is a
+                // two-step sequenced operation (create column, then card) the
+                // single `create_card` wire call cannot express.
+                if self.ctx.backend().remote_writes().is_some() && new_column_cmd.is_none() {
                     self.create_card_over_remote(
                         column_id,
                         title,
@@ -1345,6 +1346,65 @@ mod create_card_factory_tests {
             app.ctx.data_store().list_all_cards().unwrap().len(),
             0,
             "the local store must stay empty when a create diverts to the remote backend"
+        );
+    }
+
+    /// KAN-1814 / non-empty column: a column that ALREADY holds cards in the TUI's
+    /// local view is the common real-world case. The divert must not depend on
+    /// that local snapshot being empty — the server recomputes `position`
+    /// itself (the wire `NewCard` has no `position` field at all), so the
+    /// pre-fix `&& position == 0` gate in the TUI was a client-side-only
+    /// limitation, not a backend capability gap.
+    #[test]
+    fn test_tui_create_card_over_http_into_a_column_that_already_has_cards() {
+        let recording = Arc::new(RecordingCreate {
+            create_card_calls: AtomicUsize::new(0),
+            update_calls: std::sync::Mutex::new(Vec::new()),
+            sprint_calls: std::sync::Mutex::new(Vec::new()),
+        });
+        let remote_rw: Arc<dyn RemoteWrites> = recording.clone();
+        let mut app =
+            App::test_with_backend(kanban_service::test_helpers::remote_backend(remote_rw));
+
+        let board = Board::new("Board", Some("KAN"));
+        let board_id = board.id;
+        let column = Column::new(board_id, "TODO", 0);
+        let column_id = column.id;
+        // A pre-existing card: makes the TUI's *local* view of this column
+        // non-empty, so `next_position_in_column` (the local path's `position`)
+        // is `1`, not `0` — exactly the case the pre-fix gate refused to divert.
+        let existing = Card::new(board_id, column_id, "Already here".to_string(), 0);
+        app.ctx.data_store().upsert_board(board).unwrap();
+        app.ctx.data_store().upsert_column(column).unwrap();
+        app.ctx.data_store().upsert_card(existing.clone()).unwrap();
+        app.selection.active_board_id = Some(board_id);
+        refresh(&mut app);
+
+        let cards = app
+            .model
+            .column_cards_state(column_id)
+            .loaded()
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(
+            kanban_domain::card_lifecycle::next_position_in_column(&cards, column_id),
+            1,
+            "precondition: TUI's local view sees one existing card, so local `position` is 1"
+        );
+
+        app.input.set("Ship it".to_string());
+        app.create_card();
+        app.input.clear();
+
+        assert_eq!(
+            recording.create_card_calls.load(Ordering::SeqCst),
+            1,
+            "creating into a column that already has cards must still divert to the remote create"
+        );
+        assert_eq!(
+            app.ctx.data_store().list_all_cards().unwrap().len(),
+            1,
+            "only the pre-seeded card may remain locally; the new card went over the wire"
         );
     }
 
