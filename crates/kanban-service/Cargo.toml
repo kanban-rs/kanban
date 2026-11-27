@@ -11,7 +11,7 @@ description = "Shared service layer implementing KanbanOperations over a pluggab
 [features]
 default = ["sqlite"]
 sqlite = ["dep:kanban-persistence-sqlite"]
-test-helpers = ["kanban-persistence/test-helpers"]
+test-helpers = ["dep:kanban-backend-memory", "kanban-persistence/test-helpers"]
 # Derive `schemars::JsonSchema` on the wire request DTOs so MCP tool handlers
 # can use them directly as `Parameters<T>` (rmcp requires a JSON Schema). Kept
 # optional so non-MCP consumers don't pull schemars.
@@ -23,6 +23,10 @@ kanban-domain = { path = "../kanban-domain", version = "^0.13" }
 kanban-persistence = { path = "../kanban-persistence", version = "^0.13" }
 kanban-api = { path = "../kanban-api", version = "^0.13" }
 kanban-backend = { path = "../kanban-backend", version = "^0.13" }
+# Optional so it only lands in builds that opt into `test-helpers` (or this
+# crate's own tests). `test_helpers::remote_backend` wraps an in-memory store
+# to give dependent crates' tests a remote-backed context.
+kanban-backend-memory = { path = "../kanban-backend-memory", version = "^0.13", optional = true }
 kanban-persistence-sqlite = { path = "../kanban-persistence-sqlite", version = "^0.13", optional = true }
 async-trait.workspace = true
 tokio.workspace = true

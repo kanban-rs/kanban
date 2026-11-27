@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use kanban_backend::{
     KanbanBackend, RemoteBatchWrites, RemoteBoardWrites, RemoteCardWrites, RemoteGraphWrites,
     RemoteSprintWrites, RemoteWrites, TransactionFn,

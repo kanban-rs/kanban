@@ -1,5 +1,5 @@
 use super::{animation, App};
-use kanban_domain::{AnimationType, LoadState};
+use kanban_domain::{AnimationType, KanbanOperations};
 use std::time::Instant;
 
 impl App {
@@ -16,7 +16,6 @@ impl App {
 
         // Group animations by type for batch processing
         let mut archive_cards = Vec::new();
-        let mut affected_columns: Vec<uuid::Uuid> = Vec::new();
         let mut restore_cards = Vec::new();
         let mut delete_cards = Vec::new();
 
@@ -27,11 +26,14 @@ impl App {
                     if self.model.archived_card_ids().contains(&card_id) {
                         continue;
                     }
-                    if let LoadState::Loaded(card) = self.model.card_by_id_state(card_id) {
-                        let column_id = card.column_id;
-                        if !affected_columns.contains(&column_id) {
-                            affected_columns.push(column_id);
-                        }
+                    // Skip silently (no banner) when the card's live record isn't
+                    // loaded: we can't verify its column membership, and the
+                    // service layer's own archive path recomputes every
+                    // affected column internally, so there's no reason to
+                    // force-load it here just to derive a list the service will
+                    // re-derive. This is also the pre-existing "degrade
+                    // silently" contract the not-loaded-tier tests pin.
+                    if self.model.card_by_id_state(card_id).is_loaded() {
                         archive_cards.push(card_id);
                     }
                 }
@@ -47,28 +49,18 @@ impl App {
         let had_archives = !archive_cards.is_empty();
         let had_deletes = !delete_cards.is_empty();
 
-        // Execute archive + per-column compact as a single undo batch so that
-        // one user-perceived "delete" maps to one `u` press to undo. Kept as
-        // its own `execute_commands_batch` call, separate from the delete
-        // batch below, so archiving and permanently deleting stay two
-        // distinct undo entries even when both complete in the same tick.
+        // Archive (+ the position repack) and permanent delete now both go
+        // through the service layer's intent methods, which already do the
+        // right thing per backend: locally they fold the repack into one undo
+        // entry (preserving the single-`u`-press-undoes-everything behavior this
+        // call site was hand-rolling), and over a remote backend they issue the
+        // proper archive/delete wire calls with no local-only repack step.
+        // Kept as two separate `ctx.*` calls so archiving and permanently
+        // deleting stay two distinct undo entries even when both complete in
+        // the same tick.
         let archived_ok = if had_archives {
-            let mut commands = vec![kanban_domain::commands::Command::Card(
-                kanban_domain::commands::CardCommand::Archive(
-                    kanban_domain::commands::ArchiveCards { ids: archive_cards },
-                ),
-            )];
-            for column_id in &affected_columns {
-                commands.push(kanban_domain::commands::Command::Card(
-                    kanban_domain::commands::CardCommand::CompactPositions(
-                        kanban_domain::commands::CompactColumnPositions {
-                            column_id: *column_id,
-                        },
-                    ),
-                ));
-            }
-
-            match self.execute_commands_batch(commands) {
+            let archive_cards = archive_cards;
+            match self.ctx.archive_cards(archive_cards) {
                 Err(e) => {
                     tracing::error!("Failed to archive cards: {}", e);
                     self.set_error(format!("Failed to archive cards: {}", e));
@@ -80,18 +72,9 @@ impl App {
             false
         };
 
-        // Execute batch delete commands
         let deleted_ok = if had_deletes {
-            let mut delete_commands: Vec<kanban_domain::commands::Command> = Vec::new();
-            for card_id in delete_cards {
-                let cmd = kanban_domain::commands::Command::Card(
-                    kanban_domain::commands::CardCommand::Delete(
-                        kanban_domain::commands::DeleteCard { card_id },
-                    ),
-                );
-                delete_commands.push(cmd);
-            }
-            match self.execute_commands_batch(delete_commands) {
+            let delete_cards = delete_cards;
+            match self.ctx.delete_cards(delete_cards) {
                 Err(e) => {
                     tracing::error!("Failed to delete cards: {}", e);
                     self.set_error(format!("Failed to delete cards: {}", e));

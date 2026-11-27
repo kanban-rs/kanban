@@ -192,6 +192,22 @@ impl KanbanOperations for KanbanContext {
     fn reorder_column(&mut self, id: Uuid, new_position: i32) -> KanbanResult<Column> {
         Ok(KanbanContext::reorder_column_impl(self, id, new_position)?.0)
     }
+    fn swap_column_positions(
+        &mut self,
+        first: Uuid,
+        second: Uuid,
+        first_position: i32,
+        second_position: i32,
+    ) -> KanbanResult<(Column, Column)> {
+        let (first_col, second_col, _inv) = KanbanContext::swap_column_positions_impl(
+            self,
+            first,
+            second,
+            first_position,
+            second_position,
+        )?;
+        Ok((first_col, second_col))
+    }
 
     fn create_card(
         &mut self,
@@ -263,6 +279,9 @@ impl KanbanOperations for KanbanContext {
 
     fn archive_cards(&mut self, ids: Vec<Uuid>) -> KanbanResult<usize> {
         Ok(KanbanContext::archive_cards_impl(self, ids)?.0)
+    }
+    fn delete_cards(&mut self, ids: Vec<Uuid>) -> KanbanResult<usize> {
+        Ok(KanbanContext::delete_cards_impl(self, ids)?.0)
     }
     fn move_cards(&mut self, ids: Vec<Uuid>, column_id: Uuid) -> KanbanResult<usize> {
         Ok(KanbanContext::move_cards_impl(self, ids, column_id)?.0)

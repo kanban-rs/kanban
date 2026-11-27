@@ -46,6 +46,17 @@ impl App {
 
     #[doc(hidden)]
     pub fn test_default() -> Self {
+        Self::test_with_backend(std::sync::Arc::new(
+            kanban_backend_memory::InMemoryStore::new(),
+        ))
+    }
+
+    /// Build a test [`App`] over the given backend instead of an in-memory
+    /// store. Pair with `kanban_service::test_helpers::remote_backend(...)` to
+    /// exercise handler paths against a remote (HTTP-shaped) backend without a
+    /// real server.
+    #[doc(hidden)]
+    pub fn test_with_backend(backend: std::sync::Arc<dyn kanban_service::KanbanBackend>) -> Self {
         // Leaving configuration_location unset here would make
         // effective_configuration_location fall back to the real
         // $HOME/.config/kanban/config.toml (or KANBAN_CONFIG), which lets a
@@ -55,7 +66,6 @@ impl App {
             configuration_location: Some(Self::test_default_configuration_location()),
             ..Default::default()
         };
-        let backend = std::sync::Arc::new(kanban_backend_memory::InMemoryStore::new());
         let inner = kanban_service::KanbanContext::open_deferred(backend, app_config.clone());
         let (ctx, _save_rx, save_completion_rx) =
             crate::tui_context::TuiContext::new(inner).expect("TuiContext::new failed");

@@ -12,7 +12,10 @@
 
 pub use kanban_api as api;
 pub use kanban_backend as backend;
-#[cfg(test)]
+// Compiled for this crate's own tests and for any consumer that opts into
+// `test-helpers` (e.g. `kanban-tui`), which reuses `MockBackend` to build a
+// remote-backed context. See `test_helpers::remote_backend`.
+#[cfg(any(test, feature = "test-helpers"))]
 mod backend_test_support;
 mod cascade;
 pub mod config;

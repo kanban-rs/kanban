@@ -46,6 +46,40 @@ pub trait KanbanOperations {
     fn update_column(&mut self, id: Uuid, updates: ColumnUpdate) -> KanbanResult<Column>;
     fn delete_column(&mut self, id: Uuid) -> KanbanResult<()>;
     fn reorder_column(&mut self, id: Uuid, new_position: i32) -> KanbanResult<Column>;
+    /// Swap two columns' positions in one logical step (their two position
+    /// values exchange). `first_position`/`second_position` are the two
+    /// columns' *current* positions, supplied by the caller — the only side
+    /// that authoritatively knows them: a local store can be read, but a
+    /// remote backend's position is server state the client has no direct
+    /// handle to, so it must come from the caller's already-loaded view rather
+    /// than the service fetching local state (which would be the wrong data
+    /// source over a remote backend). Local: both updates run as one batch —
+    /// one undo entry. Remote: two `update_column` wire calls, in argument
+    /// order (`first`, then `second`); not atomic, the usual multi-step remote
+    /// caveat applies.
+    fn swap_column_positions(
+        &mut self,
+        first: Uuid,
+        second: Uuid,
+        first_position: i32,
+        second_position: i32,
+    ) -> KanbanResult<(Column, Column)> {
+        let second_after = self.update_column(
+            second,
+            ColumnUpdate {
+                position: Some(first_position),
+                ..Default::default()
+            },
+        )?;
+        let first_after = self.update_column(
+            first,
+            ColumnUpdate {
+                position: Some(second_position),
+                ..Default::default()
+            },
+        )?;
+        Ok((first_after, second_after))
+    }
 
     // Card operations
     fn create_card(
@@ -94,7 +128,25 @@ pub trait KanbanOperations {
     fn get_card_git_checkout(&self, id: Uuid) -> KanbanResult<String>;
 
     // Multi-card operations
+    /// Archive a set of cards together as one undo unit (local) / one
+    /// `RemoteBatchOutcome` (remote). On the local path this also repacks each
+    /// affected column's position values to be contiguous (a local-store
+    /// optimization — see `KanbanContext::archive_cards`'s
+    /// `CompactColumnPositions` companion step); that housekeeping never
+    /// crosses the wire and has no remote equivalent.
     fn archive_cards(&mut self, ids: Vec<Uuid>) -> KanbanResult<usize>;
+    /// Permanently delete a set of cards. Local: one undo unit. Remote: a
+    /// sequence of per-card `delete_card` wire calls (there is no batched wire
+    /// form for this today, and partial failure is possible — same caveat as
+    /// every other multi-step remote write this crate exposes).
+    fn delete_cards(&mut self, ids: Vec<Uuid>) -> KanbanResult<usize> {
+        let mut deleted = 0;
+        for id in &ids {
+            self.delete_card(*id)?;
+            deleted += 1;
+        }
+        Ok(deleted)
+    }
     fn move_cards(&mut self, ids: Vec<Uuid>, column_id: Uuid) -> KanbanResult<usize>;
     /// Apply per-card updates as a single undo unit. For each entry, the service
     /// layer auto-syncs the status ↔ completion-column invariant:
