@@ -493,64 +493,27 @@ impl App {
                 let default_card_prefix =
                     self.app_config.effective_default_card_prefix().to_string();
 
-                // KAN-1814: creating a card into an EXISTING column on a REMOTE
-                // (HTTP-shaped) backend. The single-transaction path below is
-                // local-only — `KanbanContext::execute`/`require_local_only`
+                // KAN-1814: creating a card into an EXISTING (empty) column on a
+                // REMOTE (HTTP-shaped) backend. The single-transaction path below
+                // is local-only — `KanbanContext::execute`/`require_local_only`
                 // returns `Unsupported` the moment `remote_writes()` is `Some`
                 // — so route that case through the diverting service method
-                // `create_card_from_spec`, which issues `RemoteWrites::create_card`
-                // over the wire. Auto-complete (folded into one atomic batch by
-                // the local path) becomes a follow-up `update_card_impl` ->
-                // `RemoteWrites::update_card` against the id the create
-                // returned. The server-side create mints its own
-                // `card_number`/`position`, so the TUI passes neither — and
-                // neither may a non-default priority/due-date/points/labels
-                // (the create-card dialog does not expose them on a remote
-                // path yet), or the server would silently keep its defaults.
-                // The create-a-new-default-column case
-                // (`new_column_cmd = Some`) and local backends keep the path
-                // below (see KAN-1815). When the column ALREADY holds cards the
-                // remote create is skipped in favour of the local path's
-                // position (appended past the known cards), which the local
-                // path below still rejects over remote — KAN-1815.
+                // instead. The create-a-new-default-column case
+                // (`new_column_cmd = Some`) and local backends keep the path below
+                // (see KAN-1815); so does a column that already holds cards
+                // (`position != 0`) — the remote path currently covers the fresh,
+                // empty-column case only.
                 if self.ctx.backend().remote_writes().is_some()
                     && new_column_cmd.is_none()
                     && position == 0
                 {
-                    let spec = kanban_domain::NewCard {
+                    self.create_card_over_remote(
                         column_id,
                         title,
-                        description: None,
-                        priority: kanban_domain::CardPriority::Medium,
-                        due_date: None,
-                        points: None,
                         sprint_id,
-                        labels: Vec::new(),
-                    };
-                    let (card, inv) = match self.ctx.create_card_from_spec(Some(card_id), spec) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            tracing::error!("Failed to create card: {}", e);
-                            self.set_error(format!("Failed to create card: {}", e));
-                            return;
-                        }
-                    };
-                    if mark_as_complete {
-                        if let Err(e) = self.ctx.update_card_impl(
-                            card.id,
-                            kanban_domain::CardUpdate {
-                                status: Some(CardStatus::Done),
-                                ..Default::default()
-                            },
-                        ) {
-                            tracing::error!("Failed to complete created card: {}", e);
-                            self.set_error(format!("Failed to complete card: {}", e));
-                            return;
-                        }
-                    }
-                    self.resolve_after_command(inv);
-                    self.prepare_frame();
-                    self.select_card_by_id(card_id);
+                        card_id,
+                        mark_as_complete,
+                    );
                     return;
                 }
 
@@ -615,6 +578,60 @@ impl App {
                 self.select_card_by_id(card_id);
             }
         }
+    }
+
+    /// KAN-1814: create a card over a REMOTE (HTTP-shaped) backend by diverting
+    /// to the service layer's `create_card_from_spec` (→ `RemoteWrites::create_card`)
+    /// instead of the local-only `execute_with_extra` batch. The server-side
+    /// create mints its own `card_number`/`position`, so the spec carries
+    /// neither — and neither may a non-default priority/due-date/points/labels
+    /// (the create-card dialog does not expose them on a remote path yet), or
+    /// the server would silently keep its defaults. Auto-complete (folded into
+    /// one atomic batch by the local path) becomes a follow-up
+    /// `update_card_impl` → `RemoteWrites::update_card` with `status = Done`
+    /// against the id the create returned.
+    fn create_card_over_remote(
+        &mut self,
+        column_id: uuid::Uuid,
+        title: String,
+        sprint_id: Option<uuid::Uuid>,
+        card_id: uuid::Uuid,
+        mark_as_complete: bool,
+    ) {
+        let spec = kanban_domain::NewCard {
+            column_id,
+            title,
+            description: None,
+            priority: kanban_domain::CardPriority::Medium,
+            due_date: None,
+            points: None,
+            sprint_id,
+            labels: Vec::new(),
+        };
+        let (card, inv) = match self.ctx.create_card_from_spec(Some(card_id), spec) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!("Failed to create card: {}", e);
+                self.set_error(format!("Failed to create card: {}", e));
+                return;
+            }
+        };
+        if mark_as_complete {
+            if let Err(e) = self.ctx.update_card_impl(
+                card.id,
+                kanban_domain::CardUpdate {
+                    status: Some(CardStatus::Done),
+                    ..Default::default()
+                },
+            ) {
+                tracing::error!("Failed to complete created card: {}", e);
+                self.set_error(format!("Failed to complete card: {}", e));
+                return;
+            }
+        }
+        self.resolve_after_command(inv);
+        self.prepare_frame();
+        self.select_card_by_id(card_id);
     }
 
     pub fn handle_move_card_left(&mut self) {
